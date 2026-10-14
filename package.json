@@ -1,0 +1,22 @@
+{
+  "name": "lamplight",
+  "version": "0.5.1",
+  "private": true,
+  "type": "module",
+  "description": "Lamplight: a survivors-like for Windows PC.",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "build": "npm test && vite build --mode web",
+    "build:desktop": "vite build --mode desktop",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "pixi.js": "^8.21.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1",
+    "wrangler": "^4.142.0"
+  }
+}

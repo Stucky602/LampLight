@@ -1,0 +1,12 @@
+{
+  "name": "lamplight-tools",
+  "private": true,
+  "type": "module",
+  "description": "Workspace-only tools (screenshots, atlas builder, bots, soak, packaging). Cloudflare never installs these.",
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "maxrects-packer": "^2.7.3",
+    "playwright-core": "^1.56.0",
+    "pngjs": "^7.0.0"
+  }
+}
