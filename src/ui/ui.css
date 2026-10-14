@@ -1,0 +1,396 @@
+/* Lamplight UI. The font is Jersey 10 (SIL Open Font License, fonts/OFL.txt).
+    Rules (Kevin's): dark panels, 1px borders, square corners, colors only from
+   the game palette (src/data/palette.js; tests/art.test.js checks this file against it), one
+   bundled pixel font, plain labels. No cream or paper backgrounds, no serif type, no small
+   caps, no pill buttons, no gradient buttons.
+
+   Sizes are in game pixels: --u is one pixel of the 640 x 360 view in CSS pixels (3 at 1080p),
+   set by ui/screens.js, so menus scale with the game. */
+
+@font-face {
+  font-family: 'Jersey 10';
+  src: url('./fonts/jersey-10-400.woff2') format('woff2');
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  --night-0: #07080d;
+  --night-1: #0d1018;
+  --night-2: #141925;
+  --night-3: #1c2331;
+  --night-4: #262f42;
+  --fog-1: #4a5670;
+  --fog-2: #6b7892;
+  --fog-3: #95a3b9;
+  --fog-4: #bcc6d4;
+  --fog-5: #e2e8ef;
+  --lamp-3: #da8229;
+  --lamp-4: #f3b049;
+  --lamp-5: #ffd98a;
+  --lamp-6: #fff4d2;
+  --sea-5: #58b8a8;
+  --rot-2: #a8322a;
+  --rot-3: #dc5638;
+  --rot-4: #f08a5d;
+  --gem-3: #6fe0ff;
+  --moss-3: #6c8f3c;
+  --violet-3: #7d5bb0;
+  --violet-4: #b79be0;
+  --u: 3px;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--night-0);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+#game { position: fixed; inset: 0; }
+#game canvas { display: block; image-rendering: pixelated; }
+
+#ui { position: fixed; inset: 0; pointer-events: none; }
+#ui > * { pointer-events: auto; }
+#ui > .ui-view { pointer-events: none; }
+
+.debug-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  white-space: pre;
+  font: 12px/1.35 ui-monospace, Consolas, "Cascadia Mono", monospace;
+  color: var(--fog-4);
+  background: rgba(7, 8, 13, 0.78);
+  border: 1px solid var(--night-4);
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.boot-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 16px/1.5 ui-monospace, Consolas, monospace;
+  color: var(--fog-4);
+  text-align: center;
+  padding: 24px;
+  white-space: pre-line;
+}
+.boot-message.error { color: var(--rot-3); }
+
+.update-marker {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 6px 10px;
+  font: 20px/1.2 'Jersey 10', ui-monospace, Consolas, monospace;
+  color: var(--lamp-6);
+  background: rgba(7, 8, 13, 0.85);
+  border: 1px solid var(--lamp-4);
+  border-radius: 0;
+  white-space: pre-line;
+  /* Clear of the harbor's Next up panel in the bottom left (it reaches 138 game px in from the
+     view's left edge; 156 kept clear) at every window size: --u and --view-left come from the
+     menu layer's root. tests/hubscene.test.js holds the two to each other. */
+  max-width: min(560px, calc(100vw - 32px), calc(100vw - 30px - var(--view-left, 0px) - var(--u) * 156));
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* ------------------------------------------------------------ the menu layer */
+
+.ui-view {
+  position: absolute;
+  overflow: hidden;
+  font-family: 'Jersey 10', ui-monospace, Consolas, monospace;
+  font-size: calc(var(--u) * 9);
+  line-height: 1.15;
+  color: var(--fog-4);
+}
+.ui-view * { box-sizing: border-box; border-radius: 0; }
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 8, 13, 0.72);
+  pointer-events: auto;
+}
+.screen.under { visibility: hidden; }
+
+.panel {
+  background: var(--night-1);
+  border: var(--u) solid var(--night-4);
+  box-shadow: 0 0 0 var(--u) var(--night-0);
+  padding: calc(var(--u) * 10) calc(var(--u) * 12);
+  max-width: calc(var(--u) * 600);
+  max-height: calc(var(--u) * 340);
+  overflow: auto;
+}
+
+h1 {
+  margin: 0 0 calc(var(--u) * 8);
+  font-size: calc(var(--u) * 18);
+  font-weight: 400;
+  color: var(--lamp-5);
+  text-align: center;
+  letter-spacing: 0;
+}
+h2 {
+  margin: calc(var(--u) * 6) 0 calc(var(--u) * 3);
+  font-size: calc(var(--u) * 9);
+  font-weight: 400;
+  color: var(--fog-3);
+}
+p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
+
+.menu-col { display: flex; flex-direction: column; align-items: stretch; gap: calc(var(--u) * 3); margin-top: calc(var(--u) * 6); min-width: calc(var(--u) * 140); }
+
+.btn {
+  font: inherit;
+  color: var(--fog-4);
+  background: var(--night-2);
+  border: var(--u) solid var(--fog-1);
+  padding: calc(var(--u) * 3) calc(var(--u) * 8);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.btn.small { font-size: calc(var(--u) * 8); padding: calc(var(--u) * 2) calc(var(--u) * 5); }
+.btn.wide { text-align: center; }
+.btn.quiet { color: var(--fog-2); }
+.btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+/* Something that can't be done yet: dimmed, but it still takes focus, and pressing it says why. */
+.btn.off { color: var(--fog-2); border-color: var(--night-4); }
+
+.focused, .btn.focused, .card.focused, .set-row.focused {
+  outline: calc(var(--u) * 2) solid var(--lamp-5);
+  outline-offset: 0;
+  border-color: var(--lamp-5);
+  color: var(--lamp-6);
+  background: var(--night-3);
+}
+
+.glyph {
+  display: inline-block;
+  min-width: calc(var(--u) * 8);
+  padding: 0 calc(var(--u) * 1);
+  border: var(--u) solid var(--fog-2);
+  color: var(--fog-5);
+  text-align: center;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.hint { margin-top: calc(var(--u) * 6); font-size: calc(var(--u) * 8); color: var(--fog-2); text-align: center; white-space: pre; }
+
+/* ------------------------------------------------------------ cards */
+
+.cards { display: flex; gap: calc(var(--u) * 6); justify-content: center; align-items: stretch; }
+.card {
+  width: calc(var(--u) * 132);
+  background: var(--night-2);
+  border: var(--u) solid var(--night-4);
+  padding: calc(var(--u) * 6);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 4);
+}
+.card-head { display: flex; gap: calc(var(--u) * 5); align-items: center; }
+.card-title { font-weight: 400; color: var(--fog-5); }
+.card.focused .card-title { color: var(--lamp-6); }
+.card-sub { font-size: calc(var(--u) * 8); color: var(--lamp-4); }
+.card-desc { color: var(--fog-4); }
+.card-desc.center { text-align: center; margin: 0 auto calc(var(--u) * 6); }
+.card-note { font-size: calc(var(--u) * 8); color: var(--sea-5); }
+.card-art { display: flex; justify-content: center; padding: calc(var(--u) * 4) 0; }
+.kind-relic .card-sub, .kind-rune .card-sub { color: var(--violet-4); }
+.kind-evolution .card-sub { color: var(--lamp-5); }
+
+.tags { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); }
+.tag { font-size: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2); border: var(--u) solid var(--fog-2); color: var(--fog-3); }
+.tag-fire { border-color: var(--lamp-3); color: var(--lamp-4); }
+.tag-light { border-color: var(--lamp-5); color: var(--lamp-5); }
+.tag-tide { border-color: var(--sea-5); color: var(--sea-5); }
+.tag-steel { border-color: var(--fog-3); color: var(--fog-4); }
+.tag-echo { border-color: var(--violet-3); color: var(--violet-4); }
+.tag-frost { border-color: var(--gem-3); color: var(--gem-3); }
+
+.icon { display: inline-block; image-rendering: pixelated; background-repeat: no-repeat; flex: none; }
+.icon-blank { display: inline-block; width: calc(var(--u) * 36); height: calc(var(--u) * 36); border: var(--u) solid var(--fog-1); }
+.icon-blank.big { width: calc(var(--u) * 54); height: calc(var(--u) * 54); }
+
+/* ------------------------------------------------------------ level-up */
+
+.levelup-screen .panel { border-color: var(--lamp-3); }
+.draft-cards .card { min-height: calc(var(--u) * 120); }
+.action-row { display: flex; justify-content: center; gap: calc(var(--u) * 6); margin-top: calc(var(--u) * 8); }
+.skip .hold-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--night-4); z-index: -1; }
+.skip { z-index: 0; }
+.banish-banner { text-align: center; color: var(--rot-4); margin-bottom: calc(var(--u) * 6); }
+.banishing .draft-card.focused { outline-color: var(--rot-3); border-color: var(--rot-3); }
+.banishing .draft-card.kind-heal, .banishing .draft-card.kind-coin { opacity: 0.4; }
+
+/* ------------------------------------------------------------ chest reel */
+
+.chest-screen .panel { border-color: var(--lamp-4); }
+.chest-screen.boss .panel { border-color: var(--lamp-5); box-shadow: 0 0 0 var(--u) var(--lamp-3); }
+.reels { display: flex; gap: calc(var(--u) * 8); justify-content: center; }
+.reel-col { display: flex; flex-direction: column; align-items: center; width: calc(var(--u) * 70); gap: calc(var(--u) * 4); text-align: center; }
+.reel {
+  width: calc(var(--u) * 44); height: calc(var(--u) * 44);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--night-0);
+  border: var(--u) solid var(--fog-1);
+}
+.reel.landed { border-color: var(--lamp-5); background: var(--night-3); }
+.reel.landed.kind-evolution, .reel.landed.kind-relic { border-color: var(--violet-4); }
+.reel-label { min-height: calc(var(--u) * 20); }
+.reel-desc { font-size: calc(var(--u) * 8); }
+.build-detail { margin-top: calc(var(--u) * 6); min-height: calc(var(--u) * 30); max-width: calc(var(--u) * 170); }
+.icon-cell { cursor: pointer; border: var(--u) solid transparent; }
+
+/* ------------------------------------------------------------ pause, end, settings */
+
+.pause-grid, .end-grid { display: flex; gap: calc(var(--u) * 14); align-items: flex-start; }
+.build-col { min-width: calc(var(--u) * 150); }
+.icon-row { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); }
+.icon-cell { position: relative; }
+.icon-cell .lv { position: absolute; right: calc(var(--u) * -1); bottom: calc(var(--u) * -2); font-size: calc(var(--u) * 8); color: var(--fog-5); text-shadow: 0 0 calc(var(--u) * 1) var(--night-0); }
+.icon-cell .lv.max { color: var(--lamp-5); }
+.stats { display: grid; grid-template-columns: auto auto; gap: calc(var(--u) * 2) calc(var(--u) * 10); margin: 0; }
+.stats dt { color: var(--fog-2); }
+.stats dd { margin: 0; color: var(--fog-5); text-align: right; }
+.mat-list { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 2) calc(var(--u) * 8); }
+.mat { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+
+.settings-list { display: flex; flex-direction: column; gap: calc(var(--u) * 2); min-width: calc(var(--u) * 280); }
+.set-row { display: flex; align-items: center; gap: calc(var(--u) * 6); padding: calc(var(--u) * 2) calc(var(--u) * 5); border: var(--u) solid transparent; cursor: pointer; }
+.set-label { flex: 1; }
+.set-value { color: var(--fog-5); display: flex; align-items: center; gap: calc(var(--u) * 3); white-space: pre; }
+.set-why { font-size: calc(var(--u) * 7); color: var(--fog-2); }
+.set-row[aria-disabled="true"] .set-value { color: var(--fog-2); }
+.slider { display: inline-block; width: calc(var(--u) * 40); height: calc(var(--u) * 3); background: var(--night-0); border: var(--u) solid var(--fog-1); }
+.slider-fill { display: block; height: 100%; background: var(--lamp-4); }
+
+/* ------------------------------------------------------------ title */
+
+.title-screen { flex-direction: column; background: rgba(7, 8, 13, 0.45); gap: calc(var(--u) * 10); }
+.title-block { text-align: center; }
+.game-title { font-size: calc(var(--u) * 40); font-weight: 400; color: var(--lamp-5); text-shadow: calc(var(--u) * 1) calc(var(--u) * 1) 0 var(--night-0); }
+.build { font-size: calc(var(--u) * 8); color: var(--fog-2); }
+.title-note { font-size: calc(var(--u) * 8); color: var(--fog-3); max-width: calc(var(--u) * 300); text-align: center; }
+
+.error-screen .panel { border-color: var(--rot-3); }
+.error-text { font: calc(var(--u) * 8) / 1.2 'Jersey 10', ui-monospace, Consolas, monospace; color: var(--rot-4); white-space: pre-wrap; max-height: calc(var(--u) * 80); overflow: auto; background: var(--night-0); padding: calc(var(--u) * 4); border: var(--u) solid var(--night-4); }
+
+/* ------------------------------------------------------------ the tuning panel (dev) */
+
+.tuning-screen { justify-content: flex-end; align-items: stretch; background: transparent; }
+.tuning-screen .panel { max-height: none; height: 100%; width: calc(var(--u) * 250); padding: calc(var(--u) * 6); font-size: calc(var(--u) * 7); }
+.tuning-screen h1 { font-size: calc(var(--u) * 9); margin-bottom: calc(var(--u) * 4); }
+.tuning-screen .settings-list { min-width: 0; }
+.tuning-screen .set-row { padding: calc(var(--u) * 1) calc(var(--u) * 3); }
+.tuning-screen .changed .set-label { color: var(--lamp-5); }
+.tuning-group { color: var(--fog-2); margin-top: calc(var(--u) * 4); font-weight: 400; }
+.tuning-note { font-size: calc(var(--u) * 7); color: var(--sea-5); min-height: calc(var(--u) * 7); }
+
+/* ------------------------------------------------------------ the harbor (Phase 5) */
+
+/* What sits over the harbor while you walk it: never takes input, stays under every screen. */
+.hub-hud { position: absolute; inset: 0; pointer-events: none; font-size: calc(var(--u) * 8); }
+.hub-hud.quiet .hud-mats, .hub-hud.quiet .hud-next { visibility: hidden; }
+.hud-mats {
+  position: absolute; left: calc(var(--u) * 6); top: calc(var(--u) * 6);
+  display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2) calc(var(--u) * 7); max-width: calc(var(--u) * 260);
+  padding: calc(var(--u) * 3) calc(var(--u) * 5);
+  background: rgba(7, 8, 13, 0.72); border: var(--u) solid var(--night-4);
+}
+.hud-mats, .hud-next { transition: opacity 0.2s; }
+.hud-mats.under, .hud-next.under { opacity: 0.25; }
+.hud-mat { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); color: var(--fog-5); }
+.hud-mat.none { color: var(--fog-1); }
+.hud-mat.none .icon { opacity: 0.35; }
+.hud-next {
+  position: absolute; left: calc(var(--u) * 6); bottom: calc(var(--u) * 6); width: calc(var(--u) * 132);
+  padding: calc(var(--u) * 3) calc(var(--u) * 5);
+  background: rgba(7, 8, 13, 0.72); border: var(--u) solid var(--night-4);
+  display: flex; flex-direction: column; gap: calc(var(--u) * 3);
+}
+.hud-next-title { color: var(--fog-3); }
+.hud-next-name { color: var(--fog-5); }
+.hud-next-need { color: var(--fog-2); font-size: calc(var(--u) * 7); }
+.hud-next-ready { color: var(--lamp-5); font-size: calc(var(--u) * 7); }
+.meter { display: block; height: calc(var(--u) * 3); background: var(--night-0); border: var(--u) solid var(--fog-1); margin: calc(var(--u) * 1) 0; }
+.meter-fill { display: block; height: 100%; background: var(--lamp-4); }
+.hud-prompt, .hud-bubble {
+  position: absolute; transform: translate(-50%, -100%);
+  padding: calc(var(--u) * 1) calc(var(--u) * 4);
+  background: rgba(7, 8, 13, 0.85); border: var(--u) solid var(--fog-1);
+  color: var(--fog-5); white-space: nowrap;
+}
+.hud-bubble { white-space: normal; width: max-content; max-width: calc(var(--u) * 170); border-color: var(--lamp-3); display: flex; flex-direction: column; }
+.bubble-name { color: var(--lamp-5); font-size: calc(var(--u) * 7); }
+.bubble-text { color: var(--fog-5); }
+.hud-banner {
+  position: absolute; left: 50%; top: calc(var(--u) * 26); transform: translateX(-50%);
+  padding: calc(var(--u) * 4) calc(var(--u) * 10);
+  background: rgba(7, 8, 13, 0.85); border: var(--u) solid var(--lamp-3);
+  text-align: center; max-width: calc(var(--u) * 320);
+}
+.banner-title { color: var(--lamp-5); font-size: calc(var(--u) * 12); }
+.banner-line { color: var(--fog-4); }
+/* Bottom left: the page's status notice (update ready, a failed save) sits bottom right. */
+.hud-skip { position: absolute; left: calc(var(--u) * 8); bottom: calc(var(--u) * 8); color: var(--fog-3); }
+
+/* A building's panel. */
+.building-screen .panel { width: calc(var(--u) * 470); padding: calc(var(--u) * 8) calc(var(--u) * 10); }
+.bld-head { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: calc(var(--u) * 8); }
+.bld-head h1 { text-align: left; margin: 0; }
+.bld-level { color: var(--lamp-4); }
+.bld-desc { grid-column: 1 / -1; color: var(--fog-3); margin: calc(var(--u) * 2) 0 calc(var(--u) * 6); max-width: none; }
+.bld-body { display: flex; gap: calc(var(--u) * 10); align-items: flex-start; }
+.bld-col { display: flex; flex-direction: column; gap: calc(var(--u) * 4); }
+.bld-next { width: calc(var(--u) * 170); flex: none; }
+.bld-list { flex: 1; min-width: 0; }
+.bld-list .list { max-height: calc(var(--u) * 200); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: var(--u); }
+.bld-note { min-height: calc(var(--u) * 9); margin-top: calc(var(--u) * 4); color: var(--sea-5); }
+.effects { margin: 0; padding-left: calc(var(--u) * 8); display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+.effects li { color: var(--fog-4); }
+.cost { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2) calc(var(--u) * 6); }
+.cost-item { display: inline-flex; align-items: center; gap: calc(var(--u) * 1); color: var(--fog-5); }
+.cost-item.short { color: var(--rot-4); }
+.why { color: var(--fog-2); font-size: calc(var(--u) * 7); }
+.list-row { padding: calc(var(--u) * 2) calc(var(--u) * 4); border: var(--u) solid var(--night-4); background: var(--night-2); cursor: pointer; display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+.list-row.static { cursor: default; }
+.list-row.off .row-name { color: var(--fog-2); }
+.row-top { display: flex; justify-content: space-between; gap: calc(var(--u) * 6); }
+.row-name { color: var(--fog-5); }
+.row-rank { color: var(--lamp-4); font-size: calc(var(--u) * 7); }
+.row-desc { color: var(--fog-3); font-size: calc(var(--u) * 7); }
+.row-adds { color: var(--violet-4); font-size: calc(var(--u) * 7); }
+.row-done { color: var(--moss-3); font-size: calc(var(--u) * 7); }
+.row-active { color: var(--sea-5); font-size: calc(var(--u) * 7); }
+.row-ready { color: var(--lamp-5); font-size: calc(var(--u) * 7); }
+
+/* The gate, the results, the harbor's menu. */
+.gate-screen .panel { border-color: var(--lamp-3); }
+.results-screen .panel { width: calc(var(--u) * 430); border-color: var(--lamp-3); }
+.results-body { display: flex; gap: calc(var(--u) * 12); align-items: flex-start; }
+.results-col { flex: 1; min-width: 0; }
+.news-research_done, .news-record { color: var(--lamp-5); }
+.news-note { color: var(--fog-2); }
+.next-block { margin-top: calc(var(--u) * 6); display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--u) * 6); }
+.next-block h2 { grid-column: 1 / -1; margin: 0; }
