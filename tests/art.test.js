@@ -13,7 +13,7 @@ import { decodePng } from '../tools/atlas/png.mjs';
 import { atlasSourceHash, atlasInputs } from '../tools/atlas/sources.mjs';
 import { iconKeysFor, ELITE_SCALE, composeRig, PLAYER_SIZE } from '../tools/atlas/atlas.mjs';
 import { BUILDINGS_LAYOUT, TOWN_COLORS, SPRITES } from '../art/manifest.js';
-import { openings, librarySign, tavernSign, wallLantern, flowerBox } from '../art/draw/hub.js';
+import { openings, librarySign, tavernSign, docksSign, smithySign, chapelSign, marketSign, apothecarySign, cartographerSign, wallLantern, flowerBox } from '../art/draw/hub.js';
 import { luminance as relLum, contrastRatio, oklab, hexRgb } from '../tools/atlas/color.mjs';
 import { checkAtlasJson, animFrameIds, DRAWN_IN_CODE } from '../src/render/atlasdata.js';
 import { FX_COLOR, LOOK, LOOK_COLOR, GROUND_FRAMES } from '../src/render/viewstate.js';
@@ -372,8 +372,8 @@ test('art: each building stage shows what it says on the committed atlas, a visi
     }
     return true;
   };
-  const SIGN = { library: librarySign(), tavern: tavernSign() };
-  for (const b of ['library', 'tavern']) {
+  const SIGN = { library: librarySign(), tavern: tavernSign(), docks: docksSign(), smithy: smithySign(), chapel: chapelSign(), market: marketSign(), apothecary: apothecarySign(), cartographer: cartographerSign() };
+  for (const b of Object.keys(SIGN)) {
     const layout = BUILDINGS_LAYOUT[b];
     const { windows, doors } = openings(layout);
     const [ruin, roof, lit, keeper, alive] = ['ruin', 'roof', 'lit', 'keeper', 'alive'].map((s) => frame(`bld_${b}_${s}`));
@@ -387,7 +387,9 @@ test('art: each building stage shows what it says on the committed atlas, a visi
     }
     assert.ok(dark > ruin.w * 32 * 0.5 && changed > ruin.w * 32 * 0.6, `${b}: the ruin is roofless and dark inside (${dark} dark, ${changed} changed)`);
     // Boarded windows are dark with a plank across; lit ones glow on the glass, brightest at the top.
-    assert.ok(windows.length >= 2, `${b} has windows`);
+    // (The MVP's three show 2 or more; a Phase 7 workshop may have the one, beside its wide door.)
+    const mvp = DATA.meta.mvpBuildings.includes(b);
+    assert.ok(windows.length >= (mvp ? 2 : 1), `${b} has windows`);
     for (const [tx, ty] of windows) {
       for (const px of [5, 6, 9, 10]) for (let py = 5; py <= 10; py++) {
         const x = tx * 16 + px, y = ty * 16 + py;
@@ -399,14 +401,14 @@ test('art: each building stage shows what it says on the committed atlas, a visi
     }
     // The keeper's stage hangs the sign over the door and the lantern beside it; the last one adds
     // a window box under every upper window.
-    const [dx, dy] = doors[0];
+    const [dx, dy] = doors[0] ?? [Math.floor(layout[0].length / 2), layout.length - 1];   // (the Smithy's wide doorway: its middle)
     const sign = SIGN[b], lantern = wallLantern(), box = flowerBox();
     const signAt = [dx * 16 + Math.floor((16 - sign.w) / 2), dy * 16 - sign.h + 1], lanternAt = [dx * 16 + 12, dy * 16 + 1];
     assert.ok(stamped(keeper, sign, ...signAt) && stamped(alive, sign, ...signAt), `${b}: the sign over the door`);
     assert.ok(stamped(keeper, lantern, ...lanternAt) && stamped(alive, lantern, ...lanternAt), `${b}: the door lantern`);
     assert.ok(!stamped(lit, sign, ...signAt) && !stamped(lit, lantern, ...lanternAt), `${b}: neither before the keeper`);
     const upper = windows.filter(([, ty]) => ty < dy);
-    assert.ok(upper.length >= 2, `${b} has upper windows`);
+    assert.ok(upper.length >= (mvp ? 2 : 1), `${b} has upper windows`);
     for (const [tx, ty] of upper) {
       assert.ok(stamped(alive, box, tx * 16 + 2, ty * 16 + 11), `${b}: a window box under ${tx}, ${ty}`);
       assert.ok(!stamped(keeper, box, tx * 16 + 2, ty * 16 + 11), `${b}: not before the last level`);

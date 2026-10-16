@@ -12,7 +12,7 @@ import { runeValidOn, runeFits } from '../src/sim/weapons.js';
 import { makeWorld, give, spawnAt, run } from './helpers/simworld.js';
 import { HUB_TERRAIN } from '../src/data/hub.js';
 import { MAX_BUILDING_LEVEL } from '../src/data/buildings.js';
-import { parseUnlock, npcLine, hubPeople } from '../src/meta/state.js';
+import { parseUnlock, npcLine, hubPeople, contentFrom } from '../src/meta/state.js';
 import { defaultProfile } from '../src/save/schema.js';
 import { buildHubMap, clearTiles, solidTiles, reachableFrom, segmentOpen, arrivalPath } from '../src/hub/map.js';
 import { createHubTuning, checkHubTune, hubTuneRange } from '../src/hub/tuning.js';
@@ -20,6 +20,11 @@ import { HUB_TUNING_RANGE } from '../src/data/tuning.js';
 import { lookColor } from '../src/render/hubtiles.js';
 import { BUILDINGS_LAYOUT } from '../art/manifest.js';
 import { openings } from '../art/draw/hub.js';
+import { RUNE_STONE_COST, REROLL_COST, GEAR_SLOTS, TIER_MUL, RULE_SLOTS } from '../src/data/gear.js';
+import { TASK } from '../src/sim/constants.js';
+import { GROUND } from '../src/sim/terrain.js';
+import { featMet } from '../src/meta/feats.js';
+import { createWorld } from '../src/sim/world.js';
 
 const ID_RE = /^[a-z][a-z0-9_]*$/;
 const ids = (list) => new Set(list.map((x) => x.id));
@@ -28,12 +33,14 @@ const EN = ids(DATA.enemies), MAT = ids(DATA.materials), BOSS = ids(DATA.bosses)
 
 test('content: ids are unique, permanent-looking (snake_case), and every entry has a name and plain description', () => {
   for (const [kind, list] of Object.entries(DATA)) {
-    if (!Array.isArray(list) || kind === 'ascensions') continue; // ascensions: their own test (lines of options)
+    // ascensions: their own test (lines of options); tides go by level, not id (data/tide.js).
+    if (!Array.isArray(list) || kind === 'ascensions' || kind === 'tides') continue;
     const seen = new Set();
     for (const x of list) {
       assert.ok(ID_RE.test(x.id), `${kind}: bad id "${x.id}"`);
       assert.ok(!seen.has(x.id), `${kind}: duplicate id "${x.id}"`);
       seen.add(x.id);
+      if (kind === 'recipes' || kind === 'affixes') { assert.equal(typeof x.name, 'string', `${kind} ${x.id}: name`); continue; }
       if (kind !== 'bosses') {
         assert.equal(typeof x.name, 'string', `${kind} ${x.id}: name`);
         assert.ok(typeof x.desc === 'string' && x.desc.length > 3 && x.desc.length < 140, `${kind} ${x.id}: desc`);
@@ -104,9 +111,16 @@ test('content: passives, runes, relics, characters, enemies, bosses, and maps ar
     for (const k of HOOKS[hook].needs || []) assert.ok(Number.isFinite(params?.[k]), `${who}: hook ${hook} needs a number for "${k}"`);
   };
   for (const r of DATA.relics) {
-    assert.ok(HOOKS[r.hook], `relic ${r.id}: hook ${r.hook} exists`);
-    paramsOk(`relic ${r.id}`, r.hook, r.params);
+    // A hook, stat modifiers, or both; a tier (Trinket, Charm, Relic).
+    assert.ok(r.hook || (r.mods && r.mods.length), `relic ${r.id}: does something`);
+    assert.ok([1, 2, 3].includes(r.tier), `relic ${r.id}: tier 1, 2, or 3`);
+    if (r.hook) { assert.ok(HOOKS[r.hook], `relic ${r.id}: hook ${r.hook} exists`); paramsOk(`relic ${r.id}`, r.hook, r.params); }
     for (const m of r.mods || []) assert.equal(checkModifier(m), null);
+  }
+  for (const a of DATA.arcana) {
+    assert.ok(HOOKS[a.hook], `arcana ${a.id}: hook ${a.hook} exists`);
+    paramsOk(`arcana ${a.id}`, a.hook, a.params);
+    for (const m of a.mods || []) assert.equal(checkModifier(m), null);
   }
   for (const c of DATA.characters) {
     if (c.start) assert.ok(W.has(c.start), `character ${c.id}: start ${c.start}`);
@@ -301,19 +315,24 @@ function checkCost(where, cost) {
   }
 }
 
+const GROWING = ['tree', 'researchTier', 'researchSlots', 'lampSpeed', 'ferry', 'gearSlots', 'gearTier', 'tideMax', 'curses', 'market', 'glassToCoin', 'consumableSlots'];
+const FLAGS = ['feats', 'mastery', 'reroll', 'runeCrafting', 'bellRing', 'tasksOnMap', 'bestiary', 'challenges', 'shortRuns', 'secretsOnMap'];
+
 test('content: buildings have five levels, real costs, and effects that only grow', () => {
   for (const b of DATA.buildings) {
     assert.equal(b.levels.length, MAX_BUILDING_LEVEL, `${b.id}: five levels (brief §6.1)`);
     assert.ok(MAT.has(b.material), `${b.id}: its material ${b.material}`);
     assert.ok(DATA.npcs.some((n) => n.id === b.npc && n.home === b.id), `${b.id}: its keeper ${b.npc} lives there`);
-    const seen = { tree: 0, researchTier: 0, researchSlots: 0 };
+    // Numbers that only grow (data/buildings.js), and flags a level turns on.
+    const seen = Object.fromEntries(GROWING.map((k) => [k, 0]));
     b.levels.forEach((lv, i) => {
       checkCost(`${b.id} level ${i + 1}`, lv.cost);
       assert.ok(lv.cost[b.material] > 0, `${b.id} level ${i + 1} uses its own material, ${b.material}`);
-      for (const k of Object.keys(lv)) assert.ok(['cost', 'tree', 'researchTier', 'researchSlots'].includes(k), `${b.id} level ${i + 1}: unknown effect "${k}"`);
+      for (const k of Object.keys(lv)) assert.ok(k === 'cost' || GROWING.includes(k) || FLAGS.includes(k), `${b.id} level ${i + 1}: unknown effect "${k}"`);
+      for (const k of FLAGS) if (lv[k] !== undefined) assert.ok(Number.isFinite(lv[k]) && lv[k] > 0, `${b.id} level ${i + 1}: ${k}`);
       for (const k of Object.keys(seen)) {
         if (lv[k] === undefined) continue;
-        assert.ok(Number.isInteger(lv[k]) && lv[k] > seen[k], `${b.id} level ${i + 1}: ${k} grows`);
+        assert.ok(Number.isFinite(lv[k]) && lv[k] > seen[k], `${b.id} level ${i + 1}: ${k} grows`);
         seen[k] = lv[k];
       }
       if (i > 0) assert.ok(Object.values(lv.cost).reduce((a, c) => a + c, 0) > Object.values(b.levels[i - 1].cost).reduce((a, c) => a + c, 0), `${b.id} level ${i + 1} costs more than the one before`);
@@ -332,7 +351,7 @@ test('content: research sits in a tier the Library opens, needs only earlier wor
       assert.ok(byId.has(q), `${r.id} requires ${q}`);
       assert.ok(byId.get(q).tier <= r.tier, `${r.id}: requires ${q}, which is not in a later tier`);
     }
-    const adds = [DATA.weapons, DATA.passives, DATA.relics, DATA.runes, DATA.characters].flat().filter((x) => x.unlock === `research:${r.id}`);
+    const adds = [DATA.weapons, DATA.passives, DATA.relics, DATA.runes, DATA.characters, DATA.recipes, DATA.consumables, DATA.arcana].flat().filter((x) => x.unlock === `research:${r.id}`);
     assert.ok(adds.length >= 1, `${r.id} adds something to your runs`);
   }
   // No cycles: every project can be reached by finishing what it needs first.
@@ -455,6 +474,11 @@ test('content: the MVP economy has no dead ends: map 1 pays for everything, and 
     ...DATA.buildings.flatMap((b) => b.levels.map((l, i) => [`${b.id} level ${i + 1}`, l.cost])),
     ...DATA.research.map((r) => [`research ${r.id}`, r.cost]),
     ...DATA.upgrades.map((u) => [`upgrade ${u.id}`, u.cost]),
+    // Phase 7: gear and what it costs to raise and re-roll, rune stones, consumables, perks.
+    ...DATA.recipes.map((r) => [`gear ${r.id}`, r.cost]),
+    ['rune stones', RUNE_STONE_COST], ['re-rolls', REROLL_COST],
+    ...DATA.consumables.map((c) => [`consumable ${c.id}`, c.cost]),
+    ...DATA.perks.map((p) => [`perk ${p.id}`, p.cost]),
   ];
   const used = new Set();
   for (const [where, cost] of costs) for (const id of Object.keys(cost)) {
@@ -494,6 +518,127 @@ test('content: the MVP economy has no dead ends: map 1 pays for everything, and 
   assert.ok(DATA.buildings.find((b) => b.id === 'tavern').levels.some((l) => l.cost.rum > 0), 'and the Tavern would ask for it');
 });
 
+test('content: Phase 7: gear, consumables, Tides, curses, arcana, challenges, feats, mastery, the Market, and the map\'s tasks', () => {
+  const unlockOk = (where, ref) => {
+    const u = parseUnlock(ref);
+    assert.ok(['starter', 'building', 'research', 'feat', 'challenge'].includes(u.kind), `${where}: unlock "${ref}"`);
+    if (u.kind === 'research') assert.ok(RES.has(u.id), `${where}: research ${u.id}`);
+    if (u.kind === 'building') assert.ok(B.has(u.id) && u.level <= MAX_BUILDING_LEVEL, `${where}: building ${u.id}:${u.level}`);
+    if (u.kind === 'feat') assert.ok(DATA.feats.some((f) => f.id === u.id && f.reward?.unlock), `${where}: feat ${u.id} unlocks`);
+    if (u.kind === 'challenge') assert.ok(DATA.challenges.some((c) => c.id === u.id && c.reward?.unlock), `${where}: challenge ${u.id} unlocks`);
+  };
+  // Relics' new unlock kinds too.
+  for (const r of DATA.relics) if (/^(feat|challenge):/.test(r.unlock)) unlockOk(`relic ${r.id}`, r.unlock);
+  // Gear: each affix one of the four kinds, well formed (a stat's or a build's modifier the sim
+  // accepts at every tier, a hook that exists with every param it needs and its grown ones among
+  // them, a rule that says what it changes); each recipe in a slot, its own affix one that changes
+  // the build (brief §6.3: "affixes that change builds, not flat stats"), a pool of real affixes
+  // without its own, and rules only on the small things you carry.
+  const AF = new Map(DATA.affixes.map((a) => [a.id, a]));
+  for (const a of DATA.affixes) {
+    assert.ok(['stat', 'build', 'hook', 'rule'].includes(a.kind), `affix ${a.id}: kind ${a.kind}`);
+    if (a.kind === 'stat' || a.kind === 'build') for (const t of TIER_MUL) assert.equal(checkModifier({ ...a.mod, value: a.value * t }), null, `affix ${a.id} at x${t}`);
+    if (a.kind === 'build') assert.ok(a.mod.tags?.length, `affix ${a.id}: a build affix is a tag's`);
+    if (a.kind === 'hook') {
+      assert.ok(HOOKS[a.hook], `affix ${a.id}: hook ${a.hook}`);
+      for (const k of HOOKS[a.hook].needs || []) assert.ok(Number.isFinite(a.params[k]), `affix ${a.id}: ${k}`);
+      assert.ok((a.grow || []).every((k) => k in a.params), `affix ${a.id}: grows what it has`);
+    }
+    if (a.kind === 'rule') assert.ok(a.config && Object.keys(a.config).length, `affix ${a.id}: a rule says what it changes`);
+  }
+  for (const r of DATA.recipes) {
+    assert.ok(GEAR_SLOTS.includes(r.slot), `gear ${r.id}: slot ${r.slot}`);
+    assert.ok(AF.has(r.base) && AF.get(r.base).kind !== 'stat', `gear ${r.id}: its own affix ${r.base} changes the build`);
+    assert.ok(r.pool.length >= 4 && r.pool.every((id) => AF.has(id)) && !r.pool.includes(r.base), `gear ${r.id}: a pool of real affixes, not its own`);
+    for (const id of [r.base, ...r.pool]) if (AF.get(id).kind === 'rule') assert.ok(RULE_SLOTS.includes(r.slot), `gear ${r.id}: a rule affix only on a ${RULE_SLOTS.join(', ')}`);
+    unlockOk(`gear ${r.id}`, r.unlock);
+  }
+  for (const slot of GEAR_SLOTS) assert.ok(DATA.recipes.some((r) => r.slot === slot), `something to wear in the ${slot} slot`);
+  for (const c of DATA.consumables) {
+    assert.ok((c.mods && c.mods.length) || c.start, `consumable ${c.id}: does something`);
+    for (const m of c.mods || []) assert.equal(checkModifier(m), null, `consumable ${c.id}`);
+    unlockOk(`consumable ${c.id}`, c.unlock);
+  }
+  // Tides: 10, numbered, each harder than the one before and paying more.
+  assert.deepEqual(DATA.tides.map((t) => t.level), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  for (let k = 1; k < DATA.tides.length; k++) for (const key of ['hpMul', 'damageMul', 'densityMul', 'speedMul', 'rewardMul']) assert.ok(DATA.tides[k][key] > DATA.tides[k - 1][key], `Tide ${k + 1}: ${key} grows`);
+  for (const c of DATA.curses) {
+    assert.ok(c.rewardMul > 0 && (c.mods || c.densityMul || c.speedMul || c.noFood), `curse ${c.id}: costs something and pays`);
+    for (const m of c.mods || []) assert.equal(checkModifier(m), null);
+  }
+  assert.ok(DATA.buildings.find((b) => b.id === 'chapel').levels.some((l) => l.curses >= DATA.curses.length - 1), 'the Chapel opens the curses');
+  for (const a of DATA.arcana) unlockOk(`arcana ${a.id}`, a.unlock);
+  for (const c of DATA.challenges) {
+    assert.ok(W.has(DATA.characters.find((x) => x.id === c.character)?.start), `challenge ${c.id}: a character`);
+    assert.ok(c.goal.surviveSec > 0 || DATA.enemies.some((e) => e.id === c.goal.boss), `challenge ${c.id}: a goal`);
+    for (const p of c.pools || []) assert.ok(['weapons', 'passives', 'relics', 'runes'].includes(p));
+    for (const id of c.curses || []) assert.ok(DATA.curses.some((x) => x.id === id));
+    assert.ok(!c.tide || c.tide <= DATA.tides.length);
+    assert.ok(c.reward.unlock || c.reward.materials, `challenge ${c.id}: a reward`);
+    if (c.reward.unlock) assert.ok(contentFrom(DATA, `challenge:${c.id}`).length >= 1, `challenge ${c.id}: opens something`);
+  }
+  // Feats: a visibility, conditions the meta layer can judge (an impossible one would never be
+  // met), and a reward; an unlocking feat opens something.
+  const always = { end: 'cleared', cleared: true, tide: 10, bossesKilled: DATA.enemies.filter((e) => e.boss).map((e) => ({ id: e.id })), lanternNight: true, bellsRung: 99, maxForms: 3, untouchedSec: 9999, timeSurvived: 9999, seaGlassMax: 9999 };
+  for (const f of DATA.feats) {
+    assert.ok(['visible', 'after_found', 'hidden'].includes(f.visibility), `feat ${f.id}: visibility`);
+    assert.ok(Object.keys(f.when || {}).length > 0, `feat ${f.id}: a condition (an empty one is always met)`);
+    assert.ok(!featMet(f.when, { end: 'died', timeSurvived: 0 }, { kills: 0 }), `feat ${f.id}: not met by a run that did nothing`);
+    assert.ok(featMet(f.when, always, { kills: 1e9 }), `feat ${f.id}: can be done`);
+    if (f.visibility === 'after_found') assert.ok(f.found && featMet(f.found, always, { kills: 1e9 }), `feat ${f.id}: can be found`);
+    assert.ok(f.reward.unlock || f.reward.materials, `feat ${f.id}: a reward`);
+    if (f.reward.unlock) assert.ok(contentFrom(DATA, `feat:${f.id}`).length >= 1, `feat ${f.id}: opens something`);
+  }
+  // Mastery: perks at ranks the tuning has, for real characters; kits start with real weapons.
+  const ranks = DATA.tuning.mastery.ranks;
+  for (let k = 1; k < ranks.length; k++) assert.ok(ranks[k] > ranks[k - 1]);
+  for (const p of DATA.perks) {
+    assert.ok(DATA.characters.some((c) => c.id === p.character) && p.rank >= 1 && p.rank <= ranks.length, `perk ${p.id}`);
+    for (const m of p.mods) assert.equal(checkModifier(m), null);
+  }
+  for (const k of DATA.kits) assert.ok(W.has(k.start) && DATA.characters.some((c) => c.id === k.character && c.start !== k.start) && k.rank <= ranks.length, `kit ${k.id}`);
+  // The Market deals in materials map 1 drops.
+  for (const id of [...DATA.market.common, ...DATA.market.rare]) assert.ok(droppable(DATA.maps[0]).has(id), `the Market trades ${id}`);
+  // A map's tasks and skiff: each on open ground you can walk to from the start, at least one of
+  // each kind, none on another's ring; the skiff tied up at the water's edge.
+  for (const m of DATA.maps) {
+    if (!m.tasks) continue;
+    const w = createWorld({ seed: 1, map: m.id, character: DATA.characters[0].id, harbor: { ferry: 1 } }, DATA);
+    const T = w.terrain, reach = new Uint8Array(T.cols * T.rows);
+    const start = [Math.floor(w.player.x / T.tile), Math.floor(w.player.y / T.tile)];
+    const queue = [start];
+    reach[start[1] * T.cols + start[0]] = 1;
+    while (queue.length) {
+      const [x, y] = queue.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (T.blocked(nx, ny) || reach[ny * T.cols + nx]) continue;
+        reach[ny * T.cols + nx] = 1;
+        queue.push([nx, ny]);
+      }
+    }
+    const reachable = (px, py) => reach[Math.floor(py / T.tile) * T.cols + Math.floor(px / T.tile)] === 1;
+    const kinds = new Set(w.tasks.map((t) => t.kind));
+    assert.ok(kinds.has(TASK.LAMP) && kinds.has(TASK.BELL), `${m.id}: lamps and bells`);
+    w.tasks.forEach((t, i) => assert.ok(reachable(t.x, t.y), `${m.id}: task ${i} on ground you can walk to`));
+    for (let i = 0; i < w.tasks.length; i++) for (let j = i + 1; j < w.tasks.length; j++) {
+      const a = w.tasks[i], b = w.tasks[j];
+      assert.ok(Math.hypot(a.x - b.x, a.y - b.y) > 2 * DATA.tuning.tasks.bell.radius * 1.25, `${m.id}: tasks ${i} and ${j} apart`);
+    }
+    if (m.ferry) {
+      const F = w.ferry;
+      assert.ok(reachable(F.x, F.y), `${m.id}: the skiff's landing on ground you can walk to`);
+      assert.ok(T.kinds[Math.floor(F.by / T.tile) * T.cols + Math.floor(F.bx / T.tile)] === GROUND.WATER, `${m.id}: the skiff on the water`);
+      assert.equal(Math.hypot(F.x - F.bx, F.y - F.by), T.tile, `${m.id}: the skiff beside its landing`);
+    }
+  }
+  // A task or a skiff placed off the tile grid is a plain error, not a crash.
+  const off = (mapExtra) => () => createWorld({ seed: 1, map: 'odd', character: DATA.characters[0].id, harbor: { ferry: 1 } }, { ...DATA, maps: [{ ...DATA.maps[0], id: 'odd', ...mapExtra }] });
+  assert.throws(off({ tasks: [{ kind: 'lamp' }] }), /needs `at: \[col, row\]`/);
+  assert.throws(off({ ferry: { at: [1.5, 3] } }), /needs `at: \[col, row\]`/);
+  assert.throws(off({ tasks: [{ kind: 'well', at: [10, 10] }] }), /unknown task "well"/);
+});
+
 test('content: every line a keeper has can be heard, and everyone waiting on the square has one', () => {
   // A keeper is out from their home's level 4 and says the last line in their list whose milestone
   // is reached. Each line needs a state where they're out and it's the one: the least such state
@@ -531,8 +676,8 @@ test('content: evolution and innate unlocks sit only on weapons made that way; e
   for (const b of DATA.buildings) {
     b.levels.forEach((lv, i) => {
       const key = `${b.id}:${i + 1}`;
-      const brings = lv.tree || lv.researchTier || lv.researchSlots
-        || [DATA.weapons, DATA.passives, DATA.relics, DATA.runes, DATA.characters].flat().some((x) => x.unlock === `building:${key}`)
+      const brings = Object.keys(lv).some((k) => k !== 'cost')
+        || [DATA.weapons, DATA.passives, DATA.relics, DATA.runes, DATA.characters, DATA.recipes, DATA.consumables, DATA.arcana].flat().some((x) => x.unlock === `building:${key}`)
         || DATA.hub.fog.some((f) => f.revealedBy === key) || DATA.hub.props.some((p) => p.from === key)
         || DATA.npcs.some((n) => n.home === b.id && (i + 1 === 4 || i + 1 === 5));
       assert.ok(brings, `${key} brings something`);
@@ -593,8 +738,9 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
     return solidTiles(map, clearTiles(map, revealed));
   };
   const open = (solid, [x, y]) => !solid[y * map.cols + x];
-  // From the start: you can reach every door (so every building can be restored), the gate, the
-  // waiting spots, and the pier where arrivals land.
+  // A plot's door can be reached once the fog in front of it clears (its openAt; 'start' from the
+  // beginning), and not before: a ruin in the fog can't be walked up to (meta/actions.js says so).
+  const levelsAt = (key) => (!key || key === 'start' ? {} : { [key.split(':')[0]]: Number(key.split(':')[1]) });
   const start = openFor({});
   assert.ok(open(start, hub.spawn), 'you start on open ground');
   assert.equal(DATA.characters.find((c) => c.id === hub.avatar)?.unlock, 'starter', 'you walk the harbor as a character you have from the start');
@@ -603,7 +749,10 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
   const reach = reachableFrom(map, start, hub.spawn);
   const canReach = ([x, y]) => reach[y * map.cols + x] === 1;
   for (const p of hub.plots) {
-    assert.ok(canReach(p.door), `${p.building}: its door ${p.door} can be reached from the start`);
+    assert.ok(regionOk(p.openAt ?? 'start'), `${p.building}: opens at "${p.openAt}"`);
+    const at = reachableFrom(map, openFor(levelsAt(p.openAt)), hub.spawn);
+    assert.equal(at[p.door[1] * map.cols + p.door[0]], 1, `${p.building}: its door ${p.door} can be reached at ${p.openAt ?? 'start'}`);
+    assert.equal(canReach(p.door), !p.openAt || p.openAt === 'start', `${p.building}: its door is in the fog until ${p.openAt}`);
     const [dx, dy] = p.door;
     if (p.anySide) {
       // Used from any side (the Lamp Post): its prompt's tile touches the plot.
@@ -638,7 +787,8 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
   // level 5, with nothing else restored (their own streets are enough).
   for (const n of DATA.npcs) {
     const k = hub.keepers[n.id];
-    const at4 = openFor({ [n.home]: 4 }), at5 = openFor({ [n.home]: 5 });
+    const plot = hub.plots.find((p) => p.building === n.home), opens = levelsAt(plot.openAt);
+    const at4 = openFor({ ...opens, [n.home]: 4 }), at5 = openFor({ ...opens, [n.home]: 5 });
     assert.ok(open(at4, k.post), `${n.id}: post ${k.post} is open at ${n.home} level 4`);
     assert.deepEqual(k.loop[0], k.post, `${n.id}: the walk starts at the post`);
     for (let i = 0; i < k.loop.length; i++) {
@@ -694,7 +844,14 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
   }
   const crowded = solidTiles(map, clearTiles(map, new Set(['square'])), hub.props);
   const crowdedReach = reachableFrom(map, crowded, hub.spawn);
-  for (const p of hub.plots) assert.equal(crowdedReach[p.door[1] * map.cols + p.door[0]], 1, `${p.building}'s door with every prop out`);
+  for (const p of hub.plots) {
+    if (p.openAt && p.openAt !== 'start') {
+      // In the fog at the start: with every prop out and its own fog gone, it can be reached.
+      const lv = levelsAt(p.openAt), ids = new Set(hub.fog.filter((f) => f.revealedBy === 'start' || (lv[f.revealedBy.split(':')[0]] ?? 0) >= Number(f.revealedBy.split(':')[1])).map((f) => f.id));
+      const r = reachableFrom(map, solidTiles(map, clearTiles(map, ids), hub.props), hub.spawn);
+      assert.equal(r[p.door[1] * map.cols + p.door[0]], 1, `${p.building}'s door with every prop out, at ${p.openAt}`);
+    } else assert.equal(crowdedReach[p.door[1] * map.cols + p.door[0]], 1, `${p.building}'s door with every prop out`);
+  }
   assert.equal(crowdedReach[hub.gate.at[1] * map.cols + hub.gate.at[0]], 1, 'the gate with every prop out');
 
   // A building comes out of the fog all at once (§20 call 54), at every mix of levels; and the
@@ -702,8 +859,8 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
   // right against one still in the fog (the fog's soft edge would show its bottom row).
   assert.deepEqual(fogEdgeProblems(hub, map, DATA.buildings), [], 'every building comes out of the fog all at once');
   const withLamp1 = (rect) => { const h = { ...hub, fog: hub.fog.map((f) => (f.id === 'lamp_1' ? { ...f, rects: [rect] } : f)) }; return fogEdgeProblems(h, buildHubMap(h, HUB_TERRAIN), DATA.buildings).join('\n'); };
-  assert.match(withLamp1([18, 5, 22, 20]), /^chapel at \{"lamp_post":1,"library":0,"tavern":0\}: half in the fog$/m);
-  assert.match(withLamp1([18, 7, 22, 18]), /^chapel at \{"lamp_post":1,"library":0,"tavern":0\}: clear ground right against it$/m);
+  assert.match(withLamp1([18, 5, 22, 20]), /^chapel at \{"lamp_post":1,"library":0,"tavern":0[^}]*\}: half in the fog$/m);
+  assert.match(withLamp1([18, 7, 22, 18]), /^chapel at \{"lamp_post":1,"library":0,"tavern":0[^}]*\}: clear ground right against it$/m);
   // Windows: where the art has them.
   for (const p of hub.plots.filter((q) => q.windows)) {
     assert.deepEqual(p.windows, openings(BUILDINGS_LAYOUT[p.building]).windows, `${p.building}'s windows match its art`);

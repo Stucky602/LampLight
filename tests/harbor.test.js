@@ -14,7 +14,7 @@ import {
   ANCHORS, drawnAt, flickerAt, boatBobAt, fogAtPoint, fogPixels, fogRedraw, lightAt, newcomerTint, boatTint, clearOfBoat, steppingAlpha,
 } from '../src/render/hubtiles.js';
 import { stepHop } from '../src/render/viewstate.js';
-import { levelEffects, costText, changeLines, optionText, researchState, upgradeState, runsText, buildingIn } from '../src/ui/hubtext.js';
+import { levelEffects, costText, changeLines, optionText, researchState, upgradeState, runsText, buildingIn, actionLine, rewardText, tideText, claimText } from '../src/ui/hubtext.js';
 import { waitingReason } from '../src/meta/apply.js';
 import { levelsOf, levelSetPieces, lineFor, promptFor, runHeading, titleStartLabel, mergeRuns } from '../src/app/hublogic.js';
 import { restoreBuilding, applyRunResult, nextAffordable, revealedFog, startResearch, whyNotResearch, whyNotUpgrade } from '../src/meta/index.js';
@@ -286,8 +286,20 @@ test('panel text: a level says what it brings, as short labels, each marked with
   assert.deepEqual(levelEffects(DATA, 'library', 1), [{ kind: 'research', text: 'Unlocks research' }, { kind: 'fog', text: 'Clears the fog nearby' }]);
   assert.deepEqual(texts('library', 2), ['Unlocks research tier 2']);
   assert.deepEqual(texts('library', 3), ['Research slots: 2', 'Clears the fog nearby']);
-  assert.deepEqual(levelEffects(DATA, 'tavern', 1), [{ kind: 'arrival', text: 'New character: Harpooner' }, { kind: 'fog', text: 'Clears the fog nearby' }]);
-  assert.deepEqual(levelEffects(DATA, 'tavern', 2), [{ kind: 'joins', text: 'New relic: Tide Clock' }]);
+  assert.deepEqual(levelEffects(DATA, 'tavern', 1), [{ kind: 'arrival', text: 'New character: Harpooner' }, { kind: 'rule', text: 'Unlocks feats' }, { kind: 'fog', text: 'Clears the fog nearby' }]);
+  assert.deepEqual(levelEffects(DATA, 'tavern', 2), [{ kind: 'joins', text: 'New relic: Tide Clock' }, { kind: 'rule', text: 'Unlocks mastery training and kits' }]);
+  // Phase 7's buildings: their rules as labels, the fog each Lamp Post level lifts by name, what
+  // joins the Apothecary's shelves by kind.
+  assert.deepEqual(texts('lamp_post', 3), ['Unlocks upgrade tier 3', 'Wayside Lamps light 25% faster', 'Clears the fog nearby', 'Clears the way to Chapel']);
+  assert.deepEqual(texts('docks', 1), ['Ferryman sails into runs']);
+  assert.deepEqual(texts('docks', 3), ['Ferryman prices -20%']);
+  assert.deepEqual(texts('smithy', 3), ['Gear slots: 5', 'Unlocks affix re-rolls']);
+  assert.deepEqual(texts('chapel', 3), ['Tides up to 6', 'Curses: 4', 'Fog Bell rings 25% wider']);
+  assert.deepEqual(texts('market', 2), ['Sea Glass left over: 0.5 Coin each']);
+  assert.deepEqual(levelEffects(DATA, 'apothecary', 1), [{ kind: 'joins', text: 'New item: Smelling Salts, Tallow Tonic' }, { kind: 'rule', text: 'Unlocks consumables' }]);
+  assert.deepEqual(texts('cartographer', 4), ['Unlocks short runs', 'Pell returns']);
+  // Every level of every building brings something it can say.
+  for (const b of DATA.buildings) for (let lv = 1; lv <= b.levels.length; lv++) assert.ok(!texts(b.id, lv).includes('No new unlocks'), `${b.id} Lv ${lv}`);
   assert.ok(levelEffects(DATA, 'tavern', 4).some((e) => e.kind === 'keeper' && e.text === 'Bram returns'));
   assert.ok(texts('library', 5).includes('Silas walks the harbor'));
   assert.deepEqual(levelEffects(DATA, 'tavern', 9), []);
@@ -433,7 +445,7 @@ test('harbor logic: a level plays its ceremony, then any arrival; the harbor\'s 
   // A level with no arrival.
   const lp = restoreBuilding(doc, DATA, 'lamp_post');
   assert.deepEqual(levelSetPieces(lp.doc, DATA, lp.changes[0]).arrivals, []);
-  assert.deepEqual(levelsOf(lp.doc, DATA), { lamp_post: 1, library: 0, tavern: 0 });
+  assert.deepEqual(levelsOf(lp.doc, DATA), { ...Object.fromEntries(DATA.buildings.map((b) => [b.id, 0])), lamp_post: 1 });
   assert.equal(promptFor(DATA, { kind: 'door', id: 'library' }), 'Enter Library');
   assert.equal(promptFor(DATA, { kind: 'door', id: 'lamp_post' }), 'Use Lamp Post');
   assert.equal(promptFor(DATA, { kind: 'gate', id: 'gate' }), 'Start run');
@@ -556,4 +568,43 @@ test('harbor view: the light map at a point, a newcomer\'s shade, and when she\'
   // Her figure over the boat: whole while she's in front of it, then fading over the fade's px.
   assert.deepEqual([0, 2.5, 5, 10, 14].map((c) => steppingAlpha(c, 10)), [1, 0.75, 0.5, 0, 0]);
   assert.deepEqual([steppingAlpha(0, 0), steppingAlpha(0.1, 0)], [1, 0], 'no fade: gone as soon as she\'s clear');
+});
+
+test('panel text: Phase 7\'s lines, word for word: purchases, the results\' news, rewards, a Tide, a claim', () => {
+  const lines = [
+    [{ kind: 'gear_made', id: 'storm_lantern', worn: true }, 'Made: Storm Lantern (worn)'],
+    [{ kind: 'gear_made', id: 'salt_ring', worn: false }, 'Made: Salt Ring'],
+    [{ kind: 'gear_tier', id: 'harbor_coat', tier: 3 }, 'Harbor Coat: tier 3'],
+    [{ kind: 'gear_reroll', id: 'sea_boots', was: 'might', now: 'swift' }, 'Sea Boots: Move Speed (was Damage)'],
+    [{ kind: 'gear_worn' }, 'Worn'], [{ kind: 'gear_off' }, 'Taken off'],
+    [{ kind: 'rune_stone', id: 'splitting' }, 'Rune stone: Splitting'],
+    [{ kind: 'consumable', id: 'tallow_tonic', held: 2 }, 'Bought: Tallow Tonic (2 held)'],
+    [{ kind: 'trade', give: 'coin', gave: 30, get: 'iron', got: 1 }, 'Traded 30 Coin for 1 Iron'],
+    [{ kind: 'bestiary_claim', id: 'fog_wisp', kills: 1000 }, 'Fog Wisp: 1,000 kills claimed'],
+    [{ kind: 'perk', id: 'iron_grip' }, 'Trained: Iron Grip'],
+  ];
+  for (const [c, text] of lines) assert.equal(actionLine(DATA, c), text);
+  assert.equal(actionLine(DATA, { kind: 'nope' }), '');
+  const news = changeLines(DATA, [
+    { kind: 'glass_coin', glass: 41, count: 20 },
+    { kind: 'mastery', character: 'harpooner', rank: 2 },
+    { kind: 'tide', level: 3 },
+    { kind: 'feat', id: 'lantern_night', unlocks: [{ what: 'arcana', id: 'glassblower' }], materials: {} },
+    { kind: 'feat', id: 'dawn', unlocks: [], materials: { coin: 150, map_scraps: 2 } },
+    { kind: 'challenge', id: 'bare_hands', unlocks: [{ what: 'recipe', id: 'bosun_coat' }], materials: {} },
+    { kind: 'feat_found', id: 'untouched' },
+  ]).map((l) => l.text);
+  assert.deepEqual(news, [
+    '20 Coin (41 Sea Glass sold)', 'Harpooner: mastery rank 2', 'Tide 3 open at the gate',
+    'Feat done: Lantern Night', 'New arcana: Glassblower', 'Feat done: Dawn', '150 Coin', '2 Map Scraps',
+    "Challenge done: Bare Hands", "New gear: Bosun's Coat", 'New feat at the Tavern: Untouched',
+  ]);
+  assert.equal(rewardText(DATA, 'feat', DATA.feats.find((f) => f.id === 'lantern_night')), 'New arcana: Glassblower');
+  assert.equal(rewardText(DATA, 'challenge', DATA.challenges.find((c) => c.id === 'flood')), '6 Map Scraps, 8 Iron');
+  assert.equal(tideText(DATA.tides[3]), '+60% Enemy HP, +32% Enemy Damage, +20% Enemies, +6% Enemy Speed, +48% Materials');
+  assert.equal(claimText(DATA, { kills: 1000, reward: DATA.meta.bestiaryRewards[2] }), '1,000 kills: 150 Coin, 2 Iron, +3% Damage against it');
+  // The Docks' levels read their numbers from the Ferryman's tuning.
+  const tuned = { ...DATA, tuning: { ...DATA.tuning, ferry: { ...DATA.tuning.ferry, discount: 0.3, fastRestockSec: 200 } } };
+  assert.deepEqual(levelEffects(tuned, 'docks', 3).map((e) => e.text), ['Ferryman prices -30%']);
+  assert.deepEqual(levelEffects(tuned, 'docks', 4).map((e) => e.text), ['Ferryman restocks every 3:20', 'Ned returns']);
 });

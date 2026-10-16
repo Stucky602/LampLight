@@ -299,7 +299,7 @@ test('build: the harbor\'s pieces take only the colors listed for them; a missin
   // A pack that isn't loaded (for a townsperson too), a sign nobody drew, a stage that doesn't exist.
   assert.throws(() => buildFrames({ ...packs, dungeon: undefined }, DATA, [{ id: 'npc_x', kind: 'npc', pack: 'dungeon', tile: 0 }]), /npc_x: pack "dungeon" isn't loaded/);
   const layout = [[0, 0], [85, 0]];
-  assert.throws(() => buildingFrame({ id: 'bld_x_keeper', pack: 'town', layout, stage: 'keeper', sign: 'smithy' }, packs), /bld_x_keeper: no sign called "smithy" \(there are library, tavern\)/);
+  assert.throws(() => buildingFrame({ id: 'bld_x_keeper', pack: 'town', layout, stage: 'keeper', sign: 'lighthouse' }, packs), /bld_x_keeper: no sign called "lighthouse" \(there are library, tavern, docks, smithy, chapel, market, apothecary, cartographer\)/);
   assert.throws(() => buildingFrame({ id: 'bld_x_odd', pack: 'town', layout, stage: 'odd' }, packs), /bld_x_odd: no building stage called "odd"/);
   // An open doorway (tiles 74 and 78) is dark inside, its sill a step lighter; other tiles keep their see-through pixels.
   const open = buildingFrame({ id: 'bld_x_roof', pack: 'town', layout: [[73, 74]], stage: 'roof' }, packs);

@@ -467,7 +467,7 @@ test('hub scene: the tuning panel (hold Create): the harbor\'s numbers live, Cop
   t.press(B.SOUTH);
   assert.deepEqual(DATA.buildings.map((b) => t.state.doc.profile.buildings[b.id]), DATA.buildings.map((b) => b.levels.length));
   assert.match(note(), /^Every building restored and all research complete \(\d+ unlocked\)\. Saved to your profile\.$/);
-  assert.deepEqual(t.world.people.filter((p) => p.kind === 'keeper').map((p) => p.id), ['lamp_keeper', 'librarian', 'innkeeper']);
+  assert.deepEqual(t.world.people.filter((p) => p.kind === 'keeper').map((p) => p.id), DATA.npcs.map((n) => n.id), 'every keeper, in the data\'s order');
   assert.deepEqual([...t.world.revealed].sort(), DATA.hub.fog.map((f) => f.id).sort(), 'the fog is gone from every region');
   assert.equal(t.world.timeline, null, 'no ceremonies');
   assert.deepEqual([t.world.player.x, t.world.player.y], at, 'you stay where you stood');
@@ -567,7 +567,7 @@ test('run scene: a run is the app\'s config for it (the profile\'s pools), and R
   assert.deepEqual(runs, [], 'a press as it comes up is ignored (a button still held from the fight)');
   frame(40);
   box.pads = [dualSense([B.SOUTH])]; frame(); box.pads = [dualSense()]; frame();
-  assert.deepEqual(runs, [{ character: 'lamplighter', seed: undefined, all: false }], 'Run again: the same character, a new seed, the profile\'s pools again');
+  assert.deepEqual(runs, [{ character: 'lamplighter', seed: undefined, all: false, consumables: [], rune: '' }], 'Run again: the same character, a new seed, the profile\'s pools again, nothing used up taken twice');
   scene.exit();
 });
 
@@ -645,7 +645,7 @@ test('screens: the title\'s Continue, the question before leaving, the desktop\'
 test('hub scene: what a purchase and a set piece leave behind, and the smaller rules of the screens', () => {
   // The view gets the new levels the moment a building is restored (its ceremony shows the step).
   const t = harbor(profile({}, RICH));
-  assert.deepEqual(t.view.levels, { lamp_post: 0, library: 0, tavern: 0 });
+  assert.deepEqual(t.view.levels, Object.fromEntries(DATA.buildings.map((b) => [b.id, 0])));
   t.open('tavern').scope.focusKey('restore');
   t.press(B.SOUTH);
   assert.equal(t.view.levels.tavern, 1);
@@ -675,6 +675,9 @@ test('hub scene: what a purchase and a set piece leave behind, and the smaller r
   const all = profile(Object.fromEntries(DATA.buildings.map((b) => [b.id, b.levels.length])));
   all.profile.research.done = DATA.research.map((r) => r.id);
   for (const u of DATA.upgrades) all.profile.upgrades[u.id] = u.ranks;
+  // (and every piece of gear made, each consumable held: Phase 7's goals met too)
+  all.profile.gear = { inventory: DATA.recipes.map((r, i) => ({ uid: i + 1, id: r.id, tier: 5, affixes: [r.base] })), equipped: {}, next: DATA.recipes.length + 1, rolls: 0 };
+  all.profile.consumables = Object.fromEntries(DATA.consumables.map((c) => [c.id, 1]));
   assert.equal(harbor(all).hud('hud-next').hidden, true);
   // A corner panel fades while you stand under it (the stand-in DOM gives it a place).
   const c = harbor(profile());
@@ -904,7 +907,15 @@ test('run scene: an Ember opens Ascend; Keep for later, then the pause\'s Ascend
   frame(3);
   assert.match(ui.top?.el.className ?? '', /ascend-screen/, 'the Ember stopped the run for the choice');
   const words = textsOf(ui.top.el);
-  for (const t of ['Ascend', 'Flare Gun', 'Starburst', 'Signal Pair', 'White Phosphor', 'Keep for later']) assert.ok(words.includes(t), `says "${t}"`);
+  for (const t of ['Ascend', 'Flare Gun', 'Forms: 0 of 3', 'Keep for later']) assert.ok(words.includes(t), `says "${t}"`);
+  // Step 2: a weapon's three Forms, each with its kind; Back returns to the weapons.
+  frame(20);
+  ui.top.scope.focusKey('w0');
+  press(B.SOUTH);
+  const forms = textsOf(ui.top.el);
+  for (const t of ['Salvo', 'Mortar', 'Hanging Flare', 'How it fires', 'How it flies', 'What it leaves']) assert.ok(forms.includes(t), `the Forms screen says "${t}"`);
+  press(B.EAST);
+  assert.ok(textsOf(ui.top.el).includes('Keep for later'), 'Back: the weapons again');
   // Options over the Ascend screen: the pause has no Ascend (the Ember's own screen is open).
   frame(20);
   press(B.START);
@@ -926,18 +937,20 @@ test('run scene: an Ember opens Ascend; Keep for later, then the pause\'s Ascend
   press(B.SOUTH);
   frame(20);
   assert.match(ui.top?.el.className ?? '', /ascend-screen/);
-  ui.top.scope.focusKey('a0_1');
+  ui.top.scope.focusKey('w0');
+  press(B.SOUTH);
+  ui.top.scope.focusKey('f1');
   press(B.SOUTH);
   assert.equal(ui.top, null);
   assert.equal(w.build.embers, 0);
-  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['signal_pair']);
+  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['mortar']);
   // Pause, Stats: the character, the weapons (her own light too), and the items.
   press(B.START);
   ui.top.scope.focusKey('stats');
   press(B.SOUTH);
   assert.match(ui.top?.el.className ?? '', /stats-screen/);
   const stats = textsOf(ui.top.el);
-  for (const t of ['Character', 'All weapons', 'Weapons', 'Items', 'HP', 'Dealt this run', 'Ascended: Signal Pair']) assert.ok(stats.includes(t), `Stats says "${t}" (${stats.join(' | ')})`);
+  for (const t of ['Character', 'All weapons', 'Weapons', 'Items', 'HP', 'DPS', 'Total Damage', 'Materials found', 'Forms: Mortar']) assert.ok(stats.includes(t), `Stats says "${t}" (${stats.join(' | ')})`);
   assert.ok(stats.some((t) => /\(built in\)/.test(t)), "the character's own weapon is listed");
   press(B.EAST);
   assert.ok(ui.has((x) => x.isPause), 'Back returns to the pause');
@@ -974,4 +987,167 @@ test('hub scene: off screen the guide\'s arrow aims where the walk to the gate l
     const r = t.hud(cls).rect;
     assert.ok(m.x < r.left - 7 || m.x > r.left + r.width + 7 || m.y < r.top - 7 || m.y > r.top + r.height + 7, `clear of ${cls} (${m.x}, ${m.y})`);
   }
+});
+
+// ---------------------------------------------------------------- Phase 7's panels and screens
+
+/** A profile with every Phase 7 building at its top and the means to use them. */
+function phase7Profile() {
+  const d = profile(Object.fromEntries(DATA.buildings.map((b) => [b.id, b.levels.length])), RICH);
+  d.profile.research.done = DATA.research.map((r) => r.id);
+  d.profile.characters = { lamplighter: { unlocked: true, masteryXp: 60, perks: [] } };
+  d.profile.bestiary = { fog_wisp: 150 };
+  d.profile.tide = { unlocked: 4, selected: 2 };
+  d.profile.consumables = { smelling_salts: 1, 'rune:splitting': 1 };
+  return d;
+}
+const keyOf = (t) => t.top().scope.current?.dataset.focus;
+
+test('hub scene: every row of every Phase 7 panel takes focus (a pad reaches them all), and each panel lists what it should', () => {
+  const t = harbor(phase7Profile());
+  const want = { tavern: ['i:lamplighter_mastery', 'p:trimmed_wick', 'i:dawn'], smithy: ['i:worn', 'c:storm_lantern', 's:splitting'], chapel: ['i:tide_1', 'i:tide_10', 'i:brittle'],
+    market: ['t:iron'], apothecary: ['b:smelling_salts'], cartographer: ['i:wreck_cache', 'k:fog_wisp', 'i:flood'], docks: ['lv:1', 'lv:5'] };
+  for (const [b, keys] of Object.entries(want)) {
+    const panel = t.open(b);
+    const rows = [...panel.el.querySelectorAll('.bld-list .list-row')];
+    assert.ok(rows.length > 0, b);
+    assert.deepEqual(rows.filter((r) => !r.dataset.focus).length, 0, `${b}: every row can take focus`);
+    for (const k of keys) assert.ok(panel.scope.focusKey(k), `${b}: ${k}`);
+    t.press(B.EAST);
+  }
+  // The Chapel says what opens each Tide and curse.
+  const low = harbor((() => { const d = profile({ chapel: 1 }, RICH); d.profile.tide = { unlocked: 0, selected: 0 }; return d; })());
+  const ch = low.open('chapel');
+  const texts = textsOf(ch.el);
+  assert.ok(texts.includes('Clear the map') && texts.includes('Requires Chapel Lv 2') && texts.includes('Requires Chapel Lv 5'));
+  assert.ok(texts.some((x) => /^\+15% Enemy HP, \+8% Enemy Damage, \+5% Enemies, \+1.5% Enemy Speed, \+12% Materials$/.test(x)), 'a Tide\'s whole effect');
+});
+
+test('hub scene: the Smithy: make an item, open it, wear and take off, raise its tier, re-roll an affix from the three offered', () => {
+  const t = harbor(phase7Profile());
+  const panel = t.open('smithy');
+  assert.ok(panel.scope.focusKey('c:storm_lantern'));
+  t.press(B.SOUTH);
+  assert.equal(t.state.doc.profile.gear.inventory.length, 1);
+  assert.ok(textsOf(panel.el).includes('Made: Storm Lantern (worn)'));
+  assert.ok(panel.scope.focusKey('g:1'));
+  t.press(B.SOUTH);
+  const gear = t.top();
+  assert.match(gear.el.className, /gear-screen/);
+  assert.equal(keyOf(t), 'wear');
+  t.press(B.SOUTH);
+  assert.equal(t.state.doc.profile.gear.equipped.lantern, undefined, 'taken off');
+  t.press(B.SOUTH);
+  assert.equal(t.state.doc.profile.gear.equipped.lantern, 1, 'and worn again');
+  gear.scope.focusKey('tier');
+  t.press(B.SOUTH);
+  assert.equal(t.state.doc.profile.gear.inventory[0].tier, 2);
+  assert.ok(textsOf(gear.el).includes('Storm Lantern: tier 2'));
+  const before = t.state.doc.profile.gear.inventory[0].affixes[1];
+  gear.scope.focusKey('a1');
+  t.press(B.SOUTH);
+  assert.equal(keyOf(t), 'o0', 'the three offered');
+  assert.equal(gear.el.querySelectorAll('.list-row.pick').length, 3);
+  t.press(B.EAST);
+  assert.equal(gear.el.querySelectorAll('.list-row.pick').length, 0, 'back closes the offer first');
+  assert.equal(t.top(), gear);
+  gear.scope.focusKey('a1');
+  t.press(B.SOUTH);
+  gear.scope.focusKey('o2');
+  t.press(B.SOUTH);
+  const after = t.state.doc.profile.gear.inventory[0].affixes[1];
+  assert.notEqual(after, before);
+  t.press(B.EAST);
+  assert.equal(t.top(), panel, 'back to the Smithy');
+  // The item's own affix is fixed (focusable, does nothing).
+  panel.scope.focusKey('g:1'); t.press(B.SOUTH);
+  assert.ok(t.top().scope.focusKey('a0'));
+  const saves = t.state.saves;
+  t.press(B.SOUTH);
+  assert.equal(t.state.saves, saves);
+});
+
+test('hub scene: the Market trades, the Apothecary sells, the Cartographer pays a claim, the Tavern trains, each said on the panel', () => {
+  const t = harbor(phase7Profile());
+  const m = t.open('market');
+  m.scope.focusKey('t:iron'); t.press(B.SOUTH);
+  assert.ok(textsOf(m.el).some((x) => /^Traded \d+ \w[\w ]* for 1 Iron$/.test(x)));
+  t.press(B.EAST);
+  const a = t.open('apothecary');
+  a.scope.focusKey('b:smelling_salts'); t.press(B.SOUTH);
+  assert.equal(t.state.doc.profile.consumables.smelling_salts, 2);
+  assert.ok(textsOf(a.el).includes('Bought: Smelling Salts (2 held)'));
+  t.press(B.EAST);
+  const c = t.open('cartographer');
+  c.scope.focusKey('k:fog_wisp'); t.press(B.SOUTH);
+  assert.ok(textsOf(c.el).includes('Fog Wisp: 10 kills claimed'));
+  t.press(B.SOUTH);
+  assert.ok(textsOf(c.el).includes('Fog Wisp: 100 kills claimed'));
+  t.press(B.SOUTH);
+  assert.ok(textsOf(c.el).includes('Need 1000 kills (150)'), 'the next one says why not');
+  t.press(B.EAST);
+  const v = t.open('tavern');
+  v.scope.focusKey('p:trimmed_wick'); t.press(B.SOUTH);
+  assert.ok(textsOf(v.el).includes('Trained: Trimmed Wick'));
+  t.press(B.SOUTH);
+  assert.ok(textsOf(v.el).includes('Already trained'));
+});
+
+test('hub scene: the gate\'s second step: its rows, a detail for the focused value, changes, a refusal that stays, and Start', () => {
+  const t = harbor(phase7Profile());
+  t.scene.openGateForTools();
+  t.frame();
+  t.press(B.SOUTH);   // the Lamplighter
+  const s = t.top();
+  assert.match(s.el.className, /setup-screen/);
+  assert.equal(s.el.querySelector('h1').textContent, 'Lamplighter');
+  assert.ok(s.scope.focusKey('tide'));
+  s.onNav('right');
+  assert.equal(s.el.querySelector('[data-focus="tide"] .set-value').textContent.includes('Tide 3'), true);
+  assert.ok(textsOf(s.el.querySelector('.setup-detail')).some((x) => x.startsWith('+45% Enemy HP')));
+  assert.ok(textsOf(s.el).some((x) => /^\+36% Materials$/.test(x)), 'what it adds');
+  s.scope.focusKey('mode');
+  while (!s.el.querySelector('[data-focus="mode"] .set-value').textContent.includes('Challenge')) s.onNav('right');
+  assert.ok(!s.el.querySelector('[data-focus="tide"]'), 'a challenge has its own Tide');
+  assert.ok(textsOf(s.el.querySelector('.setup-detail')).length > 0);
+  s.onNav('right');   // back to Standard
+  // A choice the profile no longer allows is refused on the screen, and nothing is used up.
+  s.scope.focusKey('slot:0');
+  s.onNav('right');
+  t.state.doc = structuredClone(t.state.doc);
+  delete t.state.doc.profile.consumables.smelling_salts;
+  s.scope.focusKey('start');
+  t.press(B.SOUTH);
+  assert.equal(t.top(), s, 'still on the gate');
+  assert.ok(textsOf(s.el).includes('No Smelling Salts held.'));
+  assert.deepEqual(t.state.runs, []);
+  s.scope.focusKey('slot:0');
+  s.onNav('left');
+  s.scope.focusKey('start');
+  t.press(B.SOUTH);
+  assert.equal(t.state.runs.length, 1);
+  assert.equal(t.state.runs[0].character, 'lamplighter');
+  assert.equal(t.state.runs[0].tide, 3);
+});
+
+test('hub scene: a pad walks a Phase 7 panel\'s whole list with the d-pad, every key its own, and a fixed row presses silently', () => {
+  const t = harbor(phase7Profile());
+  for (const b of ['tavern', 'smithy', 'chapel', 'market', 'apothecary', 'cartographer', 'docks']) {
+    const panel = t.open(b);
+    const keys = [...panel.el.querySelectorAll('[data-focus]')].map((e) => e.dataset.focus);
+    assert.equal(new Set(keys).size, keys.length, `${b}: no two rows share a key`);
+    t.press(B.EAST);
+  }
+  const panel = t.open('chapel');
+  // The stand-in DOM has no layout: give the rows a column of places, as the real one would.
+  const els = [...panel.el.querySelectorAll('[data-focus]')];
+  els.forEach((e, i) => { e.rect = { left: 300, top: 40 + i * 20, width: 200, height: 18 }; });
+  panel.scope.focus(els[0]);
+  const seen = [keyOf(t)];
+  for (let k = 0; k < els.length + 3; k++) { t.press(B.DOWN); if (keyOf(t) !== seen.at(-1)) seen.push(keyOf(t)); }
+  assert.deepEqual(seen, els.map((e) => e.dataset.focus), 'down, row by row, to the last curse');
+  assert.equal(seen.at(-1), 'i:fast_water');
+  const sounds = t.sounds.length;
+  t.press(B.SOUTH);
+  assert.ok(!t.sounds.slice(sounds).includes('ui_confirm'), 'a fixed row presses nothing, and says nothing');
 });

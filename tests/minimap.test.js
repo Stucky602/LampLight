@@ -8,10 +8,12 @@ import { DATA } from '../src/data/index.js';
 import { EF, PK } from '../src/sim/constants.js';
 import { spawnPickup } from '../src/sim/pickups.js';
 import { defaultSettings, normalizeSettings } from '../src/save/schema.js';
-import { minimapBox, materialsLayoutFor, minimapWindow, minimapMarks, minimapFade, createMarks, revealView, MARK, MARK_SHAPES, MINIMAP } from '../src/render/minimapmodel.js';
+import { minimapBox, minimapWindow, minimapMarks, minimapFade, createMarks, revealView, revealDisc, MARK, MARK_SHAPES, MINIMAP } from '../src/render/minimapmodel.js';
+import { createWorld } from '../src/sim/world.js';
+import { TASK, TASK_STATE } from '../src/sim/constants.js';
 import { createMinimap } from '../src/render/minimap.js';
 import { createHud } from '../src/render/hud.js';
-import { MATERIALS_LAYOUT, HUD_LAYOUT } from '../src/render/hudmodel.js';
+import { HUD_LAYOUT } from '../src/render/hudmodel.js';
 import { VIEW_W, VIEW_H } from '../src/render/layout.js';
 import { installFakeDocument, textsOf } from './helpers/fakedom.js';
 import { nodeAtlas, installCanvas } from './helpers/hubrig.js';
@@ -20,15 +22,13 @@ import { createInput } from '../src/input/input.js';
 import { openSettings } from '../src/app/settings-flow.js';
 import { makeWorld, spawnAt } from './helpers/simworld.js';
 
-test('minimap: top right, the materials under it; marks for drops, elites, bosses, and you, never gems or plain enemies', () => {
+test('minimap: top right; marks for drops, elites, bosses, and you, never gems or plain enemies', () => {
   assert.equal(minimapBox('off', 'small'), null);
   const box = minimapBox('nearby', 'small');
   assert.deepEqual(box, { x: VIEW_W - HUD_LAYOUT.edge - MINIMAP.size.small, y: MINIMAP.top, w: MINIMAP.size.small, h: MINIMAP.size.small, size: 'small' });
   assert.equal(minimapBox('nearby', 'large').size, 'large');
   assert.equal(minimapBox('map', 'large').w, MINIMAP.size.large);
   assert.equal(minimapBox('nearby', 'small'), box, 'the same box each frame (no garbage)');
-  assert.equal(materialsLayoutFor(null), MATERIALS_LAYOUT);
-  assert.equal(materialsLayoutFor(box).top, box.y + box.h + MINIMAP.gap);
   assert.ok(box.x > VIEW_W / 2 + HUD_LAYOUT.bossBar.w / 2, 'clear of the boss bar');
   const w = makeWorld({ invulnerable: true });
   spawnAt(w, 'drowned_sailor', 40, 0);                         // a plain enemy: not shown
@@ -199,7 +199,7 @@ test('minimap: marks stay in the box and you\'re always marked, even with the st
   assert.ok(kinds.lastIndexOf(MARK.MATERIAL) < kinds.indexOf(MARK.EMBER), 'materials drawn before the Ember, so they never cover it');
 });
 
-test('minimap: the real one (Pixi, in Node) keeps uncovering while Off, sends new ground at most every 150 ms, and the HUD puts the materials under it', () => {
+test('minimap: the real one (Pixi, in Node) keeps uncovering while Off, sends new ground at most every 150 ms, and the HUD shows it by its setting (and no materials)', () => {
   installFakeDocument();
   installCanvas();
   const w = makeWorld({ invulnerable: true });
@@ -244,7 +244,8 @@ test('minimap: the real one (Pixi, in Node) keeps uncovering while Off, sends ne
   mm.draw(box, 'map', cam, 1400);
   assert.equal(ground.texture.source.scaleMode, 'linear', 'Whole map: smoothed');
   mm.destroy();
-  // The HUD: with the minimap on, each material found sits under it; off, back in MATERIALS_LAYOUT.
+  // The HUD: materials found aren't drawn on it (they're on the pause menu and Stats), and the
+  // minimap follows its setting live.
   const settings = { minimap: 'nearby', minimapSize: 'large' };
   const renderer = { hud: new Container(), camera: { x: VIEW_W / 2, y: VIEW_H / 2 } };
   const atlas = nodeAtlas();
@@ -253,22 +254,62 @@ test('minimap: the real one (Pixi, in Node) keeps uncovering while Off, sends ne
   hud.attach();
   for (let k = 0; k < 3; k++) w.result.materialsRaw[k] = 5 + k;
   hud.draw(w, 0, { hurt: 0, level: 0 });
-  const icons = () => renderer.hud.children[0].children.filter((c) => matTex.has(c.texture) && c.visible);
-  const topmost = () => Math.min(...icons().map((c) => c.y));
-  const big = minimapBox('nearby', 'large');
-  assert.equal(icons().length, 3, 'the three materials found');
-  assert.ok(topmost() >= big.y + big.h + 2, `under the minimap and its frame: ${topmost()}`);
-  assert.ok(icons().every((c) => c.alpha === 1), 'solid while you\'re away from them');
-  // Standing just under the materials (your head among them, clear of the minimap's frame): they
-  // fade by their own box.
-  const first = icons()[0];
-  const feetY = Math.max(...icons().map((c) => c.y)) + 16 + 10;
-  assert.ok(feetY - 14 > big.y + big.h + 2, 'the minimap itself isn\'t over you here');
-  w.player.x = renderer.camera.x - VIEW_W / 2 + first.x + 4; w.player.y = renderer.camera.y - VIEW_H / 2 + feetY;
-  hud.draw(w, 8, { hurt: 0, level: 0 });
-  assert.ok(icons().every((c) => c.alpha === MINIMAP.fadeAlpha), 'faded while you\'re under them');
-  w.player.x = renderer.camera.x; w.player.y = renderer.camera.y;
+  const all = (c) => [c, ...(c.children ?? []).flatMap(all)];
+  assert.equal(all(renderer.hud).filter((c) => matTex.has(c.texture) && c.visible).length, 0, 'no material icons on the HUD');
+  const mapRoot = all(renderer.hud).find((c) => c.children?.length === 3 && c.children[1].mask === c.children[2]);
+  assert.ok(mapRoot?.visible, 'the minimap is up');
   settings.minimap = 'off';
   hud.draw(w, 16, { hurt: 0, level: 0 });
-  assert.ok(topmost() < big.y + big.h, 'off: back up under the kills');
+  assert.equal(mapRoot.visible, false, 'and gone when the setting says Off');
+});
+
+test('minimap: Phase 7\'s places: a task once found (from 0:00 with the Cartographer), a lit lamp, never a rung bell; the skiff, a Reliquary, the secrets at its last level; a lit lamp uncovers its ground', () => {
+  const box = minimapBox('map', 'large'), marks = createMarks(), win = {};
+  const kindsOf = (w) => { minimapWindow(w, box, 'map', win); const n = minimapMarks(w, marks, box, win); return [...marks.kind.slice(0, n)]; };
+  const count = (list, k) => list.filter((x) => x === k).length;
+  const plain = createWorld({ seed: 1, character: 'lamplighter' }, DATA);
+  assert.deepEqual(kindsOf(plain), [MARK.PLAYER], 'nothing found yet, no skiff, no secrets');
+  const lamps = plain.tasks.filter((t) => t.kind === TASK.LAMP), bells = plain.tasks.filter((t) => t.kind === TASK.BELL);
+  lamps[0].state = TASK_STATE.ACTIVE; lamps[1].state = TASK_STATE.DONE; bells[0].state = TASK_STATE.ACTIVE; bells[1].state = TASK_STATE.DONE;
+  const found = kindsOf(plain);
+  assert.deepEqual([count(found, MARK.LAMP), count(found, MARK.LAMP_LIT), count(found, MARK.BELL)], [1, 1, 1], 'found ones; a rung bell is done with');
+  spawnPickup(plain, PK.RELIQUARY, plain.player.x + 40, plain.player.y, 0, 0);
+  assert.equal(count(kindsOf(plain), MARK.RELIQUARY), 1);
+  const charted = createWorld({ seed: 1, character: 'lamplighter', harbor: { ferry: 1, tasksOnMap: 1, secretsOnMap: 1 } }, DATA);
+  const all = kindsOf(charted);
+  assert.equal(count(all, MARK.LAMP), lamps.length, 'every lamp from 0:00');
+  assert.equal(count(all, MARK.BELL), bells.length);
+  assert.equal(count(all, MARK.FERRY), 1, 'the skiff');
+  assert.equal(count(all, MARK.SECRET), DATA.maps[0].secrets.length, 'the secrets');
+  charted.secrets[0].open = true;
+  assert.equal(count(kindsOf(charted), MARK.SECRET), DATA.maps[0].secrets.length - 1, 'a found one goes');
+  // A lit lamp's reach: a disc of tiles, once.
+  const cols = 64, rows = 64, seen = new Uint8Array(cols * rows), got = [];
+  const r = DATA.tuning.tasks.lamp.reveal;
+  const n = revealDisc(seen, cols, rows, 30, 30, r, (i) => got.push(i));
+  let want = 0;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if ((x - 30) ** 2 + (y - 30) ** 2 <= r * r) want++;
+  assert.equal(n, want);
+  assert.equal(got.length, want);
+  assert.equal(revealDisc(seen, cols, rows, 30, 30, r, () => {}), 0, 'once');
+  assert.equal(revealDisc(new Uint8Array(cols * rows), cols, rows, 0, 0, r, () => {}), [...Array(r + 1).keys()].reduce((s2, y) => s2 + Math.floor(Math.sqrt(r * r - y * y)) + 1, 0), 'held to the map at a corner');
+});
+
+test('minimap: the real one uncovers a lit Wayside Lamp\'s ground once, wherever the camera is', () => {
+  installFakeDocument();
+  installCanvas();
+  const probe = makeWorld();
+  const T0 = probe.terrain, at = [Math.floor(probe.player.x / T0.tile) + 30, Math.floor(probe.player.y / T0.tile) + 30];
+  const w = makeWorld({ invulnerable: true }, { mapExtra: { tasks: [{ kind: 'lamp', at }] } });
+  const T = w.terrain, mm = createMinimap();
+  mm.attach(w);
+  const cam = { x: VIEW_W / 2, y: VIEW_H / 2 };
+  const lampTile = Math.floor(w.tasks[0].y / T.tile) * T.cols + Math.floor(w.tasks[0].x / T.tile);
+  mm.draw(null, 'off', cam, 0);
+  assert.equal(mm.seenAt(lampTile), false, 'unlit and far off: not seen');
+  w.tasks[0].state = TASK_STATE.DONE;
+  mm.draw(null, 'off', cam, 16);
+  const r = DATA.tuning.tasks.lamp.reveal;
+  assert.ok(mm.seenAt(lampTile) && mm.seenAt(lampTile + r - 1) && mm.seenAt(lampTile - (r - 1) * T.cols), 'its reach uncovered');
+  assert.equal(mm.seenAt(lampTile + r + 2), false, 'and no further');
 });

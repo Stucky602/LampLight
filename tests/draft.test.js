@@ -102,15 +102,11 @@ test('draft: the draft stream is its own: spawning differently never changes the
   assert.deepEqual(makeOffer(a), makeOffer(b));
 });
 
-test('draft: a relic card shows up at most once per offer, and only relics you could take', () => {
-  const w = makeWorld({ invulnerable: true, tuning: { draft: { relicChance: 10 } } });
+test('draft: relics are never cards, whatever is owned or open', () => {
+  const w = makeWorld({ invulnerable: true, pools: { weapons: ['flare_gun'], passives: ['wick_oil'], relics: DATA.relics.map((r) => r.id), runes: [] } });
   give(w, 'flare_gun');
-  for (let k = 0; k < 30; k++) {
-    const offer = makeOffer(w);
-    assert.equal(offer.filter((c) => c.kind === 'relic').length, 1);
-  }
-  for (const r of DATA.relics) addRelic(w, r);
-  assert.equal(makeOffer(w).filter((c) => c.kind === 'relic').length, 0, 'all owned: no relic card');
+  for (let k = 0; k < 30; k++) assert.ok(!makeOffer(w).some((c) => c.kind === 'relic'));
+  assert.throws(() => { levelUp(w); w.halts[0].offer[0] = { kind: 'relic', id: 'brass_button' }; decide(w, { kind: 'pick', index: 0 }); }, /unknown card kind relic/);
 });
 
 // ---------------------------------------------------------------- chests, runes, evolutions
@@ -170,7 +166,8 @@ test('runes: placement goes only to an open socket where the rune fits; discardi
 // ---------------------------------------------------------------- hooks
 
 test('hooks: every hook named in data exists, and adding an unknown one fails loudly', () => {
-  for (const r of DATA.relics) assert.ok(HOOKS[r.hook], `relic ${r.id} hook ${r.hook}`);
+  // A relic changes a rule (a hook) or a stat (modifiers), never neither.
+  for (const r of DATA.relics) assert.ok(r.hook ? HOOKS[r.hook] : r.mods?.length, `relic ${r.id}: hook ${r.hook} or mods`);
   for (const c of DATA.characters) if (c.mechanic) assert.ok(HOOKS[c.mechanic.hook], `character ${c.id}`);
   const w = makeWorld();
   assert.throws(() => addRelic(w, { id: 'x', hook: 'nope', params: {} }), /Unknown hook "nope"/);
@@ -266,16 +263,16 @@ test('draft: a banish never brings back a card already showing, and keeps the ea
   }
 });
 
-test('draft: with everything maxed, a relic card comes with the heal and coin cards, never alone', () => {
-  const w = makeWorld({ invulnerable: true, tuning: { draft: { relicChance: 10 } }, pools: { weapons: ['flare_gun'], passives: ['wick_oil'], relics: DATA.relics.map((r) => r.id), runes: [] } });
+test('draft: with everything maxed, the heal and coin cards, and nothing else', () => {
+  const w = makeWorld({ invulnerable: true, pools: { weapons: ['flare_gun'], passives: ['wick_oil'], relics: DATA.relics.map((r) => r.id), runes: [] } });
   give(w, 'flare_gun', { level: 8 });
   givePassive(w, 'wick_oil', 5);
-  assert.deepEqual(makeOffer(w).map((c) => c.kind).sort(), ['coin', 'heal', 'relic']);
+  assert.deepEqual(makeOffer(w).map((c) => c.kind).sort(), ['coin', 'heal']);
 });
 
 // ---------------------------------------------------------------- chests and hooks, more closely
 
-test('chests: luck buys bigger boss chests; relics come out of chests; runes never outnumber sockets', () => {
+test('chests: luck buys bigger boss chests; relics never come out of chests; runes never outnumber sockets', () => {
   const avg = (luck) => {
     let n = 0;
     for (let seed = 1; seed <= 150; seed++) {
@@ -287,14 +284,12 @@ test('chests: luck buys bigger boss chests; relics come out of chests; runes nev
     return n / 150;
   };
   assert.ok(avg(4) > avg(1) + 0.5, 'luck 4 averages bigger chests');
-  let relics = 0;
   for (let seed = 1; seed <= 30; seed++) {
-    const w = makeWorld({ seed, invulnerable: true, tuning: { chests: { relicChance: 1, runeChance: 0 } } });
+    const w = makeWorld({ seed, invulnerable: true, tuning: { chests: { bossItems: [[5, 1]] } } });
     give(w, 'flare_gun');
-    openChest(w, CHEST_ELITE, 0, 0);
-    if (currentHalt(w).items[0].kind === 'relic') relics++;
+    openChest(w, CHEST_BOSS, 0, 0);
+    assert.ok(!currentHalt(w).items.some((i) => i.kind === 'relic'), `seed ${seed}: no relic in a chest`);
   }
-  assert.ok(relics >= 25, `${relics}/30 chests gave a relic at chance 1`);
   for (let seed = 1; seed <= 40; seed++) {
     const w = makeWorld({ seed, invulnerable: true, tuning: { chests: { runeChance: 1, bossItems: [[5, 1]] } } });
     give(w, 'flare_gun'); // two open sockets

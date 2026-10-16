@@ -14,7 +14,13 @@ import { whyNotRestore, whyNotUpgrade, whyNotResearch, startResearch } from '../
 import { purchaseOptions } from '../src/meta/next.js';
 import { waitingReason } from '../src/meta/apply.js';
 import { promptFor, runHeading, lineFor } from '../src/app/hublogic.js';
-import { runSummary, settingRefusal } from '../src/app/runlogic.js';
+import { runSummary, settingRefusal, haltView, noticeFor } from '../src/app/runlogic.js';
+import { actionLine, rewardText as rewardLabels } from '../src/ui/hubtext.js';
+import * as W from '../src/meta/workshop.js';
+import { setupRows, startChoice, rewardText } from '../src/app/setup.js';
+import { createWorld } from '../src/sim/world.js';
+import { EV } from '../src/sim/events.js';
+import { TASK } from '../src/sim/constants.js';
 
 // §1: the house voice's banned words and constructions. ("unlock" is the game verb here, so it
 // isn't on the list; "navigate" as a metaphor is, and no screen needs the literal one.)
@@ -90,10 +96,34 @@ test('voice: buildings, maps, characters, and everything you pick go by their na
   assert.ok(DATA.enemies.filter((e) => e.tags.includes('boss')).every((e) => /^The /.test(e.name)), 'bosses have titles');
 });
 
+test('voice: Phase 7\'s names and what you pick there: no "The", no "your", tags as names', () => {
+  const named = [...DATA.recipes, ...DATA.consumables, ...DATA.arcana, ...DATA.curses, ...DATA.challenges, ...DATA.feats, ...DATA.perks, ...DATA.kits, ...DATA.affixes];
+  assert.deepEqual(named.filter((x) => /^The /.test(x.name)).map((x) => x.name), []);
+  const picks = [...DATA.consumables, ...DATA.arcana, ...DATA.curses, ...DATA.perks, ...DATA.kits, ...DATA.challenges, ...DATA.feats];
+  assert.deepEqual(picks.filter((x) => /\byour\b/i.test(x.desc ?? '')).map((x) => `${x.id}: ${x.desc}`), []);
+  assert.deepEqual(picks.filter((x) => /\d+(\.\d+)? seconds?\b/.test(x.desc ?? '')).map((x) => `${x.id}: ${x.desc}`), []);
+  // A tag-scoped affix reads "Damage (Fire)" (§3), and at every tier its line leads with its sign.
+  for (const a of DATA.affixes) {
+    if (a.kind === 'hook' || a.kind === 'rule') continue;
+    if (a.mod.tags) assert.match(a.name, /^[A-Z][\w ]+ \([A-Z][a-z]+\)$/, a.id);
+    for (let t = 1; t <= 5; t++) assert.match(W.affixText(a, t), /^[+-][\d.]+%? [A-Z]/, `${a.id} at tier ${t}`);
+  }
+  // No sentence anywhere opens on a building, map, or character with "The" before it.
+  const names = [...DATA.buildings, ...DATA.maps, ...DATA.characters].map((x) => x.name).concat('Ferryman');
+  const theName = new RegExp(`(^|[.:] )The (${names.join('|')})\\b`);
+  // (A keeper's speech is a person talking, and people say "the Ferryman".)
+  assert.deepEqual(dataLines().filter(([k, t]) => !/^npcs\[/.test(k) && theName.test(t)).map(([k, t]) => `${k}: ${t}`), []);
+});
+
 test('voice: a description of something you pick says what it does, never "your" (§6)', () => {
-  const picks = [...DATA.weapons, ...DATA.passives, ...DATA.relics, ...DATA.runes, ...DATA.characters, ...DATA.upgrades];
+  const forms = DATA.ascensions.flatMap((l) => l.options);
+  const picks = [...DATA.weapons, ...DATA.passives, ...DATA.relics, ...DATA.runes, ...DATA.characters, ...DATA.upgrades, ...forms];
   const bad = picks.filter((x) => /\byour\b/i.test(x.desc)).map((x) => `${x.id}: ${x.desc}`);
   assert.deepEqual(bad, []);
+  // "You" only as the target: never the one doing it ("You plant a rod").
+  assert.deepEqual(picks.filter((x) => /(^|\. )You\b|\byou (walk|plant|leave|stand|fire|dash)\b/.test(x.desc)).map((x) => `${x.id}: ${x.desc}`), []);
+  // Seconds as 45s (§3), never spelled out.
+  assert.deepEqual(picks.filter((x) => /\d+(\.\d+)? seconds?\b/.test(x.desc)).map((x) => `${x.id}: ${x.desc}`), []);
   // Short: one or two sentences.
   const long = picks.filter((x) => (x.desc.match(/[.?]( |$)/g) ?? []).length > 2).map((x) => `${x.id}: ${x.desc}`);
   assert.deepEqual(long, []);
@@ -196,6 +226,71 @@ test('voice: the harbor\'s panels, refusals, prompts, next-up lines, and results
   // Status and refusal lines are labels: no sentence about the player.
   const said = lines.map(([, t]) => t).filter((t) => typeof t === 'string');
   assert.deepEqual(said.filter((t) => /^(You|Your) /.test(t)), [], 'no line opens on "You"');
+});
+
+test('voice: Phase 7\'s panels, refusals, gate rows, purchases, and run screens', () => {
+  const lines = [];
+  const everyone = withLevels(withMats(fresh(), RICH), Object.fromEntries(DATA.buildings.map((b) => [b.id, b.levels.length])));
+  everyone.profile.research.done = DATA.research.map((r) => r.id);
+  everyone.profile.feats = DATA.feats.map((f) => f.id);
+  everyone.profile.challenges = DATA.challenges.map((c) => c.id);
+  for (const doc of [...profiles(), everyone]) {
+    for (const r of DATA.recipes) lines.push([`whyNotCraft ${r.id}`, W.whyNotCraft(doc, DATA, r.id)]);
+    for (const r of DATA.runes) lines.push([`whyNotCutRune ${r.id}`, W.whyNotCutRune(doc, DATA, r.id)]);
+    for (const c of DATA.consumables) lines.push([`whyNotBuyConsumable ${c.id}`, W.whyNotBuyConsumable(doc, DATA, c.id)]);
+    for (const p of DATA.perks) lines.push([`whyNotTrain ${p.id}`, W.whyNotTrain(doc, DATA, p.id)]);
+    for (const e of DATA.enemies) lines.push([`whyNotClaim ${e.id}`, W.whyNotClaim(doc, DATA, e.id)]);
+    lines.push(['whyNotTrade', W.whyNotTrade(doc, DATA, 'coin', 'iron')], ['whyNotTrade same', W.whyNotTrade(doc, DATA, 'coin', 'coin')]);
+    for (const ch of DATA.characters) {
+      const choice = startChoice(doc, DATA, ch.id);
+      for (const r of setupRows(doc, DATA, choice)) {
+        lines.push([`setup ${r.key}`, r.label]);
+        assert.ok(r.label.split(' ').length <= 4, `a gate row is a label: "${r.label}"`);
+        for (const [, t] of r.choices || []) lines.push([`setup ${r.key} choice`, String(t)]);
+      }
+      lines.push(['reward', rewardText(DATA, { ...choice, tide: 3, curses: DATA.curses.map((c) => c.id) })]);
+    }
+  }
+  // An item at every tier, its refusals, and every purchase's line.
+  let d = everyone;
+  for (const r of DATA.recipes) d = W.craftGear(d, DATA, r.id).doc;
+  for (const it of W.gearItems(d)) {
+    lines.push([`whyNotUpgradeGear ${it.id}`, W.whyNotUpgradeGear(d, DATA, it.uid)], [`whyNotEquip ${it.id}`, W.whyNotEquip(d, DATA, it.uid)]);
+    for (const at of [0, 1, 5]) lines.push([`whyNotReroll ${it.id} ${at}`, W.whyNotReroll(d, DATA, it.uid, at)]);
+    for (const a of it.affixes) lines.push([`affix ${a}`, W.affixText(DATA.affixes.find((x) => x.id === a), it.tier)]);
+  }
+  const kinds = [
+    { kind: 'gear_made', id: 'storm_lantern', worn: true }, { kind: 'gear_tier', id: 'storm_lantern', tier: 3 },
+    { kind: 'gear_reroll', id: 'storm_lantern', was: 'might', now: 'swift' }, { kind: 'gear_worn' }, { kind: 'gear_off' },
+    { kind: 'rune_stone', id: 'splitting' }, { kind: 'consumable', id: 'smelling_salts', held: 2 },
+    { kind: 'trade', give: 'coin', gave: 12, get: 'iron', got: 1 }, { kind: 'bestiary_claim', id: 'fog_wisp', kills: 1000 },
+    ...DATA.perks.map((p) => ({ kind: 'perk', id: p.id })),
+  ];
+  for (const c of kinds) { const t = actionLine(DATA, c); assert.ok(t, c.kind); lines.push([`action ${c.kind}`, t]); }
+  const results = [
+    { kind: 'glass_coin', count: 12, glass: 24 }, ...DATA.characters.map((c) => ({ kind: 'mastery', character: c.id, rank: 2 })),
+    { kind: 'tide', level: 3 }, ...DATA.feats.map((f) => ({ kind: 'feat', id: f.id, unlocks: [], materials: { coin: 5 } })),
+    ...DATA.challenges.map((c) => ({ kind: 'challenge', id: c.id, unlocks: [] })), ...DATA.feats.map((f) => ({ kind: 'feat_found', id: f.id })),
+  ];
+  for (const l of changeLines(DATA, results)) lines.push([`result ${l.kind}`, l.text]);
+  for (const f of DATA.feats) { const t = rewardLabels(DATA, 'feat', f); assert.ok(t, f.id); lines.push([`feat reward ${f.id}`, t]); }
+  for (const c of DATA.challenges) { const t = rewardLabels(DATA, 'challenge', c); assert.ok(t, c.id); lines.push([`challenge reward ${c.id}`, t]); }
+  for (const b of DATA.buildings) for (let lv = 1; lv <= b.levels.length; lv++) for (const e of levelEffects(DATA, b.id, lv)) lines.push([`${b.id} Lv ${lv}`, e.text]);
+  // In a run: the relic pick, the Ferryman's stock, and the tasks' notices.
+  const w = createWorld({ seed: 4, character: 'lamplighter', harbor: { ferry: 5 } }, DATA);
+  for (const v of [haltView(w, { kind: 'relic', offer: DATA.relics.map((r) => r.id) }, DATA), haltView(w, { kind: 'ferry' }, DATA)]) {
+    for (const x of v.relics || v.offers) lines.push([`${v.kind} ${x.id ?? x.name}`, x.name], [`${v.kind} desc`, x.desc], [`${v.kind} why`, x.why ?? null], [`${v.kind} tier`, x.tierName ?? null]);
+  }
+  const ev = { type: [], a: [], b: [], c: [], d: [] };
+  const push = (type, a, b, c, dd) => { ev.type.push(type); ev.a.push(a); ev.b.push(b); ev.c.push(c); ev.d.push(dd); };
+  w.tasks.forEach((t, i) => { push(EV.TASK, t.kind, 1, i, 0); push(EV.TASK, t.kind, 2, i, 6); });
+  push(EV.NIGHT, 1, 0, 0, 0); push(EV.NIGHT, 0, 0, 0, 0); push(EV.FERRY, 1, 2, 0, 0);
+  for (let i = 0; i < ev.type.length; i++) { const n = noticeFor(ev, i, w); assert.ok(n, `event ${ev.type[i]}`); lines.push([`notice ${ev.type[i]}`, n]); }
+  checkAll(lines, 'phase 7');
+  const said = lines.map(([, t]) => t).filter((t) => typeof t === 'string');
+  assert.deepEqual(said.filter((t) => /^(You|Your) /.test(t)), [], 'no line opens on "You"');
+  assert.deepEqual(said.filter((t) => /^The (Market|Smithy|Chapel|Docks|Apothecary|Cartographer|Ferryman|Tavern|Library|Lamp Post)\b/.test(t)), []);
+  void TASK;
 });
 
 test('voice: the run\'s end screen and the settings refusal', () => {

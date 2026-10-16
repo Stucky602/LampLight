@@ -45,7 +45,10 @@ test('meta: unlock keys read as their kind, and anything else is unknown', () =>
   assert.deepEqual(parseUnlock('research:tide_charts'), { kind: 'research', id: 'tide_charts' });
   assert.deepEqual(parseUnlock('building:tavern:3'), { kind: 'building', id: 'tavern', level: 3 });
   assert.deepEqual(parseUnlock('evolution'), { kind: 'evolution' });
-  for (const bad of ['research:', 'building:tavern', 'building:tavern:0', 'building:tavern:x', 'feat:x', 42, null, 'research:a:b']) {
+  assert.deepEqual(parseUnlock('feat:bell_ringer'), { kind: 'feat', id: 'bell_ringer' });
+  assert.deepEqual(parseUnlock('challenge:flood'), { kind: 'challenge', id: 'flood' });
+  assert.deepEqual(parseUnlock('secret:x'), { kind: 'secret', id: 'x' });
+  for (const bad of ['research:', 'building:tavern', 'building:tavern:0', 'building:tavern:x', 'feat:', 'challenge:a:b', 'quest:x', 42, null, 'research:a:b']) {
     assert.equal(parseUnlock(bad).kind, 'unknown', String(bad));
   }
 });
@@ -70,7 +73,8 @@ test('meta: a new profile starts with the starter content; research and the Tave
   const c = resolveContent(fresh(), DATA);
   assert.deepEqual(c.characters, ['lamplighter']);
   assert.deepEqual(c.weapons, ['flare_gun', 'harpoon_chain']);
-  assert.deepEqual(c.relics, []);
+  assert.deepEqual(c.relics.sort(), ['brass_button', 'gull_feather'], 'two plain Trinkets to find from the start');
+  assert.deepEqual([c.recipes, c.consumables, c.arcana], [[], [], []], 'nothing to make or sell before the harbor opens it');
   assert.deepEqual(c.runes.sort(), ['burning_ground', 'splitting']);
   assert.ok(!c.passives.includes('undertow') && c.passives.includes('wick_oil'));
   // Everything the data has comes from somewhere a profile can reach.
@@ -78,6 +82,8 @@ test('meta: a new profile starts with the starter content; research and the Tave
   all.profile.research.done = DATA.research.map((r) => r.id);
   for (const b of DATA.buildings) all.profile.buildings[b.id] = b.levels.length;
   all.profile.codex = DATA.maps.flatMap((m) => (m.secrets || []).map((x) => `secret:${x.id}`)); // every secret found
+  all.profile.feats = DATA.feats.map((f) => f.id);
+  all.profile.challenges = DATA.challenges.map((c) => c.id);
   const full = resolveContent(all, DATA);
   const pickable = (list) => list.filter((x) => x.unlock !== 'evolution' && !x.innate).map((x) => x.id).sort();
   assert.deepEqual(full.weapons.sort(), pickable(DATA.weapons));
@@ -85,6 +91,9 @@ test('meta: a new profile starts with the starter content; research and the Tave
   assert.deepEqual(full.relics.sort(), pickable(DATA.relics));
   assert.deepEqual(full.runes.sort(), pickable(DATA.runes));
   assert.deepEqual(full.characters.sort(), DATA.characters.map((x) => x.id).sort());
+  assert.deepEqual(full.recipes.sort(), DATA.recipes.map((x) => x.id).sort());
+  assert.deepEqual(full.consumables.sort(), DATA.consumables.map((x) => x.id).sort());
+  assert.deepEqual(full.arcana.sort(), DATA.arcana.map((x) => x.id).sort());
   // Content a key brings, by name, for the panels.
   assert.deepEqual(contentFrom(DATA, 'research:tide_charts').map((x) => `${x.what}:${x.id}`), ['weapon:tide_bell', 'passive:undertow']);
   assert.deepEqual(contentFrom(DATA, 'building:tavern:1').map((x) => x.id), ['harpooner']);
@@ -121,7 +130,10 @@ test('meta: restoring a building pays, levels up, and says what it opened; the i
   const max = withLevels(withMats(fresh(), RICH), { library: 5 });
   assert.equal(whyNotRestore(max, DATA, 'library'), 'Already at max level');
   assert.throws(() => restoreBuilding(max, DATA, 'library'), (e) => e instanceof MetaError && /max level/.test(e.message));
-  assert.match(whyNotRestore(fresh(), DATA, 'smithy'), /no building called "smithy"/);
+  assert.match(whyNotRestore(fresh(), DATA, 'boathouse'), /no building called "boathouse"/);
+  assert.equal(whyNotRestore(withMats(fresh(), RICH), DATA, 'smithy'), 'Requires Lamp Post Lv 4', 'still in the fog');
+  assert.equal(whyNotRestore(withLevels(withMats(fresh(), RICH), { lamp_post: 4 }), DATA, 'smithy'), null, 'the fog lifted');
+  assert.equal(whyNotRestore(withMats(fresh(), RICH), DATA, 'docks'), null, 'the Docks stand outside the fog');
   // Level by level, the Lamp Post to the top.
   let lp = withMats(fresh(), RICH);
   for (let lv = 1; lv <= 5; lv++) { lp = restoreBuilding(lp, DATA, 'lamp_post').doc; assert.equal(levelOf(lp, 'lamp_post', DATA), lv); }
@@ -331,16 +343,23 @@ test('meta: a run from the harbor gets the profile\'s pools and the Lamp Post\'s
   assert.deepEqual(fresh4.pools, { weapons: content.weapons, passives: content.passives, relics: content.relics, runes: content.runes }, 'each pool is the profile\'s own');
 });
 
-test('meta: completion counts buildings, upgrades, research, and the codex, from 0 to 100', () => {
+test('meta: completion counts buildings, upgrades, research, the codex, feats, challenges, and Tides, from 0 to 100', () => {
   assert.equal(completion(fresh(), DATA).percent, 0);
   const all = withMats(fresh(), {});
   for (const b of DATA.buildings) all.profile.buildings[b.id] = b.levels.length;
   for (const u of DATA.upgrades) all.profile.upgrades[u.id] = u.ranks;
   all.profile.research.done = DATA.research.map((r) => r.id);
   all.profile.codex = codexKeys(DATA);
+  assert.ok(completion(all, DATA).percent < 100, 'feats, challenges, and Tides still to do');
+  all.profile.feats = DATA.feats.map((f) => f.id);
+  all.profile.challenges = DATA.challenges.map((x) => x.id);
+  all.profile.tide.unlocked = DATA.tides.length;
   const c = completion(all, DATA);
   assert.equal(c.percent, 100);
-  assert.deepEqual(c.parts.map((p) => p.name), ['buildings', 'upgrades', 'research', 'codex']);
+  assert.deepEqual(c.parts.map((p) => p.name), ['buildings', 'upgrades', 'research', 'codex', 'feats', 'challenges', 'tides']);
+  all.profile.feats.push('no_such_feat');
+  all.profile.tide.unlocked = 99;
+  assert.equal(completion(all, DATA).percent, 100, 'nothing counts past the whole');
   const some = withLevels(fresh(), { lamp_post: 5 });
   const p = completion(some, DATA).percent;
   assert.ok(p > 0 && p < 100, `${p}%`);
@@ -466,7 +485,7 @@ test('meta: a run folds into a seasoned profile: counts add, a milestone hit exa
   assert.deepEqual(doc.profile.materials, { coin: 112, oil: 5 }, 'added to what was there');
   assert.deepEqual(doc.profile.bestiary, { fog_wisp: 100, drowned_sailor: 10 });
   assert.deepEqual(changes.filter((c) => c.kind === 'bestiary'), [{ kind: 'bestiary', id: 'fog_wisp', kills: 100 }, { kind: 'bestiary', id: 'drowned_sailor', kills: 10 }], 'exactly 100 and exactly 10 are milestones');
-  assert.deepEqual(doc.stats, { runs: 5, kills: 506, playtimeSec: 3300, deaths: 3, bestTimeSec: 600 });
+  assert.deepEqual(doc.stats, { runs: 5, kills: 506, playtimeSec: 3300, deaths: 3, bestTimeSec: 600, bossKills: 0, clears: 0, lampsLit: 0, bellsRung: 0 });
   assert.deepEqual(doc.profile.codex, ['weapon:flare_gun', 'weapon:harpoon_chain'], 'only keys this build knows, each once');
   assert.deepEqual(changes.filter((c) => c.kind === 'codex').map((c) => c.key), ['weapon:harpoon_chain']);
 });
@@ -525,11 +544,13 @@ test('meta: counts and running projects are brought into range on every load, an
 
 test('meta: the shipped v1 fixture migrates, reconciles, and plays', () => {
   const { doc: v1 } = unwrap(readFileSync(new URL('./fixtures/saves/profile-v1.txt', import.meta.url), 'utf8'), 'profile');
-  const { doc: v2 } = migrateProfile(v1);
-  assert.equal(v2.v, 2);
-  assert.deepEqual(v2.profile.upgrades, {});
-  assert.equal(v2.profile.research.slots, undefined, 'slots come from the Library now');
-  const { doc } = reconcileProfile(v2, DATA);
+  const { doc: v3, steps } = migrateProfile(v1);
+  assert.equal(v3.v, 3);
+  assert.equal(steps, 2, 'v1 to v2, then v2 to v3');
+  assert.deepEqual(v3.profile.upgrades, {});
+  assert.equal(v3.profile.research.slots, undefined, 'slots come from the Library now');
+  assert.deepEqual([v3.profile.gear.next, v3.profile.gear.rolls, v3.profile.challenges, v3.stats.clears], [1, 0, [], 0], 'the Phase 7 parts start empty');
+  const { doc } = reconcileProfile(v3, DATA);
   assert.equal(levelOf(doc, 'lamp_post', DATA), 3);
   assert.deepEqual(doc.profile.research.done, []);
   assert.equal(doc.profile.orphans.research.basics_1, 'done');
@@ -592,16 +613,22 @@ function seasonedProfile() {
   d.profile.buildings = { lamp_post: 3, library: 3, tavern: 2 };
   d.profile.research = { done: ['orbwright'], active: [{ id: 'tide_charts', runsLeft: 2 }] };
   d.profile.upgrades = { bright_flame: 2, quick_step: 1 };
-  d.profile.characters = { lamplighter: { unlocked: true, masteryXp: 40, perks: ['steady_hand'] } };
-  d.profile.gear = { inventory: [{ id: 'rusty_hook', level: 2 }], equipped: { hand: 'rusty_hook' } };
+  d.profile.characters = { lamplighter: { unlocked: true, masteryXp: 40, perks: ['trimmed_wick'] } };
+  const lantern = DATA.recipes.find((r) => r.id === 'storm_lantern');
+  d.profile.gear = { inventory: [{ uid: 1, id: 'storm_lantern', tier: 2, affixes: [lantern.base, lantern.pool[0]] }], equipped: { lantern: 1 }, next: 2, rolls: 1 };
+  d.profile.consumables = { smelling_salts: 2, 'rune:splitting': 1 };
+  d.profile.bestiaryClaimed = { fog_wisp: 2 };
   d.profile.bestiary = { fog_wisp: 1234, drowned_sailor: 56, mud_crab: 9 };
   d.profile.codex = ['weapon:flare_gun', 'passive:wick_oil'];
-  d.profile.feats = ['first_blood'];
+  d.profile.feats = ['dawn'];
+  d.profile.featsFound = ['untouched'];
+  d.profile.challenges = ['lamp_only'];
+  d.profile.setup = { character: 'lamplighter', kit: '', mode: 'standard', curses: ['brittle'], arcana: '', consumables: ['smelling_salts'], rune: '', challenge: '' };
   d.profile.tide = { unlocked: 3, selected: 1 };
   d.profile.prestige = { cycle: 1, relics: ['old_compass'] };
   d.profile.flags = { sawIntro: true };
   d.profile.orphans = { materials: { glowstone: 5 }, research: { deep_charts: 'done' } };
-  Object.assign(d.stats, { runs: 20, playtimeSec: 20000, kills: 5000, deaths: 10, bestTimeSec: 1100 });
+  Object.assign(d.stats, { runs: 20, playtimeSec: 20000, kills: 5000, deaths: 10, bestTimeSec: 1100, bossKills: 6, clears: 2, lampsLit: 30, bellsRung: 11 });
   return d;
 }
 
@@ -618,20 +645,22 @@ test('meta: every writer leaves the rest of the profile alone (an update can nev
   const sameExcept = (before, after, keys, what) => {
     for (const k of Object.keys({ ...before, ...after })) if (!keys.includes(k)) assert.deepEqual(after[k], before[k], `${what}: ${k} untouched`);
   };
-  // A run: its haul, research, the codex, the kills it made, the stats. Nothing else.
+  // A run: its haul, research, the codex, the kills it made, the character's mastery, the stats.
+  // Nothing else.
   const run = applyRunResult(d, result({ materials: { coin: 40, oil: 22 }, kills: { fog_wisp: 150 }, totalKills: 150, relics: ['glass_lantern'] }), DATA).doc;
-  same(run, ['materials', 'research', 'codex', 'bestiary', 'stats'], 'a run');
+  same(run, ['materials', 'research', 'codex', 'bestiary', 'stats', 'characters'], 'a run');
+  assert.deepEqual(run.profile.characters.lamplighter, { unlocked: true, masteryXp: 46, perks: ['trimmed_wick'] }, 'a minute\'s mastery for each of 6:40');
   sameExcept(d.profile.materials, run.profile.materials, ['coin', 'oil'], 'a run\'s materials');
   assert.deepEqual([run.profile.materials.coin, run.profile.materials.oil], [RICH.coin + 40, RICH.oil + 22]);
   sameExcept(d.profile.bestiary, run.profile.bestiary, ['fog_wisp'], 'a run\'s kills');
   assert.equal(run.profile.bestiary.fog_wisp, 1384);
   assert.deepEqual(run.profile.codex.slice(0, 2), d.profile.codex, 'the codex only grows');
   assert.deepEqual(run.profile.research, { done: ['orbwright'], active: [{ id: 'tide_charts', runsLeft: 1 }] });
-  assert.deepEqual(run.stats, { runs: 21, playtimeSec: 20400, kills: 5150, deaths: 11, bestTimeSec: 1100 });
+  assert.deepEqual(run.stats, { runs: 21, playtimeSec: 20400, kills: 5150, deaths: 11, bestTimeSec: 1100, bossKills: 6, clears: 2, lampsLit: 30, bellsRung: 11 });
   // A run that used the tuning panel or its commands marks the save, and keeps the other flags.
   const devRun = applyRunResult(d, result({ devTools: true }), DATA).doc;
   assert.deepEqual(devRun.profile.flags, { sawIntro: true, devTools: true });
-  same(devRun, ['materials', 'research', 'codex', 'bestiary', 'stats', 'flags'], 'a dev run');
+  same(devRun, ['materials', 'research', 'codex', 'bestiary', 'stats', 'flags', 'characters'], 'a dev run');
   // Restoring, upgrading, starting research: the cost and the one thing bought.
   const cost = (c) => spent(d.profile.materials, c);
   const lp = restoreBuilding(d, DATA, 'lamp_post').doc;
@@ -680,12 +709,16 @@ test('meta: reconcile, on every load, and the v1 migration before it, leave a se
   assert.deepEqual(r.doc, d, 'every part as it was: gear, feats, the tide, prestige, the codex, the flags, the stats, what was set aside');
   assert.deepEqual([r.moved, r.restored], [[], []]);
   // The same profile as a v1 save (no upgrades yet, research slots stored) comes through whole.
+  // Its gear has no counters yet; the v3 step adds them (the next uid past the highest held).
   const v1 = structuredClone(d);
   v1.v = 1;
   delete v1.profile.upgrades;
+  delete v1.profile.gear.next;
+  delete v1.profile.gear.rolls;
   v1.profile.research.slots = 2;
   const want = structuredClone(d);
   want.profile.upgrades = {};
+  want.profile.gear.rolls = 0;
   assert.deepEqual(reconcileProfile(migrateProfile(v1).doc, DATA).doc, want);
 });
 
@@ -779,8 +812,8 @@ test('meta: the smaller rules of a run and of the lists, pinned', () => {
   read.profile.research = { done: DATA.research.map((r) => r.id), active: [] };
   assert.equal(allUnlocked(read, DATA), false, 'the Tavern is still a ruin');
   const tavern = devUnlockAll(read, DATA);
-  assert.deepEqual(tavern.doc.profile.buildings, { lamp_post: 5, library: 5, tavern: 5 });
-  assert.deepEqual(tavern.changes.map((c) => [c.kind, c.id]), [['building_level', 'library'], ['building_level', 'tavern']]);
+  assert.deepEqual(tavern.doc.profile.buildings, Object.fromEntries(DATA.buildings.map((b) => [b.id, 5])));
+  assert.deepEqual(tavern.changes.map((c) => [c.kind, c.id]), DATA.buildings.filter((b) => b.id !== 'lamp_post').map((b) => ['building_level', b.id]));
 });
 
 test('meta: research finished in a newer build comes back finished in it, after an older build kept it aside', () => {

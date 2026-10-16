@@ -226,7 +226,7 @@ test('hub: a ceremony pans to the building, clears the fog as it builds, brings 
   assert.deepEqual([w.cam.x, w.cam.y], [w.player.x, w.player.y], 'the camera is back on you');
   hold(w, RIGHT, 0.2);
   assert.ok(w.player.moving, 'you can move again');
-  assert.throws(() => startCeremony(w, { building: 'chapel', level: 1 }), /no plot for chapel/);
+  assert.throws(() => startCeremony(w, { building: 'boathouse', level: 1 }), /no plot for boathouse/);
 });
 
 test('hub: the Tavern\'s first level: the ceremony, then the Harpooner sails in, walks up, and waits on the square', () => {

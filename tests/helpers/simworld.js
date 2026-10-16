@@ -77,13 +77,16 @@ export function givePassive(world, id, level = 1) {
  * there, { halts: 'pass' } answers it without changing the build (skips the draft, opens the
  * chest, discards the rune), so a test can never pass on a world that quietly stopped moving.
  */
-/** Answer every pending halt without changing the build: skip, ok, discard, stay. */
+/** Answer every pending halt, changing the build as little as can be: skip, ok, discard, the first relic, done, keep, stay. */
 function passHalts(world) {
   while (currentHalt(world)) {
     const h = currentHalt(world);
     if (h.kind === 'draft') { world.charges.skip = Math.max(1, world.charges.skip); decide(world, { kind: 'skip' }); }
     else if (h.kind === 'chest') decide(world, { kind: 'ok' });
     else if (h.kind === 'rune') decide(world, { kind: 'discard' });
+    else if (h.kind === 'relic') decide(world, { kind: 'pick', index: 0 });
+    else if (h.kind === 'ferry') decide(world, { kind: 'done' });
+    else if (h.kind === 'ascend') decide(world, { kind: 'keep' });
     else decide(world, { kind: 'stay' });
   }
 }

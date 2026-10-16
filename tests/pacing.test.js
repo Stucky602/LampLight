@@ -124,7 +124,7 @@ test('pacing: a player plays until the harbor has nothing left, and the events c
  * at the runs given, research finished at others, upgrade ranks at others; `pace` minutes a run.
  */
 function handBuilt(levelRuns, { research = [], upgrades = [], pace = 20 } = {}) {
-  const order = DATA.buildings.flatMap((b) => b.levels.map((_, i) => ({ id: b.id, level: i + 1 })));
+  const order = DATA.buildings.filter((b) => DATA.meta.mvpBuildings.includes(b.id)).flatMap((b) => b.levels.map((_, i) => ({ id: b.id, level: i + 1 })));
   const events = [
     ...order.map((l, i) => ({ run: levelRuns[i], kind: 'building', id: l.id, level: l.level, unlocks: l.id === 'tavern' && l.level === 1 ? [{ what: 'character', id: 'harpooner' }] : [] })),
     ...research.map((run, i) => ({ run, kind: 'research', id: DATA.research[i].id })),
@@ -140,9 +140,9 @@ test('pacing: the report\'s arithmetic, pinned on three hand-built players', () 
   const r = summarize(sims, DATA);
   const row = (name) => r.milestones.find((m) => m.milestone === name);
   assert.deepEqual(r.milestones.map((m) => m.milestone), [
-    'first building level', 'Harpooner arrives', 'first research done', 'Lamp Post fully restored', 'Library fully restored',
-    'Tavern fully restored', 'MVP harbor fully restored', 'all research done', 'every upgrade at its last rank',
-  ], 'every character a building brings gets an arrival row');
+    'first building level', 'Harpooner arrives', 'first research done', ...DATA.buildings.map((b) => `${b.name} fully restored`),
+    'MVP harbor fully restored', 'all research done', 'every upgrade at its last rank',
+  ], 'every character a building brings gets an arrival row, every building a row of its own');
   // The median is the middle value, the range the 10th to the 90th percentile (the ends, here);
   // runs and hours are sorted on their own.
   const h = (run, pace) => (run * pace) / 60;
@@ -196,10 +196,10 @@ test('pacing: the report\'s arithmetic, pinned on three hand-built players', () 
 test('pacing: the fresh profile\'s share, the shortest third, and what the report stands on', () => {
   // Pool content only (brief §6.4: what research locks away): the weapons that go in the pools,
   // passives, relics, and runes, not the characters.
-  assert.deepEqual(freshShare(DATA), { have: 10, of: 29, share: 10 / 29, met: false });
+  assert.deepEqual(freshShare(DATA), { have: 12, of: 35, share: 12 / 35, met: false });
   const unlocked = { ...DATA, relics: DATA.relics.map((x) => ({ ...x, unlock: 'starter' })) };
   assert.ok(freshShare(unlocked).share > freshShare(DATA).share);
-  assert.equal(freshShare({ ...DATA, characters: [...DATA.characters, { ...DATA.characters[0], id: 'extra' }] }).of, 29, 'characters don\'t count');
+  assert.equal(freshShare({ ...DATA, characters: [...DATA.characters, { ...DATA.characters[0], id: 'extra' }] }).of, 35, 'characters don\'t count');
   const runs = [300, 1200, 800, 1500, 600, 1000, 900].map((seconds, k) => ({ k, seconds, materials: {}, bosses: 0, end: k % 2 ? 'died' : 'left' }));
   assert.deepEqual(shortestThird(runs).map((r) => r.seconds), [300, 600, 800]);
   assert.deepEqual(shortestThird(runs.slice(0, 1)).map((r) => r.seconds), [300]);

@@ -212,8 +212,14 @@ test('migrations: every fixture save ever shipped still loads (kept forever)', a
     // Everything else it held survives too (§12.2: an update never wipes progress): lifetime
     // numbers, kill counts, upgrade ranks, research (done or running, here or set aside), the
     // codex, the characters' own progress, and the flags.
-    assert.deepEqual(r.stats, doc.stats, `${f}: lifetime numbers`);
-    const O = r.profile.orphans;
+    for (const [k, v] of Object.entries(doc.stats)) assert.equal(r.stats[k], v, `${f}: lifetime ${k}`);
+    const O = r.profile.orphans ?? {};
+    // Phase 7's parts (v3 saves): gear, consumables, feats, challenges, and bestiary rewards.
+    for (const it of doc.profile.gear?.inventory || []) assert.ok(r.profile.gear.inventory.some((x) => x.uid === it.uid && x.id === it.id && x.tier === it.tier) || O.gear?.some((x) => x.uid === it.uid), `${f}: ${it.id} kept`);
+    for (const [slot, uid] of Object.entries(doc.profile.gear?.equipped || {})) assert.equal(r.profile.gear.equipped[slot], uid, `${f}: ${slot} still worn`);
+    for (const [k, n] of Object.entries(doc.profile.consumables || {})) assert.equal(r.profile.consumables[k] ?? O.consumables?.[k], n, `${f}: ${n} ${k} kept`);
+    for (const id of doc.profile.feats || []) assert.ok(r.profile.feats.includes(id) || O.feats?.includes(id), `${f}: feat ${id} kept`);
+    for (const [id, n] of Object.entries(doc.profile.bestiaryClaimed || {})) assert.equal(r.profile.bestiaryClaimed[id] ?? O.bestiaryClaimed?.[id], n, `${f}: ${id} claims kept`);
     for (const [id, n] of Object.entries(doc.profile.bestiary || {})) {
       assert.equal(DATA.enemies.some((e) => e.id === id) ? r.profile.bestiary[id] : O.bestiary?.[id], n, `${f}: ${n} ${id} kills kept`);
     }

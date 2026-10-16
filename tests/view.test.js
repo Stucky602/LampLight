@@ -15,9 +15,9 @@ import {
   simSeconds, animFrameIndex, stepHop, dazeWobble, tileHash, FLOOR_PICK, floorVariant, blockVariant,
 } from '../src/render/viewstate.js';
 import {
-  createHudModel, updateHudModel, layoutMaterials, HUD_LAYOUT, MATERIALS_LAYOUT, createHudPlaces, placeHud,
+  createHudModel, updateHudModel, HUD_LAYOUT, createHudPlaces, placeHud,
 } from '../src/render/hudmodel.js';
-import { minimapBox, materialsLayoutFor } from '../src/render/minimapmodel.js';
+import { minimapBox } from '../src/render/minimapmodel.js';
 import { formatClock, formatCount } from '../src/render/hudtext.js';
 import { textWidth, FONT_H } from '../src/render/font.js';
 import { VIEW_W, VIEW_H } from '../src/render/layout.js';
@@ -245,7 +245,7 @@ test('floor: the tile variants never fall into a pattern, and plain boards are h
   assert.ok(Number.isInteger(tileHash(-100000, 99999)) && tileHash(-100000, 99999) >= 0);
 });
 
-test('HUD layout: nothing overlaps at the longest texts, at every minimap setting, and the materials stay clear of the boss bar', () => {
+test('HUD layout: nothing overlaps at the longest texts, at every minimap setting', () => {
   const atlas = JSON.parse(readFileSync(new URL('../src/assets/atlas.json', import.meta.url), 'utf8'));
   // The longest texts each line can show.
   const longest = (list) => list.reduce((a, t) => (textWidth(t) > textWidth(a) ? t : a), '');
@@ -253,10 +253,13 @@ test('HUD layout: nothing overlaps at the longest texts, at every minimap settin
   const notices = [
     ...bosses, ...DATA.enemies.map((e) => `An elite ${e.name}`), 'Overtime: minute 99',
     ...DATA.weapons.map((w) => `Evolved: ${w.name}`),
+    // Phase 7's (app/runlogic.js noticeFor): the longest a task, the night, and the Ferryman say.
+    'Wayside Lamp: stand by it to light it', `Fog Bell: ${999} kills inside its ring`, 'Lamp lit 9/9: Kindled, +999 Sea Glass',
+    'Fog Bell rung, +999 Sea Glass', 'Lantern Night', 'The night ends', 'Ferryman: new stock',
   ];
   const W = {
     hp: textWidth('9999/9999'), level: textWidth('LV 999'), timer: textWidth(formatClock(7199)),
-    kills: textWidth(`${formatCount(9999999)} KILLS`), boss: textWidth(longest(bosses)),
+    kills: textWidth(`${formatCount(9999999)} KILLS`), glass: textWidth(`${formatCount(99999)} GLASS`), boss: textWidth(longest(bosses)),
     overtime: textWidth('OVERTIME 99 MIN'), notice: textWidth(longest(notices)),
   };
   const P = placeHud(createHudPlaces(), W, true);
@@ -265,31 +268,17 @@ test('HUD layout: nothing overlaps at the longest texts, at every minimap settin
   const grow = (b, name) => ({ name, x: b.x - 1, y: b.y - 1, w: b.w + 2, h: b.h + 2 });
   const boxes = [
     grow(P.xp, 'xp bar'), grow(P.hp, 'hp bar'), grow(P.dash, 'dash bar'), grow(P.bossBar, 'boss bar'),
-    grow(P.hpText, 'hp'), grow(P.levelText, 'level'), grow(P.timerText, 'timer'), grow(P.killsText, 'kills'),
+    grow(P.hpText, 'hp'), grow(P.levelText, 'level'), grow(P.timerText, 'timer'), grow(P.killsText, 'kills'), grow(P.glassText, 'sea glass'),
     grow(P.bossName, 'boss name'), grow(P.overtime, 'overtime'), grow(P.notice, 'notice'),
   ];
   for (let k = 0; k < MAX_WEAPON_SLOTS; k++) boxes.push({ name: `weapon ${k}`, x: L.icons.x + k * L.icons.step, y: L.icons.weaponsY, w: L.icons.size, h: L.icons.size });
   for (let k = 0; k < PASSIVE_SLOTS; k++) boxes.push({ name: `passive ${k}`, x: L.icons.x + k * L.icons.step, y: L.icons.passivesY, w: L.icons.size, h: L.icons.size });
-  // Every material found, each with a five-digit count; with the minimap off, and at each of its
-  // sizes (its frame 2 px round it), the materials moved down under it.
-  const items = DATA.materials.map((m) => {
-    const [, , w, h] = atlas.frames[m.icon];
-    return { iconW: w, iconH: h, textW: textWidth('99999'), ix: 0, iy: 0, tx: 0, ty: 0, id: m.id };
-  });
+  // With the minimap off, and at each of its sizes (its frame 2 px round it).
   const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   for (const [mode, size] of [['off', 'small'], ['nearby', 'small'], ['nearby', 'large'], ['map', 'large']]) {
     const mapBox = minimapBox(mode, size);
-    const layout = materialsLayoutFor(mapBox);
     const all = [...boxes];
     if (mapBox) all.push({ name: `minimap ${size}`, x: mapBox.x - 2, y: mapBox.y - 2, w: mapBox.w + 4, h: mapBox.h + 4 });
-    const rows = layoutMaterials(items, items.length, layout);
-    assert.ok(rows >= 2, 'the test reaches a wrapped row');
-    for (const it of items) {
-      all.push({ name: `${it.id} icon`, x: it.ix, y: it.iy, w: it.iconW, h: it.iconH });
-      all.push({ name: `${it.id} count`, x: it.tx - 1, y: it.ty - 1, w: it.textW + 2, h: FONT_H + 2 });
-      assert.ok(it.ix >= layout.minX, `${it.id} stays right of the boss bar`);
-      assert.ok(it.tx + it.textW <= VIEW_W - L.edge, `${it.id} stays inside the margin`);
-    }
     for (const b of all) assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.w <= VIEW_W && b.y + b.h <= VIEW_H, `${b.name} is on the screen (minimap ${mode} ${size})`);
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
       assert.ok(!hit(all[i], all[j]), `${all[i].name} overlaps ${all[j].name} (minimap ${mode} ${size})`);
@@ -297,12 +286,6 @@ test('HUD layout: nothing overlaps at the longest texts, at every minimap settin
   }
   // Without a boss, overtime takes the boss's line.
   assert.equal(placeHud(createHudPlaces(), W, false).overtime.y, L.overtimeY);
-  // Fewer materials: one row, from the right edge in.
-  const two = items.slice(0, 2).map((it) => ({ ...it }));
-  assert.equal(layoutMaterials(two, 2, MATERIALS_LAYOUT), 1);
-  assert.equal(two[0].tx + two[0].textW, VIEW_W - L.edge, 'the first sits against the right margin');
-  assert.ok(two[1].tx + two[1].textW < two[0].ix, 'the next is to its left');
-  assert.equal(layoutMaterials([], 0, MATERIALS_LAYOUT), 0);
 });
 
 test('HUD model: what the HUD says, updated from a live run without rebuilding unchanged text', () => {
@@ -331,8 +314,7 @@ test('HUD model: what the HUD says, updated from a live run without rebuilding u
   updateHudModel(m, w);
   assert.equal(m.killsText, '12,345 KILLS');
   assert.equal(m.hpText, `38/${Math.round(w.stats.maxHp)}`);
-  assert.equal(m.materialCount, 1);
-  assert.deepEqual([m.materials[0].icon, m.materials[0].text], ['mat_rope', '4'], 'no rounding dust shows as 3');
+  assert.equal('materials' in m, false, 'materials found are on the pause menu, not the HUD');
   decide(w, { kind: 'dev', cmd: 'jump', to: 599.9 });
   const w2 = makeWorld({}, { events: [{ at: 1, event: 'boss', enemy: 'harbor_maw' }] });
   for (let t = 0; t < 70; t++) stepWorld(w2, IDLE);

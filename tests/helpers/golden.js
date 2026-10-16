@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { createWorld, stepWorld, decide, currentHalt, hashWorld } from '../../src/sim/world.js';
 import { fsin, fcos } from '../../src/lib/fmath.js';
 
-export const GOLDEN = { ticks: 3600, hash: 'ff4638b7' };
+export const GOLDEN = { ticks: 3600, hash: 'db237aa0' };
 
 export function frozenData() {
   return JSON.parse(readFileSync(new URL('../fixtures/sim-golden-data.json', import.meta.url), 'utf8'));
@@ -25,7 +25,8 @@ export function playGolden(data, ticks = GOLDEN.ticks) {
     stepWorld(w, { mx: Math.round(100 * fcos(a)), my: Math.round(100 * fcos(a) * fsin(a) * 1.6), buttons: t % 300 === 0 ? 1 : 0 });
     while (currentHalt(w)) {
       const h = currentHalt(w);
-      decide(w, h.kind === 'draft' ? { kind: 'pick', index: 0 } : h.kind === 'rune' ? { kind: 'discard' } : h.kind === 'overtime' ? { kind: 'leave' } : { kind: 'ok' });
+      const answer = { draft: { kind: 'pick', index: 0 }, relic: { kind: 'pick', index: 0 }, rune: { kind: 'discard' }, overtime: { kind: 'leave' }, ferry: { kind: 'done' }, ascend: { kind: 'keep' } };
+      decide(w, answer[h.kind] ?? { kind: 'ok' });
     }
     if (w.over) break;
   }
