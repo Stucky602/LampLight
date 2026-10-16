@@ -77,6 +77,7 @@ test('meta: a new profile starts with the starter content; research and the Tave
   const all = structuredClone(fresh());
   all.profile.research.done = DATA.research.map((r) => r.id);
   for (const b of DATA.buildings) all.profile.buildings[b.id] = b.levels.length;
+  all.profile.codex = DATA.maps.flatMap((m) => (m.secrets || []).map((x) => `secret:${x.id}`)); // every secret found
   const full = resolveContent(all, DATA);
   const pickable = (list) => list.filter((x) => x.unlock !== 'evolution' && !x.innate).map((x) => x.id).sort();
   assert.deepEqual(full.weapons.sort(), pickable(DATA.weapons));
@@ -343,14 +344,6 @@ test('meta: completion counts buildings, upgrades, research, and the codex, from
   const some = withLevels(fresh(), { lamp_post: 5 });
   const p = completion(some, DATA).percent;
   assert.ok(p > 0 && p < 100, `${p}%`);
-});
-
-test('meta: the fog clears region by region with the buildings', () => {
-  const start = revealedFog(fresh(), DATA);
-  assert.ok(start.has('square') && !start.has('lamp_1'));
-  const later = revealedFog(withLevels(fresh(), { lamp_post: 2, library: 1 }), DATA);
-  for (const id of ['square', 'lamp_1', 'lamp_2', 'library_1']) assert.ok(later.has(id), id);
-  assert.ok(!later.has('lamp_3') && !later.has('tavern_1'));
 });
 
 test('meta: saves from other builds are reconciled: unknown things are kept aside, never lost', () => {
@@ -815,4 +808,12 @@ test('meta: a run says when the tuning panel or its commands were used, and fold
   assert.equal(buildRunResult(tuned).devTools, true, 'a tuning change');
   assert.equal(applyRunResult(fresh(), buildRunResult(tuned), DATA).doc.profile.flags.devTools, true);
   assert.equal(applyRunResult(fresh(), buildRunResult(plain), DATA).doc.profile.flags.devTools, undefined);
+});
+
+test('meta: the fog clears region by region with the buildings', () => {
+  const start = revealedFog(fresh(), DATA);
+  assert.ok(start.has('square') && !start.has('lamp_1'));
+  const later = revealedFog(withLevels(fresh(), { lamp_post: 2, library: 1 }), DATA);
+  for (const id of ['square', 'lamp_1', 'lamp_2', 'library_1']) assert.ok(later.has(id), id);
+  assert.ok(!later.has('lamp_3') && !later.has('tavern_1'));
 });

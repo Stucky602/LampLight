@@ -545,3 +545,23 @@ test('harbor view in Node: every harbor number at the edges of its range draws a
     assert.ok(walked.every(Boolean), `${edge}: the keepers walk`);
   }
 });
+
+test('hub view: a prompt\'s anchor (and the guide\'s marker, which uses it) sits over the thing itself: the gate\'s sign, the lamp, a door, a person', () => {
+  const r = hubRig({ levels: { library: 1, tavern: 1 } });
+  r.frame();
+  const g = DATA.hub.gate.at;
+  const gate = r.view.anchorOf({ kind: 'gate' });
+  assert.ok(Math.abs(gate.x - (g[0] * 16 + 8)) <= 8 && gate.y < g[1] * 16, `over the gate's sign (${gate.x}, ${gate.y})`);
+  const lampPlot = DATA.hub.plots.find((p) => p.building === 'lamp_post');
+  const lamp = r.view.anchorOf({ kind: 'door', id: 'lamp_post' });
+  assert.ok(lamp.y <= (lampPlot.y + 1) * 16 - 40, `over the lamp's head, not partway down the pole (${lamp.y})`);
+  const lib = DATA.hub.plots.find((p) => p.building === 'library');
+  const door = r.view.anchorOf({ kind: 'door', id: 'library' });
+  assert.ok(door.x > lib.x * 16 && door.x < (lib.x + lib.w) * 16 && door.y < lib.y * 16, 'over the building, above its roof');
+  const who = r.world.people[0];
+  assert.ok(who, 'the Tavern\'s keeper and the Harpooner are out');
+  const a = r.view.anchorOf({ kind: 'person', id: who.id });
+  assert.ok(Math.abs(a.x - who.x) < 1 && a.y < who.y - 16, 'over their head');
+  assert.equal(r.view.anchorOf({ kind: 'door', id: 'no_such_building' }), null, 'an unknown door: none');
+  assert.equal(r.view.anchorOf(null), null);
+});

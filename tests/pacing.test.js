@@ -196,10 +196,10 @@ test('pacing: the report\'s arithmetic, pinned on three hand-built players', () 
 test('pacing: the fresh profile\'s share, the shortest third, and what the report stands on', () => {
   // Pool content only (brief §6.4: what research locks away): the weapons that go in the pools,
   // passives, relics, and runes, not the characters.
-  assert.deepEqual(freshShare(DATA), { have: 10, of: 24, share: 10 / 24, met: false });
+  assert.deepEqual(freshShare(DATA), { have: 10, of: 29, share: 10 / 29, met: false });
   const unlocked = { ...DATA, relics: DATA.relics.map((x) => ({ ...x, unlock: 'starter' })) };
   assert.ok(freshShare(unlocked).share > freshShare(DATA).share);
-  assert.equal(freshShare({ ...DATA, characters: [...DATA.characters, { ...DATA.characters[0], id: 'extra' }] }).of, 24, 'characters don\'t count');
+  assert.equal(freshShare({ ...DATA, characters: [...DATA.characters, { ...DATA.characters[0], id: 'extra' }] }).of, 29, 'characters don\'t count');
   const runs = [300, 1200, 800, 1500, 600, 1000, 900].map((seconds, k) => ({ k, seconds, materials: {}, bosses: 0, end: k % 2 ? 'died' : 'left' }));
   assert.deepEqual(shortestThird(runs).map((r) => r.seconds), [300, 600, 800]);
   assert.deepEqual(shortestThird(runs.slice(0, 1)).map((r) => r.seconds), [300]);
@@ -253,7 +253,7 @@ test('pacing: the kept yields say whether they were measured on today\'s code an
   const now = await yieldsFingerprint(ROOT);
   assert.match(now, /^[0-9a-f]{16}$/);
   // Everything the sim plays with is fingerprinted as data; only the harbor's own is left out.
-  assert.deepEqual(Object.keys(DATA).filter((k) => !HARBOR_ONLY.includes(k)).sort(), ['bosses', 'characters', 'enemies', 'maps', 'materials', 'palette', 'passives', 'relics', 'runes', 'sfx', 'sfxVoiceCap', 'tuning', 'weapons']);
+  assert.deepEqual(Object.keys(DATA).filter((k) => !HARBOR_ONLY.includes(k)).sort(), ['ascensions', 'bosses', 'characters', 'enemies', 'maps', 'materials', 'palette', 'passives', 'relics', 'runes', 'sfx', 'sfxVoiceCap', 'tuning', 'weapons']);
   assert.equal(await yieldsFingerprint(ROOT), now, 'the same code, the same fingerprint');
   // On copies (each its own, so its modules load fresh): a comment or a harbor cost keeps it; a
   // code change, a change to what the sim plays with, or a change to a fresh profile's pools doesn't.
@@ -329,7 +329,7 @@ test('pacing: the report on the committed yields: its table, its verdicts, and i
   const short = shortestThird(saved.runs);
   const slow = summarize(simulatePlayers(short, DATA, { players, hubMinutes, maxRuns: SLOW_MAX_RUNS }), DATA).mvp;
   assert.deepEqual(out.slow, slow, 'the shortest third, with its own cap');
-  assert.ok(slow.hours > main.mvp.hours, 'shorter runs, more hours');
+  assert.ok(slow.hours === null || slow.hours > main.mvp.hours, 'shorter runs, more hours (or never, when the short runs never bring home some material)');
   // The table: a row a milestone, its medians, its range from the 10th to the 90th percentile, and its verdict.
   assert.deepEqual(out.table.map((row) => row.milestone), main.milestones.map((m) => m.milestone));
   main.milestones.forEach((m, i) => {
@@ -346,7 +346,8 @@ test('pacing: the report on the committed yields: its table, its verdicts, and i
   const mvp = main.mvp;
   assert.ok(out.after.includes(`MVP harbor fully restored: ${mvp.hours.toFixed(1)} h (${mvp.low.toFixed(1)} to ${mvp.high.toFixed(1)} h) (target ${mvp.target}: ${verdict(mvp.met)})`), out.after[1]);
   assert.match(out.after[0], new RegExp(`every ${main.gaps.early.runs.toFixed(1)} runs \\(target 1 to 2 runs: ${verdict(main.gaps.early.met, main.gaps.early.side).replace(/[()]/g, '\\$&')}\\) over runs 1 to 10`));
-  assert.ok(out.after[2].includes(`(${short.length} runs,`) && out.after[2].includes(`in ${slow.hours.toFixed(1)} h (${slow.low.toFixed(1)} to ${slow.high.toFixed(1)} h), by ${slow.reached} of ${players} players within ${SLOW_MAX_RUNS} runs`), out.after[2]);
+  const slowText = slow.hours === null ? `more than ${SLOW_MAX_RUNS} runs` : `${slow.hours.toFixed(1)} h (${slow.low.toFixed(1)} to ${slow.high.toFixed(1)} h)`;
+  assert.ok(out.after[2].includes(`(${short.length} runs,`) && out.after[2].includes(`in ${slowText}, by ${slow.reached} of ${players} players within ${SLOW_MAX_RUNS} runs`), out.after[2]);
   assert.match(out.after[3], new RegExp(`pools hold ${Math.round(freshShare(DATA).share * 100)}% of the run content`));
   // Other targets, other verdicts: the report's verdicts follow them, the table's and the lines' alike.
   const strict = { ...TARGETS, mvpHours: [1, 2], firstLevelRun: 0, freshShare: 0.9 };

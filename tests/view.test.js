@@ -17,6 +17,7 @@ import {
 import {
   createHudModel, updateHudModel, layoutMaterials, HUD_LAYOUT, MATERIALS_LAYOUT, createHudPlaces, placeHud,
 } from '../src/render/hudmodel.js';
+import { minimapBox, materialsLayoutFor } from '../src/render/minimapmodel.js';
 import { formatClock, formatCount } from '../src/render/hudtext.js';
 import { textWidth, FONT_H } from '../src/render/font.js';
 import { VIEW_W, VIEW_H } from '../src/render/layout.js';
@@ -234,16 +235,17 @@ test('floor: the tile variants never fall into a pattern, and plain boards are h
   assert.equal(tileHash(-3, 7), tileHash(-3, 7));
   assert.ok(FLOOR_PICK.every((v) => v >= 0 && v <= 3));
   for (let k = 0; k < 50; k++) { const b = blockVariant(k * 7, -k, 3); assert.ok(Number.isInteger(b) && b >= 0 && b < 3); }
-  // Both views pick the floor through floorVariant (a formula copied into one of them could drift back into a pattern).
-  for (const file of ['src/render/runview.js', 'src/app/scenes/lampyard.js']) {
+  // Both views pick the floor through floorVariant (a formula copied into one of them could drift
+  // back into a pattern): the yard directly, the run view through groundFrame.
+  for (const [file, via] of [['src/render/runview.js', /groundFrame\(/], ['src/app/scenes/lampyard.js', /floorVariant\(/], ['src/render/viewstate.js', /tile_floor_\$\{floorVariant\(/]]) {
     const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.match(src, /floorVariant\(/, `${file} picks its floor with floorVariant`);
+    assert.match(src, via, `${file} picks its floor with floorVariant`);
     assert.doesNotMatch(src, /tile_floor_\$\{\(/, `${file} has no floor formula of its own`);
   }
   assert.ok(Number.isInteger(tileHash(-100000, 99999)) && tileHash(-100000, 99999) >= 0);
 });
 
-test('HUD layout: nothing overlaps at the longest texts, and the materials stay clear of the boss bar', () => {
+test('HUD layout: nothing overlaps at the longest texts, at every minimap setting, and the materials stay clear of the boss bar', () => {
   const atlas = JSON.parse(readFileSync(new URL('../src/assets/atlas.json', import.meta.url), 'utf8'));
   // The longest texts each line can show.
   const longest = (list) => list.reduce((a, t) => (textWidth(t) > textWidth(a) ? t : a), '');
@@ -268,23 +270,30 @@ test('HUD layout: nothing overlaps at the longest texts, and the materials stay 
   ];
   for (let k = 0; k < MAX_WEAPON_SLOTS; k++) boxes.push({ name: `weapon ${k}`, x: L.icons.x + k * L.icons.step, y: L.icons.weaponsY, w: L.icons.size, h: L.icons.size });
   for (let k = 0; k < PASSIVE_SLOTS; k++) boxes.push({ name: `passive ${k}`, x: L.icons.x + k * L.icons.step, y: L.icons.passivesY, w: L.icons.size, h: L.icons.size });
-  // Every material found, each with a five-digit count.
+  // Every material found, each with a five-digit count; with the minimap off, and at each of its
+  // sizes (its frame 2 px round it), the materials moved down under it.
   const items = DATA.materials.map((m) => {
     const [, , w, h] = atlas.frames[m.icon];
     return { iconW: w, iconH: h, textW: textWidth('99999'), ix: 0, iy: 0, tx: 0, ty: 0, id: m.id };
   });
-  const rows = layoutMaterials(items, items.length, MATERIALS_LAYOUT);
-  assert.ok(rows >= 2, 'the test reaches a wrapped row');
-  for (const it of items) {
-    boxes.push({ name: `${it.id} icon`, x: it.ix, y: it.iy, w: it.iconW, h: it.iconH });
-    boxes.push({ name: `${it.id} count`, x: it.tx - 1, y: it.ty - 1, w: it.textW + 2, h: FONT_H + 2 });
-    assert.ok(it.ix >= MATERIALS_LAYOUT.minX, `${it.id} stays right of the boss bar`);
-    assert.ok(it.tx + it.textW <= VIEW_W - L.edge, `${it.id} stays inside the margin`);
-  }
   const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-  for (const b of boxes) assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.w <= VIEW_W && b.y + b.h <= VIEW_H, `${b.name} is on the screen`);
-  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
-    assert.ok(!hit(boxes[i], boxes[j]), `${boxes[i].name} overlaps ${boxes[j].name}`);
+  for (const [mode, size] of [['off', 'small'], ['nearby', 'small'], ['nearby', 'large'], ['map', 'large']]) {
+    const mapBox = minimapBox(mode, size);
+    const layout = materialsLayoutFor(mapBox);
+    const all = [...boxes];
+    if (mapBox) all.push({ name: `minimap ${size}`, x: mapBox.x - 2, y: mapBox.y - 2, w: mapBox.w + 4, h: mapBox.h + 4 });
+    const rows = layoutMaterials(items, items.length, layout);
+    assert.ok(rows >= 2, 'the test reaches a wrapped row');
+    for (const it of items) {
+      all.push({ name: `${it.id} icon`, x: it.ix, y: it.iy, w: it.iconW, h: it.iconH });
+      all.push({ name: `${it.id} count`, x: it.tx - 1, y: it.ty - 1, w: it.textW + 2, h: FONT_H + 2 });
+      assert.ok(it.ix >= layout.minX, `${it.id} stays right of the boss bar`);
+      assert.ok(it.tx + it.textW <= VIEW_W - L.edge, `${it.id} stays inside the margin`);
+    }
+    for (const b of all) assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.w <= VIEW_W && b.y + b.h <= VIEW_H, `${b.name} is on the screen (minimap ${mode} ${size})`);
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+      assert.ok(!hit(all[i], all[j]), `${all[i].name} overlaps ${all[j].name} (minimap ${mode} ${size})`);
+    }
   }
   // Without a boss, overtime takes the boss's line.
   assert.equal(placeHud(createHudPlaces(), W, false).overtime.y, L.overtimeY);
@@ -332,4 +341,35 @@ test('HUD model: what the HUD says, updated from a live run without rebuilding u
   assert.equal(m.boss.name, 'The Harbor Maw');
   assert.equal(m.boss.frac, 1);
   assert.equal(m.weaponCount, 0, 'a new world, a new list');
+});
+
+test('view state: a strike\'s own hit brings its bolt (and still counts as critical when it is); other hits bring none', () => {
+  const st = createViewState({ slots: 4096, rand });
+  const ev = createEventBuffer(64, 8);
+  ev.push(EV.HIT, 10, 20, 12, 7, 0, 0);   // an ordinary hit
+  ev.push(EV.HIT, 30, 40, 12, 8, 2, 0);   // a strike's own hit
+  ev.push(EV.HIT, 50, 60, 12, 9, 3, 0);   // a strike's own critical hit
+  consumeEvents(st, ev, ctx());
+  assert.equal(st.bolts.n, 2);
+  assert.deepEqual([st.bolts.x[0], st.bolts.y[0], st.bolts.x[1], st.bolts.y[1]], [30, 40, 50, 60]);
+  let crits = 0; for (let i = 0; i < st.numbers.max; i++) if (st.numbers.live[i] && st.numbers.kind[i] === 1) crits++;
+  assert.equal(crits, 1, 'bit 1 is still the critical');
+  // The run view draws an upright weapon's shots unturned, and a beam's own sprite.
+  const src = readFileSync(new URL('../src/render/runview.js', import.meta.url), 'utf8');
+  assert.match(src, /shotUpright\[P\.def\[i\]\] === true \? 0 :/);
+  assert.match(src, /Z\.kind\[z\] !== ZONE\.BEAM/);
+  assert.ok(DATA.weapons.filter((w) => w.upright).map((w) => w.id).sort().join() === 'corpse_candles,oil_flask');
+});
+
+test('view state: a secret cache opening flares violet, with its light', () => {
+  const st = createViewState({ slots: 4096, rand });
+  const ev = createEventBuffer(64, 8);
+  ev.push(EV.SECRET, 100, 200, 0);
+  consumeEvents(st, ev, ctx());
+  assert.ok(st.sparks.count > 10, 'a burst and its ring');
+  assert.ok(st.lights.n >= 1, 'a light');
+  ev.clear(); ev.push(EV.MUSTER, 10, 10, 12, 5, 0);
+  const before = st.sparks.count;
+  consumeEvents(st, ev, ctx());
+  assert.ok(st.sparks.count > before, 'a muster rings out where it forms');
 });

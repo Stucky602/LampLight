@@ -494,6 +494,19 @@ test('rigs: each attack shows on the body that makes it', () => {
     rigPose('boss_tidecaller', { t, state: RIG_STATE.WARN, attack: 'hazard_pools', u: 1 }, tp); poolReach = Math.max(poolReach, tp[t4 * 5 + 4]);
   }
   assert.ok(poolReach > calmReach + 0.1, 'the tentacles stretch before its pools');
+  // The tide lanes: further still, with the staff raised.
+  let tideReach = 0;
+  const staff = tc.parts.findIndex((p) => p.name === 'staff');
+  for (let t = 0; t < 3; t += 0.1) { rigPose('boss_tidecaller', { t, state: RIG_STATE.WARN, attack: 'tide_lanes', u: 1 }, tp); tideReach = Math.max(tideReach, tp[t4 * 5 + 4]); }
+  assert.ok(tideReach > poolReach, 'the tentacles reach furthest before the tide');
+  assert.ok(tp[staff * 5 + 1] < 0, 'the staff is raised');
+  // The Maw's lure swells as it lures (its bulb, part 6, scaled past its calm glow).
+  let calmBulb = 0, lureBulb = 0;
+  for (let t = 0; t < 3; t += 0.1) {
+    rigPose('boss_maw', { t, state: RIG_STATE.WALK, attack: '', u: 0 }, mp); calmBulb = Math.max(calmBulb, mp[6 * 5 + 3]);
+    rigPose('boss_maw', { t, state: RIG_STATE.WARN, attack: 'lure', u: 1 }, mp); lureBulb = Math.max(lureBulb, mp[6 * 5 + 3]);
+  }
+  assert.ok(lureBulb > calmBulb * 1.3, `the lure swells (${lureBulb.toFixed(2)} against ${calmBulb.toFixed(2)})`);
 });
 
 test('rigs: the pose is read off the sim\'s boss, the warning reaching 1 on the tick the attack lands', () => {

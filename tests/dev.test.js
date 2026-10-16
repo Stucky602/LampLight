@@ -197,6 +197,7 @@ test('dev level: queues exactly that many level-ups; god, heal, and clear do wha
   stepN(w, 120);
   assert.equal(w.player.hp, w.stats.maxHp, 'invulnerable');
   decide(w, { kind: 'dev', cmd: 'god', on: false });
+  for (let k = 0; k < 6; k++) spawnAt(w, 'drowned_bosun', 0, 0); // more than three levels of weapons clear at once
   stepN(w, 60);
   assert.ok(w.player.hp < w.stats.maxHp, 'hurt again once god mode is off');
   decide(w, { kind: 'dev', cmd: 'heal' });

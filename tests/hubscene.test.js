@@ -19,12 +19,15 @@ import { openSettings } from '../src/app/settings-flow.js';
 import { createSceneManager } from '../src/app/scenes.js';
 import { defaultSettings } from '../src/save/schema.js';
 import { createHubTuning } from '../src/hub/tuning.js';
+import { HUB_TUNING } from '../src/data/tuning.js';
 import { createProgressKeeper } from '../src/app/keeper.js';
 import { createGameFlow } from '../src/app/flow.js';
 import { createRunScene } from '../src/app/scenes/run.js';
 import { stepFor } from '../src/ui/tuningmodel.js';
 import { errorScreen, titleScreen, confirmScreen } from '../src/ui/menus.js';
 import { readFileSync } from 'node:fs';
+import { routeTo } from '../src/hub/map.js';
+import { routeExit } from '../src/ui/hubhud.js';
 
 const HUB = DATA.hub;
 const px = (t) => t * 16 + 8;
@@ -45,7 +48,7 @@ function dualSense(pressed = []) {
 }
 
 /** The harbor scene with everything it talks to, and a frame() that runs one frame as main.js does. */
-function harbor(doc0, { results = null } = {}) {
+function harbor(doc0, { results = null, view: viewIn = null } = {}) {
   const document = installFakeDocument();
   const root = document.createElement('div');
   document.body.appendChild(root);
@@ -59,6 +62,7 @@ function harbor(doc0, { results = null } = {}) {
     attach(w, lv) { this.world = w; this.levels = lv; }, detach() { this.world = null; }, setLevels(lv) { this.levels = lv; },
     draw(alpha, ms) { this.now += ms; },
     toView: (x, y) => ({ x, y }), anchorOf: (near) => (near ? { x: 0, y: 0 } : null),
+    ...viewIn,
   };
   const state = { doc: doc0, saves: 0, runs: [], idle: 0, title: 0, copied: null };
   const menuCtx = { ui, icon: () => document.createElement('span'), sound: (s) => sounds.push(s) };
@@ -658,7 +662,7 @@ test('hub scene: what a purchase and a set piece leave behind, and the smaller r
   fresh.frame();
   assert.equal(fresh.top().el.querySelectorAll('.char-card').length, 1, 'the Lamplighter alone');
   // A panel redraws after a purchase: the rank, the cost, the reason.
-  const lp = harbor(profile({ lamp_post: 1 }, { oil: 8, coin: 6 }));
+  const lp = harbor(profile({ lamp_post: 1 }, { ...DATA.upgrades.find((u) => u.id === 'bright_flame').cost })); // exactly rank 1's price
   const panel = lp.open('lamp_post');
   const rankOf = (id) => panel.el.querySelector(`[data-focus="u:${id}"] .row-rank`).textContent;
   assert.equal(rankOf('bright_flame'), '0/5');
@@ -765,4 +769,209 @@ test('settings: a switch between fullscreen and a window saves first, then switc
   assert.ok(texts(true).includes('The run stopped because of an error. Save a bug report, then reload.'));
   assert.ok(texts(false).includes('The game stopped because of an error. Save a bug report, then reload.'));
   assert.ok(texts(false).includes('boom') && texts(false).includes('Save bug report') && texts(false).includes('Reload'));
+});
+
+/** The pad with the left stick held at (x, y) (-1..1) and these buttons. */
+function stick(x, y = 0, pressed = []) { const p = dualSense(pressed); p.axes = [x, y, 0, 0]; return p; }
+
+test('hub scene: walking off the quay by the gate opens the gate once a push; backing out with west still held doesn\'t reopen it', () => {
+  const t = harbor(profile());
+  const g = HUB.gate.at;
+  t.place([0, g[1]]);
+  t.box.pads = [stick(-1)];
+  let frames = 0;
+  while (!t.top() && frames < 60) { t.frame(); frames++; }
+  assert.match(t.top()?.el.className ?? '', /gate-screen/, 'pushing west at the quay\'s end opened the gate');
+  assert.ok(frames <= Math.ceil(HUB_TUNING.timing.walkOff * 60) + 4, `in ${frames} frames (the walk to the edge, then the push)`);
+  // Circle backs out, the stick still held west: it stays shut, however long you hold.
+  t.frame(30);   // past the screen's input delay
+  t.box.pads = [stick(-1, 0, [B.EAST])]; t.frame(); t.box.pads = [stick(-1)];
+  assert.equal(t.top(), null, 'backed out');
+  t.frame(60);
+  assert.equal(t.top(), null, 'still holding west: no second gate');
+  // Under a screen you stand still, whatever the stick says.
+  t.box.pads = [stick(1, 1)];
+  t.press(B.START);
+  t.box.pads = [stick(1, 1)];
+  const still = [t.world.player.x, t.world.player.y];
+  t.frame(20);
+  assert.match(t.top()?.el.className ?? '', /hub-menu/);
+  assert.deepEqual([t.world.player.x, t.world.player.y], still, 'no walking under a screen');
+  t.box.pads = [stick(0)]; t.press(B.START);
+  assert.equal(t.top(), null);
+  t.place([0, g[1]]);
+  // Let go, push again: it opens again.
+  t.box.pads = [stick(0)]; t.frame();
+  t.box.pads = [stick(-1)]; t.frame(30);
+  assert.match(t.top()?.el.className ?? '', /gate-screen/, 'a new push opens it again');
+});
+
+test('hub scene: the guide shows its goal and marker until its target is in reach, hides under a screen, and goes once the Lamp Post stands', () => {
+  // No run yet: to the gate.
+  const t = harbor(profile());
+  const goal = t.hud('hud-goal'), arrow = t.hud('hud-guide');
+  t.place([30, 18]);
+  t.frame();
+  assert.equal(goal.hidden, false);
+  assert.match(goal.textContent, /gate at the bottom left/);
+  assert.equal(arrow.hidden, false, 'the marker shows');
+  // In reach of the gate: the gate's own prompt takes over from the marker.
+  t.place(HUB.gate.at);
+  t.frame();
+  assert.equal(t.world.near?.kind, 'gate');
+  assert.equal(arrow.hidden, true, 'no marker over a prompt');
+  assert.equal(goal.hidden, false, 'the goal stays');
+  // Under a screen, both go.
+  t.place([30, 18]);
+  t.press(B.START);
+  t.frame();
+  assert.match(t.top().el.className, /hub-menu/);
+  assert.equal(goal.hidden, true);
+  assert.equal(arrow.hidden, true);
+  // After a run, with the Lamp Post a ruin: restore it. Restored: no guide at all.
+  const ran = profile({}, DATA.buildings.find((b) => b.id === 'lamp_post').levels[0].cost); ran.stats.runs = 1;
+  const t2 = harbor(ran);
+  t2.place([30, 18]); t2.frame();
+  assert.match(t2.hud('hud-goal').textContent, /Restore the Lamp Post/);
+  const done = profile({ lamp_post: 1 }); done.stats.runs = 3;
+  const t3 = harbor(done);
+  t3.place([30, 18]); t3.frame();
+  assert.equal(t3.hud('hud-goal').hidden, true);
+  assert.equal(t3.hud('hud-guide').hidden, true);
+});
+
+/** The run scene with stand-ins for what needs a browser, and a frame() that runs one frame as main.js does. */
+function runRig({ isFirstRun = () => false, character = 'lamplighter', seed = 'rig' } = {}) {
+  const document = installFakeDocument();
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const box = { pads: [dualSense()], t: 1000 };
+  const input = createInput({ getGamepads: () => box.pads, target: new EventTarget(), now: () => box.t });
+  const ui = createUi({ root, input, doc: document, sound: () => {} });
+  ui.layout({ x: 0, y: 0, scale: 1 }, 640, 360);
+  const menuCtx = { ui, icon: () => document.createElement('span'), sound: () => {} };
+  const view = { now: 0, attach() {}, detach() {}, markTick() {}, consume() {}, draw(a, ms) { this.now += ms; }, screenFlash: () => 0 };
+  const errors = [];
+  const camera = { x: 320, y: 180 };
+  const scene = createRunScene({
+    view, hud: { attach() {}, detach() {}, draw() {}, notice() {} }, input, ui, menuCtx, audio: { ok: false }, data: DATA, buildId: 'test',
+    loop: { pause() {}, resume() {}, reset() {}, hitStop() {} }, renderer: { camera },
+    onRunSaved() {}, onHarbor() {}, startRun() {}, onSettings() {}, saveReport() {}, copyText: () => 'ok', onTitle() {},
+    isFirstRun, onError: (e) => errors.push(e),
+  });
+  scene.enter({ character, seed, all: true });
+  const frame = (n = 1) => { for (let i = 0; i < n; i++) { box.t += FRAME_MS; input.update(FRAME_MS); scene.step(1 / 60); scene.frame(1, FRAME_MS); ui.update(FRAME_MS); } };
+  const press = (b) => { box.pads = [dualSense([b])]; frame(); box.pads = [dualSense()]; frame(); };
+  return { scene, ui, root, box, frame, press, errors, camera };
+}
+
+test('run scene: a first run shows How to play, hidden under a screen, gone after its seconds; a later run never shows it', () => {
+  for (const first of [true, false]) {
+    const { scene, ui, root, frame, camera } = runRig({ isFirstRun: () => first, seed: 'tips' });
+    frame(2);
+    const card = () => root.querySelector('.run-tips');
+    if (!first) { assert.equal(card(), null, 'not after the first run'); continue; }
+    assert.ok(card(), 'a first run shows it');
+    assert.deepEqual(textsOf(card()).filter((s) => /\w{4}/.test(s)).slice(0, 1), ['How to play']);
+    scene.openPauseForTools();
+    frame();
+    assert.equal(card().hidden, true, 'hidden under the pause');
+    ui.closeAll();
+    frame();
+    assert.equal(card().hidden, false);
+    // Under it, it fades (as the minimap does); away from it, it's solid.
+    ui.view.rect = { left: 0, top: 0, width: 640, height: 360 };
+    card().rect = { left: 8, top: 274, width: 116, height: 76 };
+    const w = scene.world;
+    camera.x = w.player.x; camera.y = w.player.y;
+    frame();
+    assert.equal(card().style.opacity, '', 'solid while you\'re in the middle');
+    w.player.x = camera.x - 320 + 60; w.player.y = camera.y - 180 + 300;
+    frame();
+    assert.equal(card().style.opacity, '0.25', 'faded while you stand under it');
+    // Its seconds pass (the world's clock: a paused run doesn't wear it down).
+    scene.world.tick = DATA.tuning.feel.firstRunTipsSec * 60 + 1;
+    frame();
+    assert.equal(card(), null, 'gone');
+  }
+});
+
+test('run scene: an Ember opens Ascend; Keep for later, then the pause\'s Ascend spends it; the pause never offers it over another screen', () => {
+  const { scene, ui, frame, press } = runRig({ seed: 'ascend' });
+  frame(2);
+  const w = scene.world;
+  scene.recorded.decide({ kind: 'dev', cmd: 'ember' });
+  frame(3);
+  assert.match(ui.top?.el.className ?? '', /ascend-screen/, 'the Ember stopped the run for the choice');
+  const words = textsOf(ui.top.el);
+  for (const t of ['Ascend', 'Flare Gun', 'Starburst', 'Signal Pair', 'White Phosphor', 'Keep for later']) assert.ok(words.includes(t), `says "${t}"`);
+  // Options over the Ascend screen: the pause has no Ascend (the Ember's own screen is open).
+  frame(20);
+  press(B.START);
+  assert.ok(ui.has((x) => x.isPause), 'paused over it');
+  assert.equal(ui.top.el.querySelector('[data-focus="ascend"]'), null, 'no Ascend in the pause over the Ascend screen');
+  press(B.START);
+  assert.match(ui.top?.el.className ?? '', /ascend-screen/);
+  // Keep it.
+  ui.top.scope.focusKey('keep');
+  press(B.SOUTH);
+  assert.equal(ui.top, null);
+  assert.equal(w.build.embers, 1);
+  // The pause now offers it; Ascend there opens the screen; a pick spends it.
+  press(B.START);
+  const asc = ui.top.el.querySelector('[data-focus="ascend"]');
+  assert.ok(asc, 'Ascend (1) in the pause');
+  assert.deepEqual(textsOf(asc).slice(-1), ['Ascend (1)']);
+  ui.top.scope.focusKey('ascend');
+  press(B.SOUTH);
+  frame(20);
+  assert.match(ui.top?.el.className ?? '', /ascend-screen/);
+  ui.top.scope.focusKey('a0_1');
+  press(B.SOUTH);
+  assert.equal(ui.top, null);
+  assert.equal(w.build.embers, 0);
+  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['signal_pair']);
+  // Pause, Stats: the character, the weapons (her own light too), and the items.
+  press(B.START);
+  ui.top.scope.focusKey('stats');
+  press(B.SOUTH);
+  assert.match(ui.top?.el.className ?? '', /stats-screen/);
+  const stats = textsOf(ui.top.el);
+  for (const t of ['Character', 'All weapons', 'Weapons', 'Items', 'HP', 'Dealt this run', 'Ascended: Signal Pair']) assert.ok(stats.includes(t), `Stats says "${t}" (${stats.join(' | ')})`);
+  assert.ok(stats.some((t) => /\(built in\)/.test(t)), "the character's own weapon is listed");
+  press(B.EAST);
+  assert.ok(ui.has((x) => x.isPause), 'Back returns to the pause');
+});
+
+test('hub scene: off screen the guide\'s arrow aims where the walk to the gate leaves the screen, and stays off the goal line and the corner panels', () => {
+  // A view with a real camera on you, anchors as the real view places them, and the HUD's boxes laid out.
+  const cam = { x: 0, y: 0 };
+  let t = null;
+  const view = {
+    toView: (x, y) => ({ x: x - cam.x + 320, y: y - cam.y + 180 }),
+    anchorOf: (n) => (n?.kind === 'gate' ? { x: HUB.gate.at[0] * 16 + 8, y: HUB.gate.at[1] * 16 - 20 } : n ? { x: 0, y: 0 } : null),
+    draw(alpha, ms) { this.now += ms; cam.x = t?.world.player.x ?? 0; cam.y = t?.world.player.y ?? 0; },
+  };
+  t = harbor(profile(), { view });
+  const hud = t.root.querySelector('.hub-hud');
+  hud.rect = { left: 0, top: 0, width: 640, height: 360 };
+  t.hud('hud-mats').rect = { left: 6, top: 6, width: 226, height: 20 };
+  t.hud('hud-next').rect = { left: 6, top: 262, width: 132, height: 92 };
+  t.hud('hud-goal').rect = { left: 238, top: 8, width: 164, height: 17 };
+  t.place(HUB.spawn);
+  t.frame(2);
+  const shown = t.scene.hudForTools.guideShown;
+  assert.ok(shown && shown.marker && !shown.marker.on, 'the gate is off screen: an edge arrow');
+  // It aims where the walk leaves the screen, not at the gate in a straight line.
+  const w = t.world;
+  const p = [Math.floor(w.player.x / 16), Math.floor(w.player.y / 16)];
+  const exit = routeExit(routeTo(w.map, w.solid, p, HUB.gate.at), (tt) => view.toView(tt[0] * 16 + 8, tt[1] * 16 + 8), 640, 360);
+  assert.ok(exit, 'the walk leaves the screen');
+  assert.deepEqual(shown.target, exit);
+  // And sits on none of the boxes.
+  const m = shown.marker;
+  for (const cls of ['hud-mats', 'hud-next', 'hud-goal']) {
+    const r = t.hud(cls).rect;
+    assert.ok(m.x < r.left - 7 || m.x > r.left + r.width + 7 || m.y < r.top - 7 || m.y > r.top + r.height + 7, `clear of ${cls} (${m.x}, ${m.y})`);
+  }
 });

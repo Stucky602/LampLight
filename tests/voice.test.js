@@ -170,6 +170,10 @@ test('voice: the harbor\'s panels, refusals, prompts, next-up lines, and results
     ...DATA.research.map((r) => ({ kind: 'research_started', id: r.id, runs: r.runs })),
     { kind: 'research_waiting', reason: waitingReason(DATA.meta) },
     ...DATA.weapons.map((w) => ({ kind: 'codex', key: `weapon:${w.id}` })),
+    ...DATA.passives.map((x) => ({ kind: 'codex', key: `passive:${x.id}` })),
+    ...DATA.relics.map((x) => ({ kind: 'codex', key: `relic:${x.id}` })),
+    ...DATA.runes.map((x) => ({ kind: 'codex', key: `rune:${x.id}` })),
+    ...DATA.maps.flatMap((m) => (m.secrets || []).map((x) => ({ kind: 'codex', key: `secret:${x.id}`, unlocks: [{ what: 'relic', id: x.relic }] }))),
     ...DATA.enemies.map((e) => ({ kind: 'bestiary', id: e.id, kills: 1000 })),
     { kind: 'best_time', seconds: 431, previous: 300 },
     ...DATA.buildings.map((b) => ({ kind: 'building_level', id: b.id, level: 2 })),
@@ -208,7 +212,7 @@ test('voice: the run\'s end screen and the settings refusal', () => {
 
 const SCREEN_FILES = [
   ...['src/ui', 'src/app', 'src/app/scenes'].flatMap((dir) => readdirSync(new URL(`../${dir}/`, import.meta.url)).filter((f) => f.endsWith('.js')).map((f) => `${dir}/${f}`)),
-  'src/main.js', 'desktop/shell.cjs',
+  'src/main.js', 'desktop/shell.cjs', 'src/meta/guide.js',
 ];
 const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
 

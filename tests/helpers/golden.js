@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { createWorld, stepWorld, decide, currentHalt, hashWorld } from '../../src/sim/world.js';
 import { fsin, fcos } from '../../src/lib/fmath.js';
 
-export const GOLDEN = { ticks: 3600, hash: '8e0ecd7e' };
+export const GOLDEN = { ticks: 3600, hash: 'ff4638b7' };
 
 export function frozenData() {
   return JSON.parse(readFileSync(new URL('../fixtures/sim-golden-data.json', import.meta.url), 'utf8'));

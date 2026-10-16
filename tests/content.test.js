@@ -4,6 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DATA } from '../src/data/index.js';
+import { buildMap } from '../src/sim/terrain.js';
 import { HOOKS } from '../src/sim/hooks.js';
 import { checkModifier, combine, WEAPON_DEFAULTS, PLAYER_STAT_IDS } from '../src/sim/stats.js';
 import { EMIT, MOTION, FX, AI, STATUS_IDS } from '../src/sim/constants.js';
@@ -27,7 +28,7 @@ const EN = ids(DATA.enemies), MAT = ids(DATA.materials), BOSS = ids(DATA.bosses)
 
 test('content: ids are unique, permanent-looking (snake_case), and every entry has a name and plain description', () => {
   for (const [kind, list] of Object.entries(DATA)) {
-    if (!Array.isArray(list)) continue;
+    if (!Array.isArray(list) || kind === 'ascensions') continue; // ascensions: their own test (lines of options)
     const seen = new Set();
     for (const x of list) {
       assert.ok(ID_RE.test(x.id), `${kind}: bad id "${x.id}"`);
@@ -209,10 +210,11 @@ test('content: the harbor\'s tuning: every number has a range and sits in it, br
   ]);
   for (const at of unit) assert.equal(hubTuneRange(at), 'unit', `${at} is 0 to 1`);
   // Every other range's kind, on purpose. Above 0: what the harbor divides by, and what a
-  // ceremony, a boat, or a walk waits on (0 would give NaN or never end). Any: only where the sign
+  // ceremony, a boat, or a walk waits on (0 would give NaN or never end), and the walk-off's push
+  // (0 would set out at a touch of the edge). Any: only where the sign
   // is a direction or a darkening. Everything else is 0 or more (a reach, a pause, a count, a size).
   const above0 = [
-    'timing.panIn', 'timing.build', 'timing.fogPeel', 'timing.panOut', 'timing.boatSpeed', 'timing.walkSpeed', 'timing.arriveSpeed',
+    'timing.panIn', 'timing.build', 'timing.fogPeel', 'timing.panOut', 'timing.boatSpeed', 'timing.walkSpeed', 'timing.arriveSpeed', 'timing.walkOff',
     'look.flickerSlowMs', 'look.flickerFastMs', 'look.boatBobMs', 'look.waterFrameMs', 'look.waterDriftMs', 'look.hopStepsPerSec', 'look.popSec',
   ];
   const any = ['look.ambientBoost', 'look.wispDriftX', 'look.wispDriftY', 'look.cameraLift', 'look.dust.rise', 'look.smoke.drift', 'look.smoke.rise'];
@@ -244,21 +246,27 @@ function finite(w) {
   return null;
 }
 
-test('content: every weapon with every rune that fits runs 600 ticks cleanly', () => {
+test('content: every weapon with every rune that fits runs 600 ticks cleanly, and every rune changes what it does', () => {
   const weapons = DATA.weapons;
   let combos = 0;
-  for (const def of weapons) {
+  weapons.forEach((def, wi) => {
     const runeSets = [[]];
     if (def.runeSlots > 0) for (const r of DATA.runes) if (runeValidOn(r, def)) runeSets.push([r.id]);
+    let bare = null;
     for (const runes of runeSets) {
-      const w = sweepWorld(combos + 1);
+      // The same seed and crowd for the bare weapon and each rune, so a rune that does nothing
+      // shows as the same damage to the hit point (§5.8: no socketed rune ever does nothing).
+      const w = sweepWorld(100 + wi);
       give(w, def.id, { slot: def.innate ? 8 : 0, level: def.maxLevel, runes });
       run(w, 600, { mx: 60, my: 30, buttons: 0 }, { halts: 'pass' });
       assert.equal(finite(w), null, `${def.id} + [${runes}]: something went non-finite`);
       assert.ok(w.result.damageBySlot.some((d) => d > 0), `${def.id} + [${runes}]: never hurt anything`);
+      const dealt = w.result.damageBySlot.reduce((x, y) => x + y, 0).toFixed(3);
+      if (runes.length === 0) bare = dealt;
+      else assert.notEqual(dealt, bare, `${def.id} + [${runes}]: does exactly what the bare weapon does`);
       combos++;
     }
-  }
+  });
   assert.ok(combos >= 30, `${combos} combinations`);
 });
 
@@ -378,7 +386,20 @@ test('content: Lamp Post upgrades are few, small, capped, and real modifiers', (
   for (let t = 1; t <= maxTier; t++) assert.ok(DATA.upgrades.some((u) => u.tier === t), `tier ${t} has an upgrade`);
 });
 
-test('content: every unlock key names research or a building level that exists', () => {
+test('content: every unlock key names research, a building level, or a map secret that exists', () => {
+  const SECRETS = new Map(DATA.maps.flatMap((m) => (m.secrets || []).map((x) => [x.id, x])));
+  // Every secret is well formed: an id unique across maps (its codex key), a name (the notice),
+  // a radius it opens within, a relic that exists, and a tile inside its map.
+  const ids = new Set();
+  for (const m of DATA.maps) for (const x of m.secrets || []) {
+    assert.ok(typeof x.id === 'string' && !ids.has(x.id), `secret ${x.id}: a unique id`); ids.add(x.id);
+    assert.ok(typeof x.name === 'string' && x.name.length > 0, `secret ${x.id}: a name`);
+    assert.ok(Number.isFinite(x.radius) && x.radius > 0, `secret ${x.id}: a radius`);
+    assert.ok(DATA.relics.some((r) => r.id === x.relic), `secret ${x.id}: relic ${x.relic}`);
+    assert.ok(Array.isArray(x.at) && x.at[0] >= 0 && x.at[1] >= 0 && x.at[0] < m.size[0] && x.at[1] < m.size[1], `secret ${x.id}: inside ${m.id}`);
+    const g = buildMap(m.layout, m.size[0], m.size[1]);
+    assert.equal(g.solid[x.at[1] * m.size[0] + x.at[0]], 0, `secret ${x.id}: on open ground (every open tile is reachable)`);
+  }
   for (const [kind, list] of [['weapon', DATA.weapons], ['passive', DATA.passives], ['relic', DATA.relics], ['rune', DATA.runes], ['character', DATA.characters]]) {
     for (const x of list) {
       const u = parseUnlock(x.unlock);
@@ -388,6 +409,8 @@ test('content: every unlock key names research or a building level that exists',
         assert.ok(B.has(u.id), `${kind} ${x.id}: building ${u.id}`);
         assert.ok(u.level <= DATA.buildings.find((b) => b.id === u.id).levels.length, `${kind} ${x.id}: level ${u.level}`);
       }
+      // A secret's relic is what its cache holds: the cache is how you meet it the first time.
+      if (u.kind === 'secret') assert.ok(SECRETS.has(u.id) && kind === 'relic' && SECRETS.get(u.id).relic === x.id, `${kind} ${x.id}: the secret ${u.id} holds it`);
       if (kind === 'character') assert.ok(['starter', 'building', 'research'].includes(u.kind), `character ${x.id} can be reached`);
     }
   }

@@ -64,8 +64,21 @@ test('workflow: the page and version marker are never cached; hashed bundles are
   assert.match(h, /\/assets\/\*\n\s+Cache-Control: public, max-age=31536000, immutable/);
 });
 
-test('workflow: Node 22 is pinned for Cloudflare builds', () => {
-  assert.equal(read('.node-version').trim(), '22');
+test('workflow: Node 22 or newer, said where an upload can\'t lose it; nothing the gate needs is a dotfile', () => {
+  // GitHub's drag-and-drop upload can drop files whose names start with a dot, and it did:
+  // 0.5.1's first deploy had no .node-version, so this test read a missing file and failed the
+  // build (Cloudflare built on Node 24 otherwise fine). The floor lives in package.json's
+  // engines; .node-version still pins Cloudflare to 22 when it arrives, and is optional here.
+  assert.equal(pkg.engines?.node, '>=22');
+  assert.ok(Number(process.versions.node.split('.')[0]) >= 22, `running on Node ${process.versions.node}`);
+  if (existsSync(join(ROOT, '.node-version'))) assert.equal(read('.node-version').trim(), '22');
+  // Every file a test reads with read() is an ordinary name, so no gate check hangs on a dotfile.
+  const reads = [];
+  for (const f of readdirSync(join(ROOT, 'tests')).filter((n) => n.endsWith('.test.js'))) {
+    for (const m of readFileSync(join(ROOT, 'tests', f), 'utf8').matchAll(/\bread\('([^']+)'\)/g)) reads.push([f, m[1]]);
+  }
+  assert.ok(reads.length > 5, `${reads.length} reads found`);
+  assert.deepEqual(reads.filter(([, path]) => path.split('/').some((part) => part.startsWith('.') && part !== '..') && path !== '.node-version'), [], 'no dotfile the gate needs');
 });
 
 test('workflow: desktop and tools keep their own package.json files', () => {

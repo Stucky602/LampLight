@@ -563,10 +563,10 @@ test('bosses: every attack warns first (0.8 s or more), in order, and phases cha
   assert.ok(boss && boss.alive);
   const e = w2.enemies.resolve(boss.handle);
   w2.enemies.x[e] = w2.player.x + 120; w2.enemies.y[e] = w2.player.y;
-  const tele = runCollect(w2, 60 * 12, EV.TELEGRAPH);
-  assert.ok(tele.length >= 3, `${tele.length} warnings in 12 s`);
+  const tele = runCollect(w2, 60 * 16, EV.TELEGRAPH);
+  assert.ok(tele.length >= 4, `${tele.length} warnings in 16 s`);
   for (const t of tele) assert.ok(t.b >= Math.round(w2.tuning.enemies.telegraphMin * TPS), `warning ${t.b} ticks`);
-  assert.deepEqual(tele.slice(0, 3).map((t) => t.a), [TELE.RING, TELE.SUMMON, TELE.LINE], 'slam, summon, charge');
+  assert.deepEqual(tele.slice(0, 4).map((t) => t.a), [TELE.RING, TELE.RING, TELE.SUMMON, TELE.LINE], 'slam, lure, summon, charge');
   w2.enemies.hp[e] = w2.enemies.maxHp[e] * 0.4;
   run(w2, 1);
   assert.equal(boss.phase, 1, 'below half HP: phase two');
@@ -591,7 +591,7 @@ test('bosses: a slam only hurts inside its ring, after the warning; summons resp
   const b2 = w2.bosses[0];
   const e2 = w2.enemies.resolve(b2.handle);
   w2.enemies.x[e2] = w2.player.x + 150; w2.enemies.y[e2] = w2.player.y;
-  for (let k = 0; k < 8; k++) { b2.next = 1; b2.timer = 0; run(w2, 60); }
+  for (let k = 0; k < 8; k++) { b2.next = b2.def.phases[0].attacks.indexOf('summon'); b2.timer = 0; run(w2, 60); }
   const minions = [...Array(w2.enemies.count).keys()].filter((i) => w2.enemies.flags[i] & EF.MINION).length;
   assert.ok(minions <= 5, `${minions} minions alive, cap 5`);
 });

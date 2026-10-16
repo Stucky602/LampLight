@@ -16,7 +16,7 @@ import { BUILDINGS_LAYOUT, TOWN_COLORS, SPRITES } from '../art/manifest.js';
 import { openings, librarySign, tavernSign, wallLantern, flowerBox } from '../art/draw/hub.js';
 import { luminance as relLum, contrastRatio, oklab, hexRgb } from '../tools/atlas/color.mjs';
 import { checkAtlasJson, animFrameIds, DRAWN_IN_CODE } from '../src/render/atlasdata.js';
-import { FX_COLOR, LOOK, LOOK_COLOR } from '../src/render/viewstate.js';
+import { FX_COLOR, LOOK, LOOK_COLOR, GROUND_FRAMES } from '../src/render/viewstate.js';
 import { RIGS } from '../src/render/rigs.js';
 import { glowFrame, fogFrame } from '../src/render/textures.js';
 import { stageFrames } from '../src/render/hubtiles.js';
@@ -166,6 +166,15 @@ test('art: the readability rules (§16.4) hold on the real pixels', () => {
   // enemies at least 2:1 (the lamp and the outline carry them the rest of the way in the dark).
   for (const [id, m] of chars) assert.ok(contrastRatio(m.rel, floorRel) >= 4.5, `${id}: contrast ${contrastRatio(m.rel, floorRel).toFixed(1)}:1`);
   for (const [id, m] of enemies) assert.ok(contrastRatio(m.rel, floorRel) >= 2, `${id}: contrast ${contrastRatio(m.rel, floorRel).toFixed(1)}:1`);
+  // The rest of the wharf (every frame the run's ground can show): what you walk on is as low in
+  // contrast as the boards, and every obstacle (water, roofs, walls, the hull) stays dimmer than
+  // the dimmest enemy, so the crowd reads over all of it.
+  const dimmestEnemy = Math.min(...enemies.map(([, m]) => m.mean));
+  for (const id of GROUND_FRAMES) {
+    const m = measure(frame(id), false);
+    if (/^tile_(floor|bridge|deck)_/.test(id)) assert.ok(contrastRatio(m.relMax, m.relMin) < 1.5, `${id}: its own contrast is ${contrastRatio(m.relMax, m.relMin).toFixed(2)}:1`);
+    else assert.ok(m.mean < dimmestEnemy, `${id} (mean ${m.mean.toFixed(0)}) is dimmer than every enemy (${dimmestEnemy.toFixed(0)})`);
+  }
   // The player's shots are warm and light.
   for (const w of DATA.weapons) {
     if (DRAWN_IN_CODE.includes(w.sprite)) continue;
