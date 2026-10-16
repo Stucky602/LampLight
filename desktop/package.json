@@ -1,7 +1,7 @@
 {
   "name": "lamplight",
   "productName": "Lamplight",
-  "version": "0.5.1",
+  "version": "0.6.1",
   "private": true,
   "description": "Lamplight desktop shell. Packaged in Claude's workspace by tools/pack-desktop.mjs; never installed by Cloudflare.",
   "main": "main.cjs",

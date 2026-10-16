@@ -1,55 +1,58 @@
 # Lamplight: Handoff
 
-Updated Sep 30 2026. Phase 5 (meta and hub) is done, version 0.5.1: every component judged above 90, then the language pass (every word the player reads, rewritten the way games in the genre word them). The Phase 3 **feel gate** and Phase 4's **art check** still wait for Kevin, and the harbor joins them. Content (Phase 6 on) waits for the gate (§18).
+Updated Oct 14 2026. Version 0.6.1: Kevin's notes on 0.6.0. The fog is back in the harbor, first-timers get a guide, walking off the quay starts a run, the Lodestone is a U, runs have a minimap and a stats screen, and weapons can ascend with Embers. Next is still the **MVP gate**: Kevin plays it and says whether it's fun.
 
 ## Where things stand
-- **Phases 1 to 4 are done** (see `SCORECARD.md`). Phase 3's exit check, the feel gate, and Phase 4's, the art check, need Kevin.
-- **Phase 5 (Meta and hub) is done** (meta core 96, meta content 98, the harbor world 97, the harbor's art and view 95, the harbor's screens and flow 94, the pacing simulator 95; five rounds of judging). What it adds:
-  - **The harbor.** Between runs you walk a small harbor town at night as the Lamplighter, with the run's movement and dash (R1). ✕ at a door opens the building's panel; at a person, their line. The pause button opens the harbor's menu. The gate at the quay's west end is where you choose who sets out.
-  - **Three buildings, five levels each:** the Lamp Post (its light pushes the fog back, and its levels open the upgrade tree: ten small upgrades over five tiers, Second Wind at the top), the Library (research: seven projects that put new weapons, passives, runes, and a relic into your runs; a project moves on with each run that lasts 5:00 or kills a boss), and the Tavern (the Harpooner arrives by boat at level 1, the four relics at levels 2 to 5). Each level plays a short ceremony: the camera goes to the building, the new stage rises over the old, the fog peels back from its streets, the keeper steps out at level 4 and walks the streets at level 5. ✕ or Circle skips it.
-  - **Materials from runs.** A run brings home Coin, Oil, Timber, Rope, Drowned Pages, Rum, Iron, and Map Scraps, and the results screen says what came home, what's new, and the next three things you can nearly afford. "Next up" stays in the harbor's bottom left.
-  - **Your pools start small.** A fresh profile has 10 of the 24 weapons, passives, relics, and runes; research and the buildings add the rest.
-  - **The profile is saved the moment a run ends and after every purchase.** A failed save keeps the progress in memory and says so, and nothing leaves the game over unsaved progress without asking (Quit, the error screen's reload, and closing the window).
-  - **The title** says Continue once there's progress.
-  - **The harbor's tuning panel** (hold Create, or F1): its timing and look live (the night, the fog, the lamps, the boat, the ceremonies), Copy tuning, and two dev commands: add materials, and unlock everything.
-- **The language pass (0.5.1).** Kevin, on 0.5.0's screenshots: the words sounded like an AI, not a game. `docs/WRITING.md` now sets how every word is written: the house voice from the CQV handbook, and the genre's conventions checked on the Vampire Survivors and Brotato wikis. Cards read `+1 Projectile`, `-0.15s Cooldown`, `+12% Damage (Fire)`; the harbor reads `Requires Library Lv 2`, `Need 10 Coin, 5 Timber`, `New relic: Tide Clock`; the results read `Survived 7:11`, `New best time: 7:11 (was 5:00)`. Names drop "The" (Lamp Post, Drowned Docks, Harpooner) except the bosses'. One name per action (`Start run` everywhere). No screen names Claude; reports still come here. `tests/voice.test.js` checks all of it that a machine can, and a fresh-eyes review scored the result and its findings were taken (see DECISIONS.md for what changed and why).
-- **Pacing** (`node tools/pacing/pacing.mjs`): with the bots' runs, the whole MVP harbor takes about 7 hours (5.6 to 8.6); if every run were like the shortest third they played (13 to 19 minutes), about 18 hours. Real runs will be shorter than the bots', so the costs are to be tuned to your own first runs (§20 call 59).
-- Gate: 538 tests in about 40 s. Web build and `wrangler deploy --dry-run` pass, and the whole loop plays through the real screens and saves in the browser (title, harbor, a restore and its ceremony, a run from the profile's own pools, the results, back in the harbor). The 30-minute soaks at full density pass for both characters (p99 per tick at most 1.6, 3.0, and 4.9 ms by crowd size, against budgets of 2, 4, and 6). The desktop smoke test passes on the packaged build (Electron 44.4.5: it played a run, answered its menus, saved and reloaded through the real bridge, wrote a replay and a report, and Electron's V8 reproduced the golden run hash 8e0ecd7e, same as Node).
-- Nothing has been pushed to GitHub, so this delivery is the full repo again, in parts. No file from 0.4.0 was removed.
+- **Phases 1 to 6 are done** (see `SCORECARD.md`).
+- **0.6.1, Kevin's notes:**
+  - **The fog is back**, as it was in 0.5.1: the Lamp Post peels it back level by level, you can't walk into it, and the boat comes in through it. The night is a little lighter than 0.5.1's (a blue dusk; every cleared street reads).
+  - **A guide for first-timers.** Until the first run, a line at the top says "Go to the gate at the bottom left of town to start a run", and when the gate is off screen an arrow at the screen's edge points to it. Off screen the arrow follows the streets to it, not a straight line through the fog. After the first run the line says to restore the Lamp Post and points at its door (or, if you came home with too little, to go back out); once it's restored the guide is gone. The first run shows a "How to play" card for 40 seconds (move, dash, your weapons fire on their own, blue gems level you up, survive until 20:00).
+  - **Walking off the quay starts a run.** Push left against the town's west edge on the gate's row (or the row below) for 0.15 seconds and it's the same as using the gate.
+  - **The Lodestone is a U**: straight arms, a round bend, steel tips.
+  - **A minimap in runs**, top right, with the materials moved below it. It shows the ground you've seen, you, elites, bosses, and every drop except XP gems: materials, food, magnets, chests, and Embers. Plain enemies aren't on it. It fades while you stand under it. Settings has Minimap (Nearby, Whole map, Off) and Minimap size (Small, Large).
+  - **A stats screen**: pause, then Stats. Your character's numbers (health, regen, armor, speed, pickup range, luck, XP, materials, the dash, revivals, rerolls, and the bonuses every weapon gets), then each weapon's damage, cooldown, projectiles, area, pierce, duration, crit chance, and what it has dealt this run.
+  - **Embers and ascensions**, after Nordic Ashes' ascension crystals. An Ember is a rare drop: every boss drops one, the Bosun at the muster always does, and an elite now and then (15%). Pick one up and a screen opens: choose one of three ascensions for any weapon you carry, or keep the Ember for later (pause then shows "Ascend (1)"). Each of the 8 weapons has its own three, and they change how it works, not just its numbers: the Flare Gun's flares can burst, fire backward too, or set enemies burning; the Harpoon can jump between enemies, drag them in, or hit far harder. With more Embers you take more, and they stack: a weapon can take all three of its line (each once), or spread them across weapons. An evolved weapon keeps its ascensions. An ascension is never offered where a rune would cancel part of it, and a rune isn't offered where it would cancel an ascension (no Backfire on Signal Pair). Ascended weapons show violet pips on the HUD.
+  - **Costs went up again**, to 1.5 times Phase 5's after each building's first level (0.6.0 had 1.15): with ascensions the bots kill and bring home more late in a run, and this puts the MVP harbor back at about 8 hours.
+- **Judged:** the guide and walk-off 92, the minimap 93, Embers and Stats 92 (four rounds; see `SCORECARD.md`).
+- Gate: 587 tests in about 56 s. Web build and `wrangler deploy --dry-run` pass; the whole loop plays through the real screens and saves in the browser; the harbor probe passes; the desktop smoke test passes on the packaged build, and Electron reproduced the golden run hash (ff4638b7, unchanged).
+- **The soaks: this machine is slower than Phase 6's.** 0.6.0's own code, run here, now measures 5.5 ms p99 with 2,001 or more enemies (3.2 ms in Phase 6's session). On it, the Lamplighter's 30-minute soak passes (p99 1.6, 3.4, and 5.9 ms by crowd size, against 2, 4, and 6). The Harpooner's measured 5.3 to 6.9 ms in the biggest crowds across six runs, over the 6 ms line in most. The two versions' CPU profiles are the same within 3% per tick, the runs are tick-for-tick the same with Embers off, and the same code swung from 5.3 to 6.0 between two runs, so this is the tail of a slow, noisy machine rather than new work in the sim. Your frame rate in a busy run (F3) is the real check; it's in the questions below.
+- **Pacing** (`node tools/pacing/pacing.mjs`): the bots' runs average 20 minutes (5 of 12 died, 2 cleared the map, 5 lasted to 25:00); the MVP harbor in 8.3 hours (6.6 to 9.9). The shortest third of their runs (11 to 13 minutes) all died to the Harbor Maw, bringing home no Rum or Iron, so a player who never gets past the Maw never restores the Tavern; whether the Maw is too hard is a gate question. A fresh profile's pools hold 10 of the 29 weapons, passives, relics, and runes (34%).
 
 ## What Kevin needs to do
-**When back:**
-1. Create a GitHub repo named `lamplight` and upload the parts in order (the delivery message lists them). The Cloudflare build after an early part fails because that part has no package.json yet; that's expected and harmless. The build after the last part is the one that counts.
-2. In Cloudflare, create a Worker from that repo with deploy command `npm run build && npx wrangler deploy`.
-3. On the first deploy, open DevTools, go to the Network tab, and check that `/` and `/version.json` show `cache-control: no-store`.
-4. **The feel gate, the art check, and the harbor.** Play the web build with the DualSense, then the .exe. The .exe comes as split pieces (`Lamplight-win-x64-v0.5.1.zip` plus `.z01`, `.z02`, ...), because files sent in the chat are capped at 30 MB. Install 7-Zip (free, 7-zip.org) if you don't have it, put all the pieces in one folder, right-click the `.zip`, and choose 7-Zip, then "Extract Here". Then run `Lamplight-win32-x64\Lamplight.exe`. SmartScreen says "More info", then "Run anyway". (Windows' own unzip can't open split zips.)
-   - Tell Claude what feels or looks wrong in plain words, with the time in the run or the place in the harbor ("at 14:00 the screen turns to mush", "the Tavern's windows are too bright").
-   - For numbers you want changed, open the tuning panel (hold Create for 1 second, or F1), in a run or in the harbor, change them live, then press "Copy tuning" and paste the text into the chat.
+1. **Upload to GitHub, then let Cloudflare build.** Upload the repo parts in the order the delivery message gives, into the same `lamplight` repo (each part adds and replaces files). The build after an early part may fail; the build after the last part is the one that counts. If GitHub's upload page dropped `.node-version` before, that no longer matters.
+2. If the Cloudflare Worker isn't set up yet: create it from the repo with deploy command `npm run build && npx wrangler deploy`. On the first deploy, check in DevTools (Network tab) that `/` and `/version.json` show `cache-control: no-store`.
+3. **The MVP gate: play it and say whether it's fun.** The web build with the DualSense, then the .exe. The .exe comes as split pieces (`Lamplight-win-x64-v0.6.1.zip` plus `.z01`, `.z02`, ...). Put all the pieces in one folder, right-click the `.zip`, choose 7-Zip, then "Extract Here" (on Windows 11 the 7-Zip entry may be under "Show more options"). Then run `Lamplight-win32-x64\Lamplight.exe`. SmartScreen says "More info", then "Run anyway".
+   - Tell Claude what feels or looks wrong in plain words, with the time in the run or the place in the harbor.
+   - For numbers you want changed, open the tuning panel (hold Create for 1 second, or F1), change them live, then press "Copy tuning" and paste the text into the chat.
    - If something breaks, open pause and choose "Save bug report", then attach the file (web: your Downloads folder; the .exe: `%APPDATA%\Lamplight\reports\`).
-5. Check the .exe basics too: fullscreen, F11 and Alt+Enter, Settings, then Display (switch to Borderless at the title or in the harbor, close, reopen: it should stay borderless), and unplugging the DualSense (the game pauses and says why).
-6. Read ARCHITECTURE.md §20 (calls 37 to 61 are new since Phase 3) and DECISIONS.md, and overturn anything you don't like.
+4. Read ARCHITECTURE.md §20 (calls 69 to 72 are new in 0.6.1; 54 and 57 are back with the fog) and DECISIONS.md, and overturn anything you don't like.
 
-## Questions for the feel gate and the art check
-1. Light and fog in a run: too dark, too flat, or right? (Tuning: `feel.light.*`, `feel.fog.*`, and the map's `ambient`.)
-2. Shake, hit-stop, and damage numbers in a big crowd (`feel.shake.*`, `feel.hitStop.*`, `feel.numbers.*`; numbers and shake can be switched off in Settings).
-3. Movement speed, dash distance and cooldown, the XP vacuum, and the player's one-pixel step hop (`player.*`, `xp.magnet*`, `feel.bob.stepsPerSec`).
-4. Do warnings (charger lines, boss rings, hazard pools filling in) read while half-watching? At 10:00 about ten crabs can wind up at once, and their lines stack into one big orange fan.
-5. The Harpooner's daze: too safe, not enough, or right? Try it live: the tuning panel shows her own numbers at the bottom, under `character.harpooner` (`daze` in seconds; 0 turns it off), and "Copy tuning" includes them.
-6. The art: does the horde read (fog wisps are the grey ghosts, sailors teal, crabs pale grey, rats dark with a pale rim, lantern eaters violet moths)? Do the two characters stand out enough in a big crowd? Do the bosses look like bosses? Does the dazed wobble read as dazed? Anything that reads as the wrong thing? (The judges flagged the enemy shot as a first-aid mark, the Lamp Glass icon as a coin, the Lantern Orb as a sun, and Backfire as a dumbbell.)
-7. From Phase 2: should a boss chest be able to evolve several weapons at once? Should orbiting weapons hit enemies pressed right against you?
+## Questions for the MVP gate
+1. Is it fun for 20 minutes? Where does it drag, and where is it too much?
+2. The map: do the slips, sheds, and crates make the wharf more interesting, or just get in the way? (The layout is data: `layout` in `src/data/maps.js`.)
+3. The secret: is the wreck too far, too hidden, or too easy? Does the faint violet glow give it away too much or too little?
+4. The Bosun's Muster at 15:00: does it read as an event? Is a boss chest the right reward?
+5. The Maw's lure: is the pull clear while you're in it? Can you see why you're sliding? The Tidecaller's tide lanes: readable while half-watching?
+6. The new weapons: does each feel like its own thing? (Lightning Rod's bolts are drawn as lines from above; Corpse Candles' flames drift slowly.)
+7. Light and fog in a run, shake, hit-stop, damage numbers, movement, dash, the XP vacuum, and the Harpooner's daze: all still open from the feel gate (tuning names in the panel).
+8. From Phase 2: should a boss chest be able to evolve several weapons at once? Should orbiting weapons hit enemies pressed right against you?
 
 ## Questions about the harbor
 1. Walking and the dash on the pad, and moving through the panels with the d-pad: anything awkward?
-2. The ceremonies' pace (0.7 s to the building, 1.4 s for the stage to rise, 2 s for the fog, half a second to look, 0.7 s back): too slow once you've seen a few? Their numbers are on the harbor's tuning panel under `timing`.
-3. The night and the fog in the harbor: too dark, too thick? (`look.ambient`, `look.fogDensity`, the lamps' reach, on the same panel.)
-4. What the judges saw that doesn't read yet: the Library's book sign reads as letters at its size; the dust along a rising stage is faint; at the Lamp Post's levels 2 to 5 the same lamp rises over itself (only its light and the fog change); the fog still shows its regions' straight edges from a distance; ruins in the fog show as faint outlines.
-5. The pacing against the brief (§20 calls 59 and 60):
-   - A fresh profile's pools hold 42% of the run content; the brief wants about 70% locked at the start (30% or less). It falls as content passes put more behind research.
-   - Past run 10, something new comes every 2 runs, sooner than the brief's 3 to 4, but the MVP harbor has only so much to give (its new things end around run 18).
-   - 35 of the harbor's 57 purchases are upgrade ranks; the brief wants the stat tree a minority. Does that count purchases, or what the tree does to a run?
-   - The costs: tune them to your first runs, or keep the bots' 7 hours as the target?
-6. The frame rate on your monitor in the harbor, at 1080p, 1440p, or 4K (F3 shows it): it draws the light and the fog into their own textures every frame.
-7. The window's close question: if a save ever fails, closing the .exe (its X or Alt+F4) asks "Your progress isn't saved" with Stay as the default. In a browser tab the browser asks only if you've pressed a key or clicked since the page loaded, so a tab closed with only the pad used may close without asking.
+2. The ceremonies' pace (0.7 s to the building, 1.4 s for the stage to rise, half a second to look, 0.7 s back): too slow once you've seen a few? Their numbers are on the harbor's tuning panel under `timing`.
+3. The night with the fog back: dark enough to feel dingy, light enough to see? (`look.ambient` on the harbor's tuning panel.)
+4. The guide: is the line at the top and the arrow at the edge enough to find the gate? Walking off the quay: does it start too easily when you only meant to walk along the edge?
+5. The pacing against the brief (§20 calls 59, 60, 67, 68):
+   - A fresh profile's pools hold 34% of the run content; the brief wants 30% or less. It falls as content passes put more behind research.
+   - Past run 10, something new comes every 2 runs, sooner than the brief's 3 to 4, because the MVP harbor has only so much to give.
+   - The costs: tune them to your first runs, or keep the bots' 8 hours as the target?
+6. The frame rate on your monitor in the harbor and in a busy run (F3 shows it).
+
+## Questions about 0.6.1
+1. Embers: too rare or too common? (One per boss, the muster's Bosun, and 15% of elites: the bots picked up 1 or 2 a run, and they don't go out of their way for drops. `embers.eliteChance` on the run's tuning panel.)
+2. The ascensions: do they feel like variants of the weapon, not just bigger numbers? Any you'd never take, or always take? They're data: `src/data/ascensions.js`.
+3. The minimap: the right size and place? Should it show something it doesn't, or less?
+4. The stats screen: anything you looked for and didn't find?
 
 ## Kevin's Harpooner idea: what was tried, and what shipped
 Kevin suggested buffs for standing still, to offset her pulling enemies onto herself, and said to drop it if it didn't work in practice or fought the reasons to move. It was built and tested with bots: 12 runs of up to 24 minutes for each version of her kit, on the same seeds. "Holding her ground" means she stands in the crowd she reels in, takes its bites, and steps only for a warned attack, a shot, a pool, or when her health drops below 40%. "Standing still only when nothing is near" means she stops whenever no enemy is within 36 px and nothing is warning. `node tools/bots/harpooner-trials.mjs` plays all of it again and prints this table.
@@ -73,13 +76,15 @@ No standing-still version beat plain kiting, so it was scrapped. What shipped an
 - Sound: a boss's charge line and hazard pools share the ordinary rate-limited warning beep, so one can be silent if an ordinary charger beeped in the 0.4 s before.
 - The run view: some effect sizes (explosion and revive spark counts, flash-light radii) are still in code rather than in `tuning.feel`.
 - Elites are drawn at 2x while their body is 1.6x, so the drawing overhangs its body a little (a deliberate trade for square pixels, §20 call 40).
-- The pause menu shows an item's base description, not what its levels added.
+- The pause menu shows an item's base description, not what its levels added (the stats screen shows each weapon's numbers).
 - Replays are about 100 KB for a 20-minute run. Harmless.
-- Words: the enemy, material, and research descriptions (the flavor lines) show nowhere yet; a bestiary or codex screen (Phase 6 or later) is where they'll appear. A cost in the harbor names its materials only on a mouse hover over the icon, so a controller player learns them from the "Need 10 Drowned Pages" line.
+- The minimap and the materials fade by your position on the tick, not the drawn position between ticks, so for a frame at the edge they can stay solid over the top pixel of your head.
+- The Stats screen's weapon list scrolls (the d-pad moves through it) but nothing shows there's more below; with three or more weapons the Items are below the fold.
+- Words: the enemy, material, and research descriptions (the flavor lines) show nowhere yet; a bestiary or codex screen (Phase 7) is where they'll appear. A cost in the harbor names its materials only on a mouse hover over the icon, so a controller player learns them from the "Need 10 Drowned Pages" line.
 - The harbor: the pacing model replays a measured run's haul times its greed, so a percent of greed from the upgrades slightly overstates what the game gives (it multiplies the greed the bot found in the run too). The Lighthouse's plot is 3 tiles wide and the scaffold is drawn for 5 x 4 plots; Phase 10 draws its own.
 
 ## Next
-- **The feel gate, the art check, and the harbor**, all Kevin's. Then **Phase 6 (MVP content)** on Opus 5.5 high, with whatever the gate changes.
+- **The MVP gate**, Kevin's. Then **Phase 7 (Systems)** on Opus 5.5 high, with whatever the gate changes.
 - The atlas is rebuilt with `node tools/atlas/build.mjs` (needs the packs); `--check` says whether the committed one is current. `node tools/atlas/hub-preview.mjs` draws the harbor at any building levels, by day or night, with `--boat` for an arrival.
 - `node tools/pacing/pacing.mjs` prints the pacing report from the committed yields in a few seconds; `--remeasure` plays the bots again (minutes).
 

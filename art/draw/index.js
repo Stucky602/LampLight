@@ -5,7 +5,7 @@
 import * as sprites from './sprites.js';
 import * as bosses from './bosses.js';
 import * as effects from './effects.js';
-import { planks } from './tiles.js';
+import { planks, water, bridge, deck, roof, shedWall, hull } from './tiles.js';
 import * as hub from './hub.js';
 
 export const DRAW = Object.freeze({
@@ -21,6 +21,12 @@ export const DRAW = Object.freeze({
   crystal: () => sprites.crystal(),
   burstGem: () => sprites.burstGem(),
   lampPost: () => sprites.lampPost(),
+  signalMirror: () => sprites.signalMirror(),
+  oilFlask: () => sprites.oilFlask(),
+  lightningRod: () => sprites.lightningRod(),
+  corpseCandles: () => sprites.corpseCandles(),
+  wreckLantern: () => sprites.wreckLantern(),
+  ember: () => sprites.ember(),
   rune: (entry) => sprites.rune(entry.id),
   mawBody: () => bosses.mawBody(),
   mawJaw: () => bosses.mawJaw(),
@@ -34,6 +40,12 @@ export const DRAW = Object.freeze({
   tidecallerTentacle: () => bosses.tidecallerTentacle(),
   tidecallerHand: () => bosses.tidecallerHand(),
   planks: (entry) => planks(entry.variant ?? 0),
+  water: (entry) => water(entry.variant ?? 0, entry.edges ?? ''),
+  bridge: (entry) => bridge(entry.variant ?? 0),
+  deck: (entry) => deck(entry.variant ?? 0),
+  roof: (entry) => roof(entry.variant ?? 0),
+  shedWall: (entry) => shedWall(entry.variant ?? 0),
+  hull: (entry) => hull(entry.variant ?? 0),
   // The harbor's code-drawn pieces, each its own frame.
   hub: () => [
     hub.water(0), hub.water(1), hub.water(2),

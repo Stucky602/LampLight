@@ -36,3 +36,96 @@ export function planks(variant = 0) {
   if (variant === 2) for (let x = 9; x < 15; x++) setPx(f, x, 11, 'sea-1');
   return f;
 }
+
+// The rest of the wharf (the docks layout, src/sim/terrain.js buildDocks). Everything stays as
+// dark as the boards or darker, so the crowd reads over the water and the bridges as it does
+// over the deck; only the sheds' roofs sit a step lighter (an obstacle reads as one).
+
+/**
+ * Black harbor water in a slip: `variant` 0 and 1 are open water (a few dull crests, never
+ * bright: the lamp is what lights water at night). `edges` names the wharf's sides it meets:
+ * 'n' (the quay's lip, and its shadow falling on the water below it), 'w' and 'e' (the slip's
+ * stone side, a lit lip and a shadow line).
+ */
+export function water(variant = 0, edges = '') {
+  const f = blank('water', 16, 16);
+  fillRect(f, 0, 0, 16, 16, 'night-1');
+  const crests = variant === 1 ? [[2, 4, 3], [10, 9, 4], [5, 13, 3]] : [[8, 3, 4], [1, 8, 3], [11, 13, 3]];
+  for (const [x, y, len] of crests) for (let j = 0; j < len; j++) setPx(f, (x + j) % 16, y, 'sea-1');
+  if (edges.includes('w')) { fillRect(f, 0, 0, 1, 16, 'night-3'); fillRect(f, 1, 0, 1, 16, 'night-0'); }
+  if (edges.includes('e')) { fillRect(f, 15, 0, 1, 16, 'night-3'); fillRect(f, 14, 0, 1, 16, 'night-0'); }
+  if (edges.includes('n')) {
+    fillRect(f, 0, 0, 16, 1, 'night-3');                          // the quay's lip
+    fillRect(f, 0, 1, 16, 3, 'night-0');                          // its shadow on the water
+  }
+  return f;
+}
+
+/**
+ * A bridge over a slip: the deck boards run north to south, across the way you walk (they sit
+ * on stringers that run along the bridge), seams dark. `variant` 1 has the rail along its north
+ * edge, 2 along its south (the side over open water).
+ */
+export function bridge(variant = 0) {
+  const f = blank('bridge', 16, 16);
+  fillRect(f, 0, 0, 16, 16, 'night-2');
+  for (let col = 0; col < 4; col++) fillRect(f, col * 4 + 3, 0, 1, 16, 'night-1');
+  for (const x of [1, 9]) { setPx(f, x, 5, 'night-3'); setPx(f, x, 11, 'night-3'); } // nails over the stringers
+  // The rail: a low dark beam with one lit edge, kept inside the ground's own contrast (§16.4).
+  if (variant === 1) { fillRect(f, 0, 0, 16, 2, 'night-1'); fillRect(f, 0, 0, 16, 1, 'night-3'); }
+  if (variant === 2) { fillRect(f, 0, 14, 16, 2, 'night-1'); fillRect(f, 0, 14, 16, 1, 'night-3'); }
+  return f;
+}
+
+/** The wreck's deck: boards gone soft and black, a plank missing here and there. */
+export function deck(variant = 0) {
+  const f = blank('deck', 16, 16);
+  fillRect(f, 0, 0, 16, 16, 'night-1');
+  for (let row = 0; row < 4; row++) fillRect(f, 0, row * 4 + 3, 16, 1, 'night-0');
+  if (variant === 1) fillRect(f, 5, 4, 7, 3, 'night-0');          // a missing board
+  setPx(f, 3, 9, 'wood-1'); setPx(f, 12, 1, 'wood-1');
+  return f;
+}
+
+/**
+ * A shed's roof seen from above: rows of tarred shingles, each row overlapping the one below
+ * (a lit lower edge, a dark gap under it), the joins staggered row to row. `variant` 1 has a
+ * shingle gone.
+ */
+export function roof(variant = 0) {
+  const f = blank('roof', 16, 16);
+  fillRect(f, 0, 0, 16, 16, 'night-4');
+  for (let row = 0; row < 4; row++) {
+    const y = row * 4;
+    fillRect(f, 0, y + 2, 16, 1, 'night-5');                      // the shingle's lit edge
+    fillRect(f, 0, y + 3, 16, 1, 'night-2');                      // the gap under it
+    for (let x = (row % 2) * 3; x < 16; x += 6) setPx(f, x, y, 'night-3');   // the joins, staggered
+    setPx(f, (row * 5 + 1) % 16, y + 1, 'night-3');                          // one worn spot a row
+  }
+  if (variant === 1) fillRect(f, 6, 4, 4, 3, 'night-2');
+  return f;
+}
+
+/** A shed's front wall (the row of the shed nearest you): vertical boards under the eave. */
+export function shedWall(variant = 0) {
+  const f = blank('shed_wall', 16, 16);
+  fillRect(f, 0, 0, 16, 16, 'wood-1');
+  fillRect(f, 0, 0, 16, 2, 'night-2');                            // the eave's shadow
+  for (let x = 3; x < 16; x += 4) fillRect(f, x, 2, 1, 14, 'night-1');
+  if (variant === 1) { fillRect(f, 5, 5, 6, 11, 'night-0'); fillRect(f, 5, 5, 6, 1, 'wood-2'); } // a door
+  return f;
+}
+
+/**
+ * The wreck's hull: heavy planking, the ribs showing through where it has rotted (dark gaps
+ * between lighter ribs), weed at the waterline. `variant` 1 is broken through further.
+ */
+export function hull(variant = 0) {
+  const f = blank('hull', 16, 16);
+  fillRect(f, 0, 0, 16, 16, 'wood-2');
+  for (let x = 1; x < 16; x += 5) { fillRect(f, x, 0, 2, 16, 'wood-3'); fillRect(f, x + 2, 0, 1, 16, 'wood-1'); } // ribs, each with its shadow
+  fillRect(f, 0, 7, 16, 1, 'night-1');
+  if (variant === 1) fillRect(f, 4, 2, 5, 4, 'night-0');
+  for (const x of [0, 6, 11]) setPx(f, x, 15, 'moss-2');             // weed
+  return f;
+}

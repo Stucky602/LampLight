@@ -234,7 +234,12 @@ export const SPRITES = Object.freeze([
   { id: 'icon_tallow_candle', kind: 'icon', ...ob(738) },
   { id: 'icon_almanac', kind: 'icon', ...ob(290) },
   { id: 'icon_lucky_knot', kind: 'icon', ...ob(1021) },
+  { id: 'icon_signal_mirror', kind: 'icon', draw: 'signalMirror' },
+  { id: 'icon_oil_flask', kind: 'icon', draw: 'oilFlask' },
+  { id: 'icon_lightning_rod', kind: 'icon', draw: 'lightningRod' },
+  { id: 'icon_corpse_candles', kind: 'icon', draw: 'corpseCandles' },
   { id: 'relic_volatile_gems', kind: 'icon', draw: 'burstGem' },
+  { id: 'relic_wreck_lantern', kind: 'icon', draw: 'wreckLantern' },
   { id: 'relic_glass_lantern', kind: 'icon', draw: 'hurricaneLamp' },   // layers: the lit globe and the handle
   { id: 'relic_reapers_wake', kind: 'icon', ...ob(134) },
   { id: 'relic_seventh_bell', kind: 'icon', draw: 'bell' },
@@ -257,6 +262,25 @@ export const SPRITES = Object.freeze([
   { id: 'tile_block_0', kind: 'block', ...ob(261), ramp: 'crate', floor: 0 },
   { id: 'tile_block_1', kind: 'block', ...ob(650), ramp: 'crate', floor: 1 },
   { id: 'tile_block_2', kind: 'block', ...ob(260), ramp: 'crate', floor: 2 },
+  // The slips, their bridges, the sheds, and the wreck (art/draw/tiles.js), and the secret
+  // cache aboard it: a sea chest in the relics' violet.
+  { id: 'tile_water_0', kind: 'ground', draw: 'water', variant: 0 },
+  { id: 'tile_water_1', kind: 'ground', draw: 'water', variant: 1 },
+  ...['n', 'w', 'e', 'nw', 'ne'].map((edges) => ({ id: `tile_water_${edges}`, kind: 'ground', draw: 'water', variant: 0, edges })),
+  { id: 'tile_bridge_0', kind: 'ground', draw: 'bridge', variant: 0 },
+  { id: 'tile_bridge_n', kind: 'ground', draw: 'bridge', variant: 1 },
+  { id: 'tile_bridge_s', kind: 'ground', draw: 'bridge', variant: 2 },
+  { id: 'tile_deck_0', kind: 'ground', draw: 'deck', variant: 0 },
+  { id: 'tile_deck_1', kind: 'ground', draw: 'deck', variant: 1 },
+  { id: 'tile_roof_0', kind: 'ground', draw: 'roof', variant: 0 },
+  { id: 'tile_roof_1', kind: 'ground', draw: 'roof', variant: 1 },
+  { id: 'tile_shed_wall_0', kind: 'ground', draw: 'shedWall', variant: 0 },
+  { id: 'tile_shed_wall_1', kind: 'ground', draw: 'shedWall', variant: 1 },
+  { id: 'tile_hull_0', kind: 'ground', draw: 'hull', variant: 0 },
+  { id: 'tile_hull_1', kind: 'ground', draw: 'hull', variant: 1 },
+  { id: 'secret_cache', kind: 'item', ...ob(303), ramp: 'relic' },
+  // An Ember (sim/ascend.js): a coal with its flame, in the relics' violet (it changes a weapon).
+  { id: 'pk_ember', kind: 'item', draw: 'ember', ramp: 'relic' },
 
   // ------------------------------------------------------------ the harbor (Phase 5; pack B, ARCHITECTURE §10.4)
   // The ground: grass, the dirt paths (edges and inside corners, picked by the hub view from its

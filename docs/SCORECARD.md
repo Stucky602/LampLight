@@ -89,6 +89,27 @@ Phase 4 result: all five above 90 (judged by Opus 5.5; the art has no 90 bar but
 
 Phase 5 result: all six above 90 after five rounds (judged by Opus 5.5). How the harbor feels on the pad and looks on a real screen, and whether the pacing's hours match Kevin's own runs, are his to judge.
 
+## Phase 6: MVP content
+
+| ID | Component | Files | Tests | Baseline | Current | Status |
+|---|---|---|---|---|---|---|
+| D1 | The Drowned Docks, fully built | src/sim/terrain.js, src/data/maps.js (layout), src/render/viewstate.js groundFrame, src/render/runview.js drawGround, art/draw/tiles.js | docks, art, view | 79 | 94 | PASS |
+| D2 | The secret (Wreck Cache) end to end | src/sim/chests.js, pickups.js, world.js, dev.js, hooks.js, src/meta/state.js, apply.js, src/ui/hubtext.js, menus.js, src/app/runlogic.js | docks, content, voice | 86 | 96 | PASS |
+| D3 | The elite event and the real bosses | src/sim/director.js, enemies.js, bosses.js, player.js, bot.js, src/data/bosses.js, src/render/rigpose.js | docks, combat, atlas | 81 | 94 | PASS |
+| D4 | The MVP run content: 8 weapons, research, art | src/data/weapons.js, research.js, runes.js, sfx.js, art/draw/effects.js, sprites.js, src/render/viewstate.js bolts, runview.js | content, docks, art | 67 | 91 | PASS |
+
+Phase 6 result: all four above 90 after two rounds (judged by Opus 5.5). Whether it's fun is the MVP gate, Kevin's.
+
+## 0.6.1: Kevin's notes on 0.6.0
+
+| ID | Component | Files | Tests | Baseline | Current | Status |
+|---|---|---|---|---|---|---|
+| J1 | The harbor's fog back, the first-timer guide, walking off the quay | src/hub/world.js, map.js, src/app/scenes/hub.js, run.js, src/meta/guide.js, src/ui/hubhud.js, menus.js, src/render/hubview.js, the fog files from 0.5.1 | hubscene, ascend, hubview, hub, harbor, content, voice | 81 | 92 | PASS |
+| J2 | The run's minimap, the HUD around it, its settings | src/render/minimapmodel.js, minimap.js, hud.js, src/save/schema.js, src/app/settings-flow.js | minimap, view | 80 | 93 | PASS |
+| J3 | Embers and ascensions, Stats, the Lodestone | src/data/ascensions.js, src/sim/ascend.js, weapons.js, chests.js, world.js, pickups.js, src/app/runlogic.js, src/ui/menus.js, src/render/hud.js | ascend, hubscene, content, pacing | 75 | 92 | PASS |
+
+0.6.1 result: all three above 90 after four rounds (judged by Opus 5.5). Whether the guide, the minimap, and the ascensions feel right is Kevin's, at the MVP gate.
+
 ## Score history
 
 (newest last: date, component, score, what changed)
@@ -115,3 +136,10 @@ Phase 5 result: all six above 90 after five rounds (judged by Opus 5.5). How the
 - 2026-09-30, round 4: M1 94, M2 96, M3 96, M4 86, M5 93, M6 95. Major: the harbor's fog showed its density squared (measured in the browser: a region halfway through its peel showed a quarter of its fog). Also: a newcomer brightened about 30% on the tick she stepped off her boat, and the view's code between its tested helpers was untested.
 - 2026-09-30, fixes: the fog drawn whole and then erased by how clear each tile is; the newcomer lit as the light map would light her, in the boat and stepping off; the harbor view run in the gate on Pixi's own scene graph with stand-ins for the GPU and the canvas; every harbor tuning number held to a range; closing the page while a save fails asks first; the pacing windows pooled over players.
 - 2026-09-30, round 5: M1 96, M2 98, M3 97, M4 95, M5 94, M6 95, no blocker or major. After the scores: the end screen no longer opens over the error screen, the chimney waits for the last stage, the close question says only what happened, the pacing model names the bosses a run killed, the boat is lit like its newcomer, the scaffold sits on its plot, and every surviving mutation the judges listed has a test that catches it.
+- 2026-10-14, Phase 6 baselines (Opus 5.5 judges): D1 79, D2 86, D3 81, D4 67. Majors: the Oil Flask always landed 110 px out, whatever it aimed at; every second flask left no oil, and Burning Ground on the flask did nothing (one zone pace per weapon); a Signal Mirror's +1 Projectile added nothing (every beam took the same target); the Wreck Lantern's every-5th rule was tested only to the first pool; the Maw could lure from off screen; nothing in the rune sweep caught a rune that changes nothing.
+- 2026-10-14, round 2: D1 94, D2 96, D3 94, D4 91, no blocker or major. After the scores: boss phases and summon enemies checked at 0:00, a split from a still shot flies outward, the docks' clear radius checked and built fresh in its test, the secret's tile checked open in the content test, the secret's and the muster's effects tested, and §16.5's Phase 6 references written.
+- 2026-10-14, 0.6.1 baselines (Opus 5.5 judges): J1 81, J2 80, J3 75. Majors: closing the gate's screen with the stick still held west reopened it (the screen fed an empty frame, which re-armed the walk-off); no scene tests for the walk-off, the guide, or the tips; the HUD overlap test never placed the minimap; an ascension joined to a weapon's own effect added every number, so Barbed Line on the Kraken Line made each hop stronger than the hit (3.3 times the damage); runes ignored ascensions (Backfire on Signal Pair did nothing); the pause offered Ascend over another screen, and pressing it threw.
+- 2026-10-14, fixes: the walk-off re-arms only on a real frame; per-field rules for joining effects (amounts add, reaches take the larger, a chain's multiplier never adds); runes and ascensions checked against each other both ways; Ascend only with nothing waiting; an Ember picked up at once when the pool is full; the stats screen's items and the character's own weapon; the minimap's reveal from the camera, whole-pixel Nearby, marks by shape; pacing re-measured and costs re-fit to 1.5 times Phase 5's (8.3 hours).
+- 2026-10-14, round 2: J1 89, J2 85, J3 92. Major: the minimap could hide a player cornered under it. J3 passed; after its score, a second Ember on the same tick with nothing left to take is kept rather than opening an empty screen, and three cards were reworded to match what they do.
+- 2026-10-14, round 3: J1 89, J2 88, no blocker or major. The guide's arrow now follows the walk around the fog, and a short haul sends you back to the gate; the minimap and the materials fade while you're under them.
+- 2026-10-14, round 4: J1 92, J2 93, no blocker or major. After the scores: an on-screen target under a corner panel gets an arrow just past the panel, the How to play card fades while you stand under it, the guide's short-haul line is pinned by a test, the minimap's mark shapes are data (`MARK_SHAPES`) with a test that no two look alike, the fade's edges are pinned a pixel either side, and the guide's and the minimap's tests have files of their own.

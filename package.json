@@ -1,9 +1,12 @@
 {
   "name": "lamplight",
-  "version": "0.5.1",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "Lamplight: a survivors-like for Windows PC.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test \"tests/**/*.test.js\"",
     "build": "npm test && vite build --mode web",

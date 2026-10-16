@@ -179,30 +179,25 @@ export function wave() {
  * two bare ends of the U, usually painted silver or white against the red.) Two layers.
  */
 export function magnet() {
-  const body = maskFromRows([
-    '..........',
-    '..........',
-    '##......##',
-    '##......##',
-    '##......##',
-    '##......##',
-    '###....###',
-    '.###..###.',
-    '..######..',
-    '...####...',
-  ]);
-  const poles = maskFromRows([
-    '##......##',
-    '##......##',
-    '..........',
-    '..........',
-    '..........',
-    '..........',
-    '..........',
-    '..........',
-    '..........',
-    '..........',
-  ]);
+  // A horseshoe magnet is a U: two straight, parallel arms and a round bottom as wide as the arms
+  // are apart, the bare poles at the arms' tops. (Kevin, 0.6.0: it should look more U shaped; the
+  // first one's arms leaned in to a narrow bottom. Now they run straight down to a round bend.)
+  const rows = [
+    '###......###',
+    '###......###',
+    '###......###',
+    '###......###',
+    '###......###',
+    '###......###',
+    '###......###',
+    '###......###',
+    '####....####',
+    '############',
+    '.##########.',
+    '...######...',
+  ];
+  const body = maskFromRows(rows);
+  const poles = maskFromRows(rows.map((r, y) => (y < 3 ? r : '.'.repeat(r.length))));
   return { layers: [{ mask: body, ramp: 'magnet' }, { mask: poles, ramp: 'steel' }] };
 }
 
@@ -387,3 +382,130 @@ export function harpoonInHand(body, x, top, bottom) {
   return f;
 }
 
+
+/**
+ * Signal Mirror: a round signaling mirror with a sighting hole in the middle and a short grip,
+ * flashing (a heliograph mirror is round, with a hole to aim it through).
+ */
+export function signalMirror() {
+  return maskFromRows([
+    '#......#.....#..',
+    '.#..........#...',
+    '.....#####......',
+    '...##.....##....',
+    '..#.........#...',
+    '..#....#....#...',
+    '..#...#.#...#...',
+    '..#....#....#...',
+    '..#.........#...',
+    '...##.....##....',
+    '.....#####......',
+    '.......#........',
+    '.......#........',
+    '......###.......',
+  ]);
+}
+
+/** Oil Flask: a round-bellied flask, a cork, and a rag tied at the neck. */
+export function oilFlask() {
+  return maskFromRows([
+    '.....##.....',
+    '.....##..#..',
+    '....####.#..',
+    '.....##.#...',
+    '.....##.....',
+    '....#..#....',
+    '..##....##..',
+    '.#........#.',
+    '#..######..#',
+    '#.########.#',
+    '#.########.#',
+    '.#.######.#.',
+    '..##....##..',
+    '....####....',
+  ]);
+}
+
+/** Lightning Rod: an iron rod with its pointed tip, the bolt coming down onto it. */
+export function lightningRod() {
+  return maskFromRows([
+    '.........##.',
+    '........##..',
+    '.......##...',
+    '......######',
+    '.........##.',
+    '....#...##..',
+    '...###.##...',
+    '...###......',
+    '....#.......',
+    '....#.......',
+    '....#.......',
+    '...###......',
+    '....#.......',
+    '....#.......',
+    '..#####.....',
+  ]);
+}
+
+/** Corpse Candles: three candle stubs on a skull's crown, their flames loose above them. */
+export function corpseCandles() {
+  return maskFromRows([
+    '.#.....#.....#..',
+    '###...###...###.',
+    '.#.....#.....#..',
+    '................',
+    '.#.....#.....#..',
+    '.#.....#.....#..',
+    '.#.....#.....#..',
+    '.##...###...##..',
+    '..#########.....',
+    '.###########....',
+    '.##..###..##....',
+    '.##..###..##....',
+    '..####.####.....',
+    '...#.#.#.#......',
+  ].map((r) => r.padEnd(16, '.')));
+}
+
+/**
+ * Wreck Lantern: a ship's lantern, its glass cracked and one pane gone, still burning (a ship's
+ * lantern: a ring on top, a cage of bars around the glass, a heavy base).
+ */
+export function wreckLantern() {
+  return maskFromRows([
+    '.....##.....',
+    '....#..#....',
+    '.....##.....',
+    '...######...',
+    '..#..#...#..',
+    '..#.#.#..#..',
+    '..#..##..#..',
+    '..#.####.#..',
+    '..#.####....',
+    '..#..##..#..',
+    '..#......#..',
+    '..########..',
+    '.##########.',
+  ]);
+}
+
+/**
+ * An Ember (the drop that ascends a weapon): a live coal, a rough rounded lump with a flame
+ * licking up from it. (A coal from a fire is a broken, blocky lump, not a gem; the flame narrows
+ * to a tip and leans.)
+ */
+export function ember() {
+  return maskFromRows([
+    '....#....',
+    '...##....',
+    '...###...',
+    '..####...',
+    '..#####..',
+    '.#######.',
+    '#########',
+    '####.####',
+    '#########',
+    '.#######.',
+    '..#####..',
+  ]);
+}

@@ -59,6 +59,46 @@ const SHOTS = {
     'lLLLLLLLLLggYWWW',
     'lLLLLLLLLLggYWW.',
   ],
+  // Signal Mirror: the flash where the beam leaves the glass, a four-point glint (sunlight off a
+  // mirror shows as a star of light, brightest in the middle).
+  fx_glint: [
+    '...Y...',
+    '...W...',
+    '.yYWYy.',
+    'YWWWWWY',
+    '.yYWYy.',
+    '...W...',
+    '...Y...',
+  ],
+  // Oil Flask in flight: a round glass flask (amber oil showing through), a cork, and the rag
+  // wick burning at its neck (a fire bottle is lit before it's thrown).
+  proj_oil_flask: [
+    '..WY..',
+    '..yb..',
+    '.LllL.',
+    'LlYYlL',
+    'LlYyLL',
+    '.LLLL.',
+  ],
+  // Lightning Rod: the bright spot where the bolt lands (the bolt itself is drawn as a line,
+  // render/runview.js drawBolts): a white center in a yellow flare.
+  fx_bolt: [
+    '.y.y.',
+    'yYWYy',
+    '.WWW.',
+    'yYWYy',
+    '.y.y.',
+  ],
+  // Corpse Candles: a candle flame floating with no candle, a will-o'-the-wisp (a small flame,
+  // narrow at the tip, a white core, a cooler violet base where it floats free).
+  proj_candle_flame: [
+    '..Y..',
+    '.yWy.',
+    '.YWY.',
+    'yWWWy',
+    '.YWY.',
+    '.xVx.',
+  ],
   // Enemy shot: red-orange, the hazard color, with a hot middle.
   proj_hostile: [
     '.oOo.',
