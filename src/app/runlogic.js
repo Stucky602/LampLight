@@ -4,9 +4,11 @@
 // bug reports. The scene itself (scenes/run.js) wires these to the renderer, audio, and menus.
 
 import { EV, EVENT_NAMES, PICK, END, TELE } from '../sim/events.js';
-import { openSocketsFor } from '../sim/chests.js';
+import { openSocketsFor, CHEST_BOSS, CHEST_SECRET } from '../sim/chests.js';
 import { characterTuning } from '../sim/dev.js';
 import { cardInfo } from '../ui/describe.js';
+import { computeWeaponStats } from '../sim/stats.js';
+import { openAscensions, canAscend } from '../sim/ascend.js';
 import { formatClock, formatCount } from '../render/hudtext.js';
 
 /** The longest hit-stop asked for by events [from, to) of the buffer (ms; 0 for none). */
@@ -39,6 +41,9 @@ export function soundFor(events, i, slots) {
     case EV.CHEST: return 'chest_open';
     case EV.BOSS_SPAWN: return 'boss_spawn';
     case EV.ELITE_SPAWN: return 'warn';
+    case EV.MUSTER: return 'swarm';
+    case EV.SECRET: return null; // the cache's reel sounds when it lands
+    case EV.ASCEND: return 'evolve';
     // Boss-sized warnings (a slam ring, a shot fan, a summoning circle) always sound; the lines
     // of ordinary chargers and gunners share one rate-limited beep (sfx gapMs).
     case EV.TELEGRAPH: return events.a[i] === TELE.LINE || events.a[i] === TELE.CIRCLE ? 'warn' : 'warn_big';
@@ -61,6 +66,10 @@ export function noticeFor(events, i, world) {
     case EV.BOSS_SPAWN: return world.enemyDefs[events.a[i]]?.name ?? 'Boss';
     case EV.ELITE_SPAWN: return `Elite: ${world.enemyDefs[events.a[i]]?.name ?? 'enemy'}`;
     case EV.OVERTIME: return `Overtime: ${events.a[i]} min`;
+    case EV.MUSTER: return world.map.timeline.events[events.c[i]]?.name ?? null;
+    case EV.ASCEND: { const s = world.slots[events.a[i]]; return s?.def ? `Ascended: ${s.def.name}` : null; }
+    case EV.PICKUP: return events.a[i] === PICK.EMBER ? 'Ember found' : null;
+    case EV.SECRET: { const s = world.map.secrets?.[events.a[i]]; return s ? `Secret found: ${s.name}` : null; }
     case EV.EVOLVE: { const s = world.slots[events.a[i]]; return s?.def ? `Evolved: ${s.def.name}` : null; }
     default: return null;
   }
@@ -104,7 +113,7 @@ export function haltView(world, halt, data) {
         charges: { ...world.charges },
       };
     case 'chest':
-      return { kind: 'chest', boss: halt.chestKind === 2, items: halt.items.map((it) => ({ ...cardInfo(it, data, ctx), kind: it.kind })) };
+      return { kind: 'chest', boss: halt.chestKind === CHEST_BOSS, secret: halt.chestKind === CHEST_SECRET, items: halt.items.map((it) => ({ ...cardInfo(it, data, ctx), kind: it.kind })) };
     case 'rune': {
       const rune = world.runeDefs.find((r) => r.id === halt.rune);
       const options = openSocketsFor(world, rune).map((s) => {
@@ -112,6 +121,16 @@ export function haltView(world, halt, data) {
         return { slot: s, name: slot.def.name, icon: slot.def.icon, runes: slot.runes.filter(Boolean).map((r) => r.name) };
       });
       return { kind: 'rune', rune: cardInfo({ kind: 'rune', id: rune.id }, data, ctx), options };
+    }
+    case 'ascend': {
+      const weapons = [];
+      for (let s = 0; s < world.build.weaponSlots; s++) {
+        const open = openAscensions(world, s);
+        if (!open.length) continue;
+        const slot = world.slots[s];
+        weapons.push({ slot: s, name: slot.def.name, icon: slot.def.icon, level: slot.level, ascended: slot.ascensions.map((a) => a.name), options: open.map((o) => ({ id: o.id, name: o.name, desc: o.desc })) });
+      }
+      return { kind: 'ascend', embers: world.build.embers, weapons };
     }
     case 'overtime': {
       const last = world.bosses.filter((b) => b.final).at(-1);
@@ -131,15 +150,79 @@ export function pauseBuild(world) {
       weapons.push({
         name: slot.def.name, icon: slot.def.icon, level: slot.level, max: slot.level >= slot.def.maxLevel, desc: slot.def.desc,
         runes: slot.runes.filter(Boolean).map((r) => r.name),
+        ascensions: slot.ascensions.map((a) => a.name),
       });
     }
   }
   return {
     time: formatClock(world.tick / 60),
+    embers: world.build.embers,
+    // Only with nothing else waiting: an Ember can't be spent over a level-up or its own screen.
+    canAscend: world.build.embers > 0 && !world.halts.length && canAscend(world),
     weapons,
     passives: world.build.passives.map((p) => ({ name: p.def.name, icon: p.def.icon, level: p.level, max: p.level >= p.def.maxLevel, desc: p.def.desc })),
     relics: world.build.relics.map((r) => ({ name: r.name, icon: r.icon, desc: r.desc })),
   };
+}
+
+/** A share as a signed percent from 1 ("+12%", "-6%", "0%"). */
+const pctFrom1 = (v) => { const p = Math.round((v - 1) * 100); return p === 0 ? '0%' : `${p > 0 ? '+' : ''}${p}%`; };
+const num = (v, d = 0) => (Math.round(v * 10 ** d) / 10 ** d).toString();
+const GLOBAL_PROBE = Object.freeze({ id: '__stats', tags: [], maxLevel: 1, levels: [null], base: { damage: 1, cooldown: 1, amount: 0, area: 1, speed: 1, duration: 1, pierce: 0, knockback: 1, crit: 0, critMult: 1 } });
+
+/**
+ * The stats screen's content (pause, Stats): your character's numbers as the run has them now,
+ * the bonuses that reach every weapon, each weapon's own numbers with the damage it has dealt
+ * this run (the character's own weapon too), and the passives and relics you
+ * carry. Plain data: [[label, value]] lists, worded as the cards word stats.
+ */
+export function statsView(world) {
+  const st = world.stats, p = world.player;
+  const character = [
+    ['HP', `${Math.ceil(Math.max(0, p.hp))}/${Math.round(st.maxHp)}`],
+    ['HP Regen', `${num(st.regen, 1)}/s`],
+    ['Armor', num(st.armor + (p.bonusArmor || 0))],
+    ['Move Speed', pctFrom1(st.moveSpeed)],
+    ['Pickup Range', pctFrom1(st.magnet)],
+    ['Luck', pctFrom1(st.luck)],
+    ['XP', pctFrom1(st.growth)],
+    ['Materials', pctFrom1(st.greed)],
+    ['Dash Cooldown', pctFrom1(st.dashCooldown)],
+    ['Revivals', String(p.revivals ?? 0)],
+    ['Rerolls', String(world.charges.reroll)],
+    ['Banishes', String(world.charges.banish)],
+    ['Skips', String(world.charges.skip)],
+  ];
+  // What reaches every weapon (a modifier with no tag): read off a plain probe weapon.
+  const g = computeWeaponStats(world.tuning, GLOBAL_PROBE, 1, world.mods);
+  const allWeapons = [
+    ['Damage', pctFrom1(g.damage)], ['Area', pctFrom1(g.area)], ['Cooldown', pctFrom1(g.cooldown)],
+    ['Projectiles', `+${num(g.amount)}`], ['Duration', pctFrom1(g.duration)], ['Projectile Speed', pctFrom1(g.speed)],
+    ['Crit Chance', `${Math.round(g.crit * 100)}%`],
+  ];
+  const weapons = [];
+  for (let s = 0; s < world.slots.length; s++) {
+    const slot = world.slots[s];
+    if (!slot || !slot.def) continue;
+    const w = slot.stats;
+    weapons.push({
+      name: slot.def.name, icon: slot.def.icon, level: slot.level, max: slot.level >= slot.def.maxLevel, innate: !!slot.def.innate,
+      runes: slot.runes.filter(Boolean).map((r) => r.name),
+      ascensions: (slot.ascensions || []).map((a) => a.name),
+      lines: [
+        ['Damage', num(w.damage, 1)], ['Cooldown', `${num(w.cooldown, 2)}s`], ['Projectiles', num(w.amount)],
+        ['Area', `${Math.round(w.area * 100)}%`], ['Pierce', w.pierce < 0 ? 'All' : num(w.pierce)],
+        ['Duration', `${num(w.duration, 2)}s`], ['Crit Chance', `${Math.round(w.crit * 100)}%`],
+        ['Dealt this run', formatCount(Math.round(world.result.damageBySlot[s] || 0))],
+      ],
+    });
+  }
+  const b = pauseBuild(world);
+  const items = [
+    ...b.passives.map((x) => ({ ...x, kind: 'passive' })),
+    ...b.relics.map((x) => ({ ...x, kind: 'relic' })),
+  ];
+  return { character, allWeapons, weapons, items };
 }
 
 const END_TITLES = { died: 'Defeated', left: 'Run ended', cleared: 'Map cleared' };
@@ -179,7 +262,7 @@ export const END_NAME = { [END.DIED]: 'died', [END.LEFT]: 'left', [END.CLEARED]:
 // Event types worth keeping in a report (the frequent ones would push everything else out).
 const LOGGED = new Set([EV.KILL, EV.PLAYER_HURT, EV.LEVEL_UP, EV.CHEST, EV.BOSS_SPAWN, EV.TELEGRAPH, EV.DASH, EV.PICKUP,
   EV.EXPLODE, EV.SWARM, EV.BOSS_ATTACK, EV.HEAL, EV.REVIVE, EV.ELITE_SPAWN, EV.EVOLVE, EV.RELIC, EV.RUNE, EV.WAVE,
-  EV.RUN_END, EV.OVERTIME, EV.SHIELD_HIT]);
+  EV.RUN_END, EV.OVERTIME, EV.SHIELD_HIT, EV.SECRET, EV.MUSTER, EV.ASCEND]);
 
 /** The last `cap` events that matter, with the tick they were read on (typed arrays; no garbage). */
 export function createEventLog(cap = 300) {

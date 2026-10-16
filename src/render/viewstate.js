@@ -10,11 +10,14 @@
 
 import { EV, TELE, PICK } from '../sim/events.js';
 import { TPS } from '../sim/constants.js';
+import { GROUND } from '../sim/terrain.js';
 import { color as pal } from '../data/palette.js';
 import { createShake, createNumbers, createParticles } from './feel.js';
 
 export const MAX_TELEGRAPHS = 96;
 export const MAX_DYING = 512;
+export const MAX_BOLTS = 48;
+export const BOLT_MS = 140; // how long a bolt shows
 export const MAX_DECALS = 192;
 export const MAX_LIGHTS = 96;
 export const NUMBERS_CAP = 400;   // the most tuning.feel.numbers.max can ask for
@@ -39,6 +42,7 @@ export function createViewState({ slots = 4096, rand = Math.random } = {}) {
     sparks: createParticles(4096),
     numbers: createNumbers(NUMBERS_CAP, slots),
     shake: createShake(),
+    bolts: { n: 0, next: 0, x: new Float32Array(MAX_BOLTS), y: new Float32Array(MAX_BOLTS), t: new Float64Array(MAX_BOLTS) },
     dying: { n: 0, x: new Float32Array(MAX_DYING), y: new Float32Array(MAX_DYING), t: new Float64Array(MAX_DYING), type: new Uint16Array(MAX_DYING), big: new Uint8Array(MAX_DYING), face: new Int8Array(MAX_DYING) },
     decals: { n: 0, next: 0, x: new Float32Array(MAX_DECALS), y: new Float32Array(MAX_DECALS), t: new Float64Array(MAX_DECALS), size: new Uint8Array(MAX_DECALS) },
     tele: { n: 0, shape: new Uint8Array(MAX_TELEGRAPHS), x: new Float32Array(MAX_TELEGRAPHS), y: new Float32Array(MAX_TELEGRAPHS), size: new Float32Array(MAX_TELEGRAPHS), ang: new Float32Array(MAX_TELEGRAPHS), end: new Int32Array(MAX_TELEGRAPHS), total: new Int32Array(MAX_TELEGRAPHS) },
@@ -55,7 +59,7 @@ export function createViewState({ slots = 4096, rand = Math.random } = {}) {
 export function resetViewState(st) {
   st.slotHandle.fill(-2); st.facing.fill(1); st.hitAt.fill(-1e9); st.bornAt.fill(-1e9);
   st.sparks.clear(); st.numbers.clear(); st.shake.reset();
-  st.dying.n = 0; st.decals.n = 0; st.decals.next = 0; st.tele.n = 0; st.lights.n = 0; st.lights.next = 0; st.marks.n = 0;
+  st.bolts.n = 0; st.bolts.next = 0; st.dying.n = 0; st.decals.n = 0; st.decals.next = 0; st.tele.n = 0; st.lights.n = 0; st.lights.next = 0; st.marks.n = 0;
   st.hurtAt = -1e9; st.levelAt = -1e9;
 }
 
@@ -112,6 +116,14 @@ function addTelegraph(st, shape, x, y, endTick, total, size, ang) {
   T.total[i] = total; T.end[i] = endTick;
 }
 
+/** A lightning bolt down onto (x, y) (a strike's own hit; the oldest goes when full). */
+function addBolt(st, x, y, now) {
+  const B = st.bolts, k = B.next;
+  B.x[k] = x; B.y[k] = y; B.t[k] = now;
+  B.next = (k + 1) % MAX_BOLTS;
+  if (B.n < MAX_BOLTS) B.n++;
+}
+
 function addDying(st, x, y, type, big, face, now) {
   const D = st.dying;
   if (D.n >= MAX_DYING) return;
@@ -134,8 +146,10 @@ export function consumeEvents(st, ev, ctx) {
       case EV.HIT: {
         const h = ev.b[i], s = ctx.slotOf(h);
         if (s >= 0 && s < st.slots) st.hitAt[s] = now;
-        if (ctx.numbersOn && ev.a[i] >= F.numbers.minShown) st.numbers.hit(s, h, x, y, ev.a[i], ev.c[i] === 1 ? 1 : 0, now, F.numbers.groupMs);
+        const bits = ev.c[i] | 0;
+        if (ctx.numbersOn && ev.a[i] >= F.numbers.minShown) st.numbers.hit(s, h, x, y, ev.a[i], bits & 1, now, F.numbers.groupMs);
         if (!busy && F.particles.hit > 0) burst(st, x, y, F.particles.hit, C.spark, 60, 160, PF_FRAME.DOT);
+        if ((bits & 2) !== 0) addBolt(st, x, y, now); // a strike's own hit: its bolt
         break;
       }
       case EV.KILL: {
@@ -172,6 +186,15 @@ export function consumeEvents(st, ev, ctx) {
         break;
       case EV.BOSS_SPAWN:
         st.shake.add(F.shake.bossSpawn);
+        break;
+      case EV.SECRET:
+        burst(st, x, y, F.particles.boon, C.violet, 160, 800, PF_FRAME.SPARK);
+        st.sparks.spawn(x, y, 0, 0, 600, PF_FRAME.RING, C.violet, 0, 0, 6);
+        addLight(st, x, y, 160, 900, C.violet, now);
+        break;
+      case EV.MUSTER:
+        st.sparks.spawn(x, y, 0, 0, 500, PF_FRAME.RING, C.warn, 0, 0, 8);
+        st.shake.add(F.shake.explode);
         break;
       case EV.TELEGRAPH: {
         // Hazard pools (CIRCLE) are drawn from the zone itself. The others end a set number of
@@ -338,6 +361,48 @@ export function floorVariant(tx, ty) {
 export function blockVariant(tx, ty, n) {
   return tileHash(tx, ty) % n;
 }
+
+/**
+ * The atlas frame for a tile of the run map. A map without kinds (a plain crate scatter) is
+ * boards and crates; the docks pick by kind, and by the neighbors where it shows: water under
+ * the wharf shows the quay's lip on its sides, a bridge's row over open water its rail.
+ */
+export function groundFrame(tr, tx, ty) {
+  const K = tr.kinds;
+  if (K === null) return tr.blocked(tx, ty) ? `tile_block_${blockVariant(tx, ty, 3)}` : `tile_floor_${floorVariant(tx, ty)}`;
+  const C = tr.cols, i = ty * C + tx;
+  // A neighbor's kind, or -1 off the map.
+  const up = ty > 0 ? K[i - C] : -1, down = ty + 1 < tr.rows ? K[i + C] : -1;
+  const h = tileHash(tx, ty);
+  switch (K[i]) {
+    case GROUND.CRATE: return `tile_block_${blockVariant(tx, ty, 3)}`;
+    case GROUND.WATER: {
+      // The wharf's sides it meets: north (the quay's lip and shadow), west, and east. A slip is
+      // at least 2 tiles wide (checkDocks), so a tile never meets both sides.
+      const w = tx > 0 ? K[i - 1] : -1, e = tx + 1 < C ? K[i + 1] : -1;
+      const edges = (up !== GROUND.WATER && up !== -1 ? 'n' : '') + (w !== GROUND.WATER && w !== -1 ? 'w' : '') + (e !== GROUND.WATER && e !== -1 ? 'e' : '');
+      return edges ? `tile_water_${edges}` : `tile_water_${h % 2}`;
+    }
+    case GROUND.BRIDGE:
+      if (up === GROUND.WATER) return 'tile_bridge_n';
+      if (down === GROUND.WATER) return 'tile_bridge_s';
+      return 'tile_bridge_0';
+    case GROUND.SHED_ROOF: return `tile_roof_${(h >>> 3) % 5 === 0 ? 1 : 0}`;
+    case GROUND.SHED_WALL: return 'tile_shed_wall_0';
+    case GROUND.SHED_DOOR: return 'tile_shed_wall_1';
+    case GROUND.WRECK: return `tile_hull_${(h >>> 2) % 3 === 0 ? 1 : 0}`;
+    case GROUND.DECK: return `tile_deck_${(h >>> 6) % 4 === 0 ? 1 : 0}`;
+    default: return `tile_floor_${floorVariant(tx, ty)}`;
+  }
+}
+
+/** Every frame groundFrame can name (the gate checks each is on the atlas page). */
+export const GROUND_FRAMES = Object.freeze([
+  'tile_floor_0', 'tile_floor_1', 'tile_floor_2', 'tile_floor_3', 'tile_block_0', 'tile_block_1', 'tile_block_2',
+  'tile_water_0', 'tile_water_1', 'tile_water_n', 'tile_water_w', 'tile_water_e', 'tile_water_nw', 'tile_water_ne',
+  'tile_bridge_0', 'tile_bridge_n', 'tile_bridge_s', 'tile_roof_0', 'tile_roof_1', 'tile_shed_wall_0', 'tile_shed_wall_1',
+  'tile_hull_0', 'tile_hull_1', 'tile_deck_0', 'tile_deck_1',
+]);
 
 /** A dazed enemy's wobble, radians: a quick sway (it's reeling), each at its own phase. */
 export function dazeWobble(simSec, phase) {

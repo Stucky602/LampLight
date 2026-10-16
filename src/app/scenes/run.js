@@ -12,10 +12,12 @@
 import { createRecordedRun } from '../../sim/replay.js';
 import { currentHalt, buildRunResult } from '../../sim/world.js';
 import { tuningDiff, tuningCopyText } from '../../ui/tuningmodel.js';
-import { levelUpScreen, chestScreen, runeScreen, overtimeScreen, pauseScreen, endScreen, confirmScreen } from '../../ui/menus.js';
+import { levelUpScreen, chestScreen, runeScreen, overtimeScreen, pauseScreen, endScreen, confirmScreen, runTips, statsScreen, ascendScreen } from '../../ui/menus.js';
 import { tuningScreen } from '../../ui/tuning.js';
-import { hitStopFor, soundFor, noticeFor, haltView, pauseBuild, runSummary, createEventLog, panelTuning } from '../runlogic.js';
+import { hitStopFor, soundFor, noticeFor, haltView, pauseBuild, runSummary, createEventLog, panelTuning, statsView } from '../runlogic.js';
 import { formatClock } from '../../render/hudtext.js';
+import { VIEW_W, VIEW_H } from '../../render/layout.js';
+import { minimapFade } from '../../render/minimapmodel.js';
 
 const END_SCREEN_DELAY_MS = 1400;
 
@@ -30,6 +32,7 @@ export function createRunScene(deps) {
   let overAt = -1;
   let endResult = null;
   let endFailed = false;   // the run's end couldn't be folded in: the error screen stays, no end screen over it
+  let tips = null;         // a first run's how-to-play card (ui/menus.js runTips), until tuning.feel.firstRunTipsSec
   let stepMs = 0;
   const eventLog = createEventLog(300);
   const tickMsAvg = { v: 0 };
@@ -65,7 +68,7 @@ export function createRunScene(deps) {
       }
       case 'chest': {
         const pool = [...data.weapons.map((w) => w.icon), ...data.passives.map((p) => p.icon), ...data.relics.map((r) => r.icon)];
-        haltScreen = ui.push(chestScreen(menuCtx, { boss: v.boss, items: v.items, pool, onDone: () => { decide({ kind: 'ok' }); next(); } }));
+        haltScreen = ui.push(chestScreen(menuCtx, { boss: v.boss, secret: v.secret, items: v.items, pool, onDone: () => { decide({ kind: 'ok' }); next(); } }));
         break;
       }
       case 'rune':
@@ -73,6 +76,13 @@ export function createRunScene(deps) {
           rune: v.rune, options: v.options,
           onPlace: (slot) => { decide({ kind: 'place', slot }); next(); },
           onDiscard: () => { decide({ kind: 'discard' }); next(); },
+        }));
+        break;
+      case 'ascend':
+        haltScreen = ui.push(ascendScreen(menuCtx, {
+          embers: v.embers, weapons: v.weapons,
+          onAscend: (slot, id) => { decide({ kind: 'ascend', slot, id }); next(); },
+          onKeep: () => { decide({ kind: 'keep' }); next(); },
         }));
         break;
       case 'overtime':
@@ -93,14 +103,28 @@ export function createRunScene(deps) {
     screen.setOffer(v.cards, v.charges);
   }
 
+  /** Is your figure under the How to play card (in the view's pixels, as the minimap fades)? */
+  function tipsUnderYou() {
+    const cam = deps.renderer?.camera, u = parseFloat(ui.view.style.getPropertyValue('--u')) || 1;
+    if (!cam || !tips) return false;
+    const r = tips.getBoundingClientRect(), v = ui.view.getBoundingClientRect();
+    if (!(r.width > 0)) return false;
+    const box = { x: (r.left - v.left) / u, y: (r.top - v.top) / u, w: r.width / u, h: r.height / u };
+    const feet = { x: world.player.x - cam.x + VIEW_W / 2, y: world.player.y - cam.y + VIEW_H / 2 };
+    return minimapFade(box, feet) < 1;
+  }
+
   // ---------------------------------------------------------------- pause, tuning, end
 
   function openPause() {
     deps.loop.pause('menu');
     const s = pauseScreen(menuCtx, {
       build: pauseBuild(world),
+      // An Ember kept for later: spend it now (the run stops for the choice when the pause closes).
+      onAscend: pauseBuild(world).canAscend ? () => { ui.close(s); deps.loop.resume('menu'); decide({ kind: 'ember' }); openHalt(); } : null,
       onResume: () => { ui.close(s); deps.loop.resume('menu'); },
       onSettings: () => onSettings(),
+      onStats: () => { const t = statsScreen(menuCtx, { view: statsView(world), onBack: () => ui.close(t) }); ui.push(t); },
       onReport: (noteEl) => { saveReport(noteEl); },
       onLeave: () => {
         const c = confirmScreen(menuCtx, {
@@ -144,6 +168,8 @@ export function createRunScene(deps) {
       { key: 'god', label: () => `God mode: ${godOn() ? 'On' : 'Off'}`, run: () => dev({ cmd: 'god', on: !godOn() }) },
       { key: 'heal', label: 'Heal to full', run: () => dev({ cmd: 'heal' }) },
       { key: 'clear', label: 'Clear every enemy (no kills)', run: () => dev({ cmd: 'clear' }) },
+      { key: 'ember', label: 'Give an Ember', run: () => dev({ cmd: 'ember' }) },
+      ...(world.secrets.length ? [{ key: 'warp', label: 'Warp to the secret', run: () => dev({ cmd: 'warp', secret: 0 }) }] : []),
       { key: 'giveW', label: 'Give weapon', items: named(data.weapons.filter((w) => !w.innate)), run: (it) => dev({ cmd: 'give', what: 'weapon', id: it.id }) },
       { key: 'giveP', label: 'Give passive', items: named(data.passives), run: (it) => dev({ cmd: 'give', what: 'passive', id: it.id }) },
       { key: 'giveR', label: 'Give relic', items: named(data.relics), run: (it) => dev({ cmd: 'give', what: 'relic', id: it.id }) },
@@ -193,6 +219,7 @@ export function createRunScene(deps) {
     get tickMs() { return tickMsAvg.v; },
     // For the smoke and screenshot tools (app/smoke.js).
     openPauseForTools: () => openPause(),
+    openStatsForTools: () => { const t = statsScreen(menuCtx, { view: statsView(world), onBack: () => ui.close(t) }); ui.push(t); },
     toggleTuningForTools: () => toggleTuning(),
     openSettingsForTools: () => deps.onSettings(),
     openChestForTools: () => rec.decide({ kind: 'dev', cmd: 'chest', boss: true }),
@@ -210,11 +237,14 @@ export function createRunScene(deps) {
       haltScreen = null; tuningOpen = null; endShownAt = -1; overAt = -1; endResult = null; endFailed = false;
       // The level-up, chest, rune, and overtime screens can open the pause menu over themselves.
       menuCtx.pause = () => { if (!ui.has((x) => x.isPause)) openPause(); };
+      // A first run: how to play, in the corner, for its first seconds (deps.isFirstRun).
+      tips?.remove(); tips = deps.isFirstRun?.() ? runTips((a) => ui.glyph(a), ui.view) : null;
       deps.loop.reset();
       resumeAll();
     },
     exit() {
       menuCtx.pause = null;
+      tips?.remove(); tips = null;
       ui.closeAll();
       view.detach();
       hud.detach();
@@ -255,6 +285,11 @@ export function createRunScene(deps) {
       view.consume();
       view.draw(alpha, frameMs);
       hud.draw(world, view.now, view.screenFlash());
+      if (tips) {
+        tips.hidden = !!(ui.open || world.over);
+        if (world.tick / 60 > world.tuning.feel.firstRunTipsSec) { tips.remove(); tips = null; }
+        else tips.style.opacity = tipsUnderYou() ? '0.25' : '';
+      }
       ev.clear();
       // The end: let the moment land (the player falls, the last boss bursts), then the summary.
       if (world.over && endShownAt < 0) {

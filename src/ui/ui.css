@@ -394,3 +394,48 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .news-note { color: var(--fog-2); }
 .next-block { margin-top: calc(var(--u) * 6); display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--u) * 6); }
 .next-block h2 { grid-column: 1 / -1; margin: 0; }
+
+/* The new player's guide (ui/hubhud.js setGuide): the goal across the top, and a marker: a
+   triangle bobbing over the target, or at the screen's edge pointing toward it. */
+.hud-goal {
+  position: absolute; left: 50%; top: calc(var(--u) * 8); transform: translateX(-50%);
+  padding: calc(var(--u) * 3) calc(var(--u) * 8);
+  background: rgba(7, 8, 13, 0.85); border: var(--u) solid var(--lamp-3); color: var(--lamp-6);
+  white-space: nowrap;
+}
+.hud-guide {
+  position: absolute; width: 0; height: 0;
+  border-left: calc(var(--u) * 5) solid transparent; border-right: calc(var(--u) * 5) solid transparent;
+  border-top: calc(var(--u) * 8) solid var(--lamp-5);
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 calc(var(--u) * 1) var(--night-0));
+}
+.hud-guide.on { transform: translate(-50%, -100%); animation: guide-bob 0.9s ease-in-out infinite; }
+@keyframes guide-bob { 0%, 100% { margin-top: 0; } 50% { margin-top: calc(var(--u) * -3); } }
+.hub-hud.quiet .hud-goal, .hub-hud.quiet .hud-guide { display: none; }
+
+/* A first run's tips (ui/menus.js runTips): bottom left, over the run. */
+.run-tips {
+  position: absolute; left: calc(var(--u) * 8); bottom: calc(var(--u) * 10);
+  padding: calc(var(--u) * 4) calc(var(--u) * 8);
+  background: rgba(7, 8, 13, 0.82); border: var(--u) solid var(--night-5); color: var(--fog-5);
+  pointer-events: none;
+}
+.run-tips .tips-title { color: var(--lamp-5); margin-bottom: calc(var(--u) * 2); }
+.run-tips .glyph { color: var(--lamp-6); }
+
+/* Stats (ui/menus.js statsScreen): two columns, the weapons' list scrolling if it's long. */
+.stats-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: calc(var(--u) * 12); }
+.stats-weapons { max-height: calc(var(--u) * 230); overflow-y: auto; }
+.stats-weapon { margin-bottom: calc(var(--u) * 6); padding-bottom: calc(var(--u) * 4); border-bottom: var(--u) solid var(--night-4); }
+.stats-weapon:focus-within, .stats-weapon.focus { outline: var(--u) solid var(--lamp-5); }
+.stats-weapon-head { display: flex; align-items: center; gap: calc(var(--u) * 4); }
+.stats-item { padding-bottom: calc(var(--u) * 3); margin-bottom: calc(var(--u) * 3); }
+
+/* Ascend (ui/menus.js ascendScreen): a row a weapon, its open ascensions as cards beside it. */
+.ascend-rows { display: flex; flex-direction: column; gap: calc(var(--u) * 6); max-height: calc(var(--u) * 230); overflow-y: auto; }
+.ascend-row { display: grid; grid-template-columns: calc(var(--u) * 120) repeat(3, 1fr); gap: calc(var(--u) * 6); align-items: stretch; }
+.ascend-weapon { display: flex; gap: calc(var(--u) * 4); align-items: center; }
+.ascend-option { padding: calc(var(--u) * 4); }
+.stats-screen .panel { width: calc(var(--u) * 560); max-width: none; }
+.stats-weapons .stats-weapon dl.stats { grid-template-columns: auto auto auto auto; }

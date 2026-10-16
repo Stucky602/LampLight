@@ -10,7 +10,9 @@ import { Container, Graphics, Sprite } from 'pixi.js';
 import { VIEW_W, VIEW_H } from './layout.js';
 import { color as pal } from '../data/palette.js';
 import { glyphKey, FONT_ADVANCE, FONT_H, textWidth } from './font.js';
-import { createHudModel, updateHudModel, layoutMaterials, HUD_LAYOUT, MATERIALS_LAYOUT, createHudPlaces, placeHud } from './hudmodel.js';
+import { createHudModel, updateHudModel, layoutMaterials, HUD_LAYOUT, createHudPlaces, placeHud } from './hudmodel.js';
+import { minimapBox, materialsLayoutFor, minimapFade } from './minimapmodel.js';
+import { createMinimap } from './minimap.js';
 
 /** A line of pixel text. set() rebuilds its glyphs only when the text or color changes. */
 export function createPixelText(atlas, { outlined = true, tint = 0xffffff } = {}) {
@@ -48,14 +50,18 @@ export function createPixelText(atlas, { outlined = true, tint = 0xffffff } = {}
 const COL = {
   xp: pal('gem-3'), hp: pal('rot-3'), shield: pal('sea-6'), dashReady: pal('lamp-5'), dashWait: pal('fog-2'),
   frame: pal('night-0'), back: pal('night-1'), back2: pal('night-2'), boss: pal('rot-2'), hurt: pal('rot-2'), wash: pal('lamp-5'),
-  text: pal('fog-5'), dim: pal('fog-4'), level: pal('lamp-5'), max: pal('lamp-5'), warn: pal('rot-4'), notice: pal('lamp-6'),
+  asc: pal('violet-4'), text: pal('fog-5'), dim: pal('fog-4'), level: pal('lamp-5'), max: pal('lamp-5'), warn: pal('rot-4'), notice: pal('lamp-6'),
 };
 
-export function createHud({ renderer, atlas }) {
+export function createHud({ renderer, atlas, hudSettings = { minimap: 'nearby', minimapSize: 'small' } }) {
   const root = new Container();
   const g = new Graphics();          // bars and frames
   const flashG = new Graphics();     // hurt edge and level-up wash
-  root.addChild(flashG, g);
+  const pipsG = new Graphics();      // ascension pips, over the icons (kept the last child)
+  const minimap = createMinimap();   // top right (render/minimap.js), under the kills
+  let mapWorld = null;
+  const matBox = { x: 0, y: 0, w: 0, h: 0 }, feet = { x: 0, y: 0 };   // scratch: the materials' extent, your feet in the view
+  root.addChild(flashG, g, minimap.root);
   const txt = (tint) => { const t = createPixelText(atlas, { tint }); root.addChild(t.view); return t; };
   const timer = txt(COL.text), level = txt(COL.level), kills = txt(COL.dim), hp = txt(COL.text);
   const boss = txt(COL.warn), overtime = txt(COL.warn), notice = txt(COL.notice);
@@ -92,6 +98,8 @@ export function createHud({ renderer, atlas }) {
       lv.set(it.levelText, it.max ? COL.max : COL.text);
       lv.view.position.set(x + L.icons.size + 1 - lv.width, y + L.icons.size - FONT_H + 1);
       lv.view.visible = true;
+      // Ascensions: a violet pip each (2 px, framed) along the icon's top edge, inside its box.
+      for (let a = 0; a < (it.asc || 0); a++) pipsG.rect(x + a * 4, y, 4, 4).fill({ color: COL.frame }).rect(x + 1 + a * 4, y + 1, 2, 2).fill({ color: COL.asc });
       x += L.icons.step;
       k++;
     }
@@ -102,7 +110,7 @@ export function createHud({ renderer, atlas }) {
     root,
     model,
     attach() { renderer.hud.addChild(root); },
-    detach() { if (root.parent) root.parent.removeChild(root); },
+    detach() { if (root.parent) root.parent.removeChild(root); minimap.detach(); mapWorld = null; },
     /** Show a short line in the middle of the screen until nowMs + ms. */
     notice(text, ms, nowMs) { notice.set(text); noticeUntil = nowMs + ms; },
     /** Draw the HUD for this frame. flash: { hurt, level } strengths from the run view. */
@@ -115,7 +123,8 @@ export function createHud({ renderer, atlas }) {
       widths.hp = hp.width; widths.level = level.width; widths.timer = timer.width; widths.kills = kills.width;
       widths.boss = boss.width; widths.overtime = overtime.width; widths.notice = notice.width;
       const P = placeHud(places, widths, m.boss.shown);
-      g.clear();
+      g.clear(); pipsG.clear();
+      if (root.children.at(-1) !== pipsG) root.addChild(pipsG);   // icons made since go under it
       bar(P.xp.x, P.xp.y, P.xp.w, P.xp.h, m.xpFrac, COL.xp, COL.back2);
       bar(P.hp.x, P.hp.y, P.hp.w, P.hp.h, m.hpFrac, COL.hp);
       if (m.shieldFrac > 0) g.rect(P.hp.x, P.hp.y, Math.max(1, Math.round(P.hp.w * m.shieldFrac)), 2).fill({ color: COL.shield });
@@ -138,11 +147,27 @@ export function createHud({ renderer, atlas }) {
         const pl = matPlace[j];
         pl.iconW = tex.frame.width; pl.iconH = tex.frame.height; pl.textW = matTxt[j].width;
       }
-      layoutMaterials(matPlace, m.materialCount, MATERIALS_LAYOUT);
+      // The minimap (its setting, read live), and the materials moved down under it.
+      if (mapWorld !== world) { minimap.attach(world); mapWorld = world; }
+      const mapBox = minimapBox(hudSettings.minimap, hudSettings.minimapSize);
+      minimap.draw(mapBox, hudSettings.minimap, renderer.camera, nowMs);
+      layoutMaterials(matPlace, m.materialCount, materialsLayoutFor(mapBox));
+      // The materials fade as the minimap does while you stand under them (they reach down into
+      // the play field once a few rows wrap under a Large minimap).
+      matBox.x = Infinity; matBox.y = Infinity; let mx1 = -Infinity, my1 = -Infinity;
+      for (let j = 0; j < m.materialCount; j++) {
+        const pl = matPlace[j];
+        matBox.x = Math.min(matBox.x, pl.ix); matBox.y = Math.min(matBox.y, pl.iy, pl.ty);
+        mx1 = Math.max(mx1, pl.tx + pl.textW); my1 = Math.max(my1, pl.iy + pl.iconH, pl.ty + FONT_H);
+      }
+      matBox.w = mx1 - matBox.x; matBox.h = my1 - matBox.y;
+      feet.x = world.player.x - renderer.camera.x + VIEW_W / 2; feet.y = world.player.y - renderer.camera.y + VIEW_H / 2;
+      const matAlpha = m.materialCount ? minimapFade(matBox, feet) : 1;
       for (let j = 0; j < m.materialCount; j++) {
         const pl = matPlace[j];
         matTxt[j].view.position.set(pl.tx, pl.ty); mats[j].position.set(pl.ix, pl.iy);
         mats[j].visible = true; matTxt[j].view.visible = true;
+        mats[j].alpha = matAlpha; matTxt[j].view.alpha = matAlpha;
       }
       for (let j = m.materialCount; j < mats.length; j++) { if (mats[j]) { mats[j].visible = false; matTxt[j].view.visible = false; } }
       boss.view.visible = m.boss.shown;
@@ -165,6 +190,6 @@ export function createHud({ renderer, atlas }) {
       }
       if (flash.level > 0) flashG.rect(0, 0, VIEW_W, VIEW_H).fill({ color: COL.wash, alpha: 0.18 * flash.level });
     },
-    destroy() { this.detach(); root.destroy({ children: true }); },
+    destroy() { this.detach(); minimap.destroy(); root.destroy({ children: true }); },
   };
 }

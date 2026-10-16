@@ -2,7 +2,7 @@
 // from the data and the meta layer's change lists, worded as docs/WRITING.md says: labels and
 // short lines, not sentences about the player. Pure (no DOM); tested.
 
-import { contentFrom, researchDone, researchActive, researchTier, rankOf, treeTier } from '../meta/state.js';
+import { contentFrom, researchDone, researchActive, researchTier, rankOf, treeTier, secretsOf } from '../meta/state.js';
 import { whyNotResearch, whyNotUpgrade } from '../meta/actions.js';
 import { clockText, midSentence } from '../lib/text.js';
 
@@ -40,8 +40,8 @@ export function joinsTexts(items) {
  *   'tree'      the tier of the Lamp Post's upgrades it unlocks
  *   'research'  the Library's research slots, and the research tier it unlocks
  *   'arrival'   a character who comes by boat
- *   'joins'     what it adds to runs
  *   'fog'       the fog clearing from its streets
+ *   'joins'     what it adds to runs
  *   'keeper'    its keeper at the door (level 4), then walking the streets (level 5)
  *   'more'      only when it brings none of those
  * The panels pick by kind (the Tavern lists who and what comes back), never by the wording.
@@ -106,6 +106,9 @@ export function changeLines(data, changes) {
   const out = [];
   // A kill count can cross two milestones in one run (10 and 100): say only the highest.
   const topMilestone = new Map();
+  // A secret's unlocks are said once, under the secret (not again as discovered).
+  const fromSecret = new Set();
+  for (const c of changes) if (c.kind === 'codex' && c.unlocks) for (const u of c.unlocks) fromSecret.add(`${u.what}:${u.id}`);
   for (const c of changes) if (c.kind === 'bestiary') topMilestone.set(c.id, Math.max(topMilestone.get(c.id) ?? 0, c.kills));
   for (const c of changes) {
     switch (c.kind) {
@@ -128,6 +131,13 @@ export function changeLines(data, changes) {
         break;
       case 'codex': {
         const [kind, id] = c.key.split(':');
+        if (kind === 'secret') {
+          out.push({ kind: 'secret', text: `Secret found: ${nameOf(secretsOf(data), id)}` });
+          const items = (c.unlocks || []).map((u) => contentFrom(data, c.key).find((x) => x.id === u.id) || { name: u.id });
+          for (const line of joinsTexts(items)) out.push({ kind: 'unlock', text: line });
+          break;
+        }
+        if (fromSecret.has(c.key)) break;
         const list = { weapon: data.weapons, passive: data.passives, relic: data.relics, rune: data.runes }[kind] || [];
         out.push({ kind: 'codex', text: `Discovered: ${nameOf(list, id)}` });
         break;

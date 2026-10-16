@@ -500,6 +500,7 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
       if (!near || !world) return null;
       if (near.kind === 'door') {
         const pl = hub.plots.find((q) => q.building === near.id);
+        if (!pl) return null;
         return pl === lampPlot ? { x: pl.x * TILE + 8, y: (pl.y + 1) * TILE - 48 } : { x: (pl.x + pl.w / 2) * TILE, y: pl.y * TILE - 4 };
       }
       if (near.kind === 'gate') return { x: hub.gate.at[0] * TILE + 8, y: hub.gate.at[1] * TILE - 20 };

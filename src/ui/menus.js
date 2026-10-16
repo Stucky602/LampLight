@@ -130,11 +130,11 @@ export function levelUpScreen(ctx, { level, cards, charges, onPick, onReroll, on
 // ---------------------------------------------------------------- chest reel
 
 /** items: cardInfo() results for what the chest gave. pool: icon ids to spin through. */
-export function chestScreen(ctx, { boss, items, pool, onDone, spinMs = 900, staggerMs = 350 }) {
+export function chestScreen(ctx, { boss, secret = false, items, pool, onDone, spinMs = 900, staggerMs = 350 }) {
   const slots = items.map(() => h('div', { class: 'reel' }));
   const labels = items.map(() => h('div', { class: 'reel-label' }));
   const cont = button('Continue', 'go', () => finish(), { cls: 'wide' });
-  const el = panel(`chest-screen ${boss ? 'boss' : ''}`, boss ? 'Boss chest' : 'Chest',
+  const el = panel(`chest-screen ${boss || secret ? 'boss' : ''}`, secret ? 'Secret cache' : boss ? 'Boss chest' : 'Chest',
     h('div', { class: 'reels' }, ...items.map((_, i) => h('div', { class: 'reel-col' }, slots[i], labels[i]))),
     h('div', { class: 'menu-col' }, cont));
   let t = 0, landed = 0, done = false, tickAcc = 0;
@@ -190,6 +190,29 @@ export function runeScreen(ctx, { rune, options, onPlace, onDiscard }) {
   });
 }
 
+/**
+ * Ascend (an Ember picked up, or spent from the pause menu): a row a weapon that can still
+ * ascend, its open ascensions as cards beside it; or keep the Ember for later.
+ * weapons: [{ slot, name, icon, level, ascended: [names], options: [{ id, name, desc }] }]
+ */
+export function ascendScreen(ctx, { embers, weapons, onAscend, onKeep }) {
+  const rows = weapons.map((w, r) => h('div', { class: 'ascend-row' },
+    h('div', { class: 'ascend-weapon' }, ctx.icon(w.icon, 2),
+      h('div', null, h('div', { class: 'card-title' }, w.name), h('div', { class: 'card-sub' }, w.ascended.length ? `Ascended: ${w.ascended.join(', ')}` : `Lv ${w.level}`))),
+    ...w.options.map((o, c) => h('div', { class: 'card ascend-option', data: { focus: `a${r}_${c}` }, onclick: () => onAscend(w.slot, o.id) },
+      h('div', { class: 'card-title' }, o.name), h('div', { class: 'card-desc' }, o.desc)))));
+  const el = panel('ascend-screen', 'Ascend',
+    h('div', { class: 'card-desc center' }, `Spend an Ember to change a weapon for the rest of the run. Embers: ${embers}`),
+    h('div', { class: 'ascend-rows' }, ...rows),
+    h('div', { class: 'menu-col' }, button('Keep for later', 'keep', () => onKeep(), { cls: 'wide quiet' })));
+  const scope = createFocusScope(el, { initial: 'a0_0' });
+  return simpleScreen(el, scope, {
+    ignoreMs: 250,
+    onBack: () => scope.focusKey('keep'),
+    onAction: (a) => { if (a === 'pause' && ctx.pause) { ctx.pause(); return true; } return false; },
+  });
+}
+
 export function overtimeScreen(ctx, { bossName, onStay, onLeave }) {
   const el = panel('overtime-screen', `${bossName} defeated`,
     h('p', null, 'Overtime: enemies get stronger every minute and drop more materials. Leave any time from the pause menu.'),
@@ -209,11 +232,12 @@ export function overtimeScreen(ctx, { bossName, onStay, onLeave }) {
 /**
  * build: { time, weapons: [{ name, icon, level, max, runes }], passives: [...], relics: [{ name, icon }] }
  */
-export function pauseScreen(ctx, { build, onResume, onSettings, onReport, onLeave, reportNote = null }) {
+export function pauseScreen(ctx, { build, onResume, onSettings, onStats = null, onAscend = null, onReport, onLeave, reportNote = null }) {
   // Every item in the build can take focus; the line under the rows says what it is and does.
   const detail = h('div', { class: 'build-detail' }, 'Select an item for details.');
   const describe = (w) => [
     h('div', { class: 'card-title' }, `${w.name}${w.level ? `  Lv ${w.level}${w.max ? ' MAX' : ''}` : ''}`),
+    w.ascensions?.length ? h('div', { class: 'card-note' }, `Ascended: ${w.ascensions.join(', ')}`) : null,
     w.runes?.length ? h('div', { class: 'card-note' }, `Runes: ${w.runes.join(', ')}`) : null,
     w.desc ? h('div', { class: 'card-desc' }, w.desc) : null,
   ];
@@ -227,6 +251,8 @@ export function pauseScreen(ctx, { build, onResume, onSettings, onReport, onLeav
     h('div', { class: 'pause-grid' },
       h('div', { class: 'menu-col' },
         button('Resume', 'resume', onResume),
+        onAscend ? button(`Ascend (${build.embers})`, 'ascend', onAscend) : null,
+        onStats ? button('Stats', 'stats', onStats) : null,
         button('Settings', 'settings', onSettings),
         button('Save bug report', 'report', () => onReport(note)),
         button('Quit run', 'leave', onLeave, { cls: 'quiet' })),
@@ -245,6 +271,31 @@ export function pauseScreen(ctx, { build, onResume, onSettings, onReport, onLeav
     onBack: onResume,
     onAction: (a) => { if (a === 'pause') { onResume(); return true; } return false; },
   });
+}
+
+/**
+ * Stats (from the pause menu): your character, what reaches every weapon, and each weapon's own
+ * numbers. view: app/runlogic.js statsView. Back returns to the pause menu.
+ */
+export function statsScreen(ctx, { view, onBack }) {
+  const dl = (lines) => h('dl', { class: 'stats' }, ...lines.map(([k, v]) => [h('dt', null, k), h('dd', null, v)]));
+  const weapon = (w, k) => h('div', { class: 'stats-weapon', data: { focus: `w${k}` } },
+    h('div', { class: 'stats-weapon-head' }, ctx.icon(w.icon, 1), h('span', { class: 'card-title' }, w.innate ? `${w.name} (built in)` : `${w.name}  Lv ${w.level}${w.max ? ' MAX' : ''}`)),
+    w.ascensions.length ? h('div', { class: 'card-note' }, `Ascended: ${w.ascensions.join(', ')}`) : null,
+    w.runes.length ? h('div', { class: 'card-note' }, `Runes: ${w.runes.join(', ')}`) : null,
+    dl(w.lines));
+  const item = (it, k) => h('div', { class: 'stats-weapon stats-item', data: { focus: `i${k}` } },
+    h('div', { class: 'stats-weapon-head' }, ctx.icon(it.icon, 1), h('span', { class: 'card-title' }, it.kind === 'relic' ? `${it.name} (relic)` : `${it.name}  Lv ${it.level}${it.max ? ' MAX' : ''}`)),
+    h('div', { class: 'card-desc' }, it.desc));
+  const el = panel('stats-screen', 'Stats',
+    h('div', { class: 'stats-grid' },
+      h('div', { class: 'stats-col' }, h('h2', null, 'Character'), dl(view.character), h('h2', null, 'All weapons'), dl(view.allWeapons)),
+      h('div', { class: 'stats-col stats-weapons' }, h('h2', null, 'Weapons'),
+        view.weapons.length ? view.weapons.map(weapon) : h('div', { class: 'card-desc' }, 'None'),
+        h('h2', null, 'Items'),
+        view.items.length ? view.items.map(item) : h('div', { class: 'card-desc' }, 'None'))),
+    h('div', { class: 'menu-col' }, button('Back', 'back', onBack)));
+  return simpleScreen(el, createFocusScope(el, { initial: 'back' }), { onBack });
 }
 
 /** result: { title, lines: [[label, value]], materials: [{ icon, name, count }] } */
@@ -359,4 +410,24 @@ export function errorScreen(ctx, { message, inRun = true, onReport, onReload }) 
     h('div', { class: 'menu-col' }, button('Save bug report', 'report', () => onReport(note)), button('Reload', 'reload', onReload)),
     note);
   return simpleScreen(el, createFocusScope(el, { initial: 'report' })); // nothing to back out to
+}
+
+// ---------------------------------------------------------------- a first run's tips
+
+/**
+ * How to play, for a first run (glyph: the button prompt for an action, ui.glyph): a small card in the bottom left, over the run, never taking
+ * input (the run scene removes it after its first seconds). Returns the element.
+ */
+export function runTips(glyph, root) {
+  const g = (a) => glyph(a);
+  const row = (...parts) => h('div', { class: 'tips-row' }, ...parts);
+  const el = h('div', { class: 'run-tips' },
+    h('div', { class: 'tips-title' }, 'How to play'),
+    row(g('move'), ' Move'),
+    row(g('dash'), ' Dash'),
+    row('Your weapons fire on their own'),
+    row('Pick up blue gems to level up'),
+    row('Survive until 20:00'));
+  root.append(el);
+  return el;
 }

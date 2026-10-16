@@ -7,11 +7,14 @@
 // Extra query settings (tools/shots uses them to stop on a screen worth looking at):
 //   busy=1          god mode, 1,500 extra enemies, and a few weapons, at 14:00 (or at jump=), for
 //                   a crowded screen
-//   shot=<name>     stop there instead of playing on: title, levelup, chest, pause, settings,
+//   shot=<name>     stop there instead of playing on: title, levelup, chest, pause, stats, settings,
 //                   tuning, end (the run's end screen)
 //   char=<id>       the character (default: the Lamplighter)
 //   jump=<seconds>  start that far into the run (599 shows the first boss arriving)
 //   chase=1         walk at the boss once one is out (to see it up close)
+//   warp=secret     start beside the map's first secret (the wreck and its cache)
+//   give=<id>,...   weapons to start with (the new ones, for a look at their shots)
+//   ember=1         an Ember at the start (the Ascend screen opens)
 // The harbor (Phase 5):
 //   shot=hub | building | gate | results | ceremony | arrival | hubtuning
 //                   stop in the harbor; with a building's panel open (building=<id>, default the
@@ -28,6 +31,7 @@
 
 import { stampName } from '../save/store.js';
 import { currentHalt } from '../sim/world.js';
+import { haltView } from './runlogic.js';
 import { applyRunResult } from '../meta/apply.js';
 import { DATA } from '../data/index.js';
 
@@ -231,6 +235,15 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
       dev({ cmd: 'jump', to: jump > 0 ? jump : 840 });
       dev({ cmd: 'spawn', count: 1500 });
     } else if (jump > 0) dev({ cmd: 'jump', to: jump });
+    if (params.get('warp') === 'secret') dev({ cmd: 'warp', secret: 0 });
+    for (const id of (params.get('give') || '').split(',').filter(Boolean)) dev({ cmd: 'give', what: 'weapon', id });
+    if (params.get('ember')) dev({ cmd: 'ember' });
+    // ascend=<n>: n Embers, each spent on the first weapon's first open ascension (the HUD's pips).
+    for (let k = 0; k < (Number(params.get('ascend')) || 0); k++) {
+      dev({ cmd: 'ember' });
+      const h = currentHalt(w);
+      if (h?.kind === 'ascend') { const v = haltView(w, h, DATA); try { rec.decide({ kind: 'ascend', slot: v.weapons[0].slot, id: v.weapons[0].options[0].id }); } catch (e) { errors.add('smoke', `setup: ${e?.message || e}`); } }
+    }
     if (shot === 'levelup') dev({ cmd: 'level', count: 1 });
     if (shot === 'chest') dev({ cmd: 'give', what: 'weapon', id: 'harpoon_chain' });
     runTicksAt.start = w.tick;
@@ -243,6 +256,7 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     // Let the run tick at least once first (a pause at tick 0 would prove nothing ran).
     if (!w || runTicksAt.start === null || w.tick <= runTicksAt.start) return;
     if (shot === 'pause') { shotDone = true; runScene.openPauseForTools?.(); }
+    if (shot === 'stats') { shotDone = true; runScene.openStatsForTools?.(); }
     if (shot === 'tuning' && w) { shotDone = true; runScene.toggleTuningForTools?.(); }
     if (shot === 'settings') { shotDone = true; runScene.openSettingsForTools?.(); }
     if (shot === 'end' && w) { shotDone = true; runScene.recorded.decide({ kind: 'leave' }); }
@@ -295,6 +309,7 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
       renderer: renderer.app.renderer.name || renderer.app.renderer.type,
       layout: renderer.layout,
       enemies: w?.enemies.count ?? 0,
+      at: w ? [Math.round(w.player.x / 16), Math.round(w.player.y / 16)] : null, // the tile the player is on
       halted: w ? currentHalt(w)?.kind ?? null : null,
       storage: store,
       errors: errors.items,

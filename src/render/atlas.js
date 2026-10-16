@@ -9,14 +9,14 @@ import { Texture, Rectangle } from 'pixi.js';
 import { glowFrame, fogFrame } from './textures.js';
 import { checkAtlasJson, animFrameIds } from './atlasdata.js';
 
-function canvasFrom(width, height, rgba) {
+export function canvasFrom(width, height, rgba) {
   const c = document.createElement('canvas');
   c.width = width; c.height = height;
   c.getContext('2d').putImageData(new ImageData(rgba, width, height), 0, 0);
   return c;
 }
 
-function textureFrom(resource, scaleMode = 'nearest', wrap = 'clamp-to-edge') {
+export function textureFrom(resource, scaleMode = 'nearest', wrap = 'clamp-to-edge') {
   // Skip Pixi's global cache (it would hold the resource forever under a made-up key).
   const t = Texture.from(resource, true);
   t.source.scaleMode = scaleMode;

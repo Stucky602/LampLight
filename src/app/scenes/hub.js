@@ -16,7 +16,6 @@
 import { createHubWorld, stepHub, setPeople, setProps, startCeremony, startArrival, skipTimeline } from '../../hub/world.js';
 import { createHubTuning, setHubTune, resetHubTuning } from '../../hub/tuning.js';
 import { HUB_TERRAIN } from '../../data/hub.js';
-import { EMPTY_FRAME } from '../../lib/inputframe.js';
 import { revealedFog, hubPeople, shownProps, resolveContent } from '../../meta/state.js';
 import { restoreBuilding, buyUpgrade, startResearch, MetaError } from '../../meta/actions.js';
 import { nextAffordable } from '../../meta/next.js';
@@ -25,8 +24,12 @@ import { buildingScreen, gateScreen, resultsScreen, hubMenuScreen } from '../../
 import { rankText } from '../../ui/hubtext.js';
 import { tuningScreen } from '../../ui/tuning.js';
 import { tuningDiff, tuningCopyText } from '../../ui/tuningmodel.js';
-import { createHubHud } from '../../ui/hubhud.js';
+import { createHubHud, onScreen, routeExit } from '../../ui/hubhud.js';
+import { routeTo } from '../../hub/map.js';
+import { TILE } from '../../sim/terrain.js';
 import { levelsOf, levelSetPieces, lineFor, promptFor, runHeading } from '../hublogic.js';
+import { guideStep } from '../../meta/guide.js';
+import { VIEW_W, VIEW_H } from '../../render/layout.js';
 
 const SPEECH_MS = 4200;
 
@@ -44,6 +47,7 @@ export function createHubScene(deps) {
   let tuningOpen = null;     // the tuning panel, while it's open
   let pendingBanner = null;  // shown when the ceremony's building is done
   let wasBusy = false;       // last frame had a screen open or a set piece running
+  let guide = null;          // the new player's guide: one goal and where it is (meta/guide.js)
 
   const doc = () => deps.profile.get();
   const sound = (name) => { if (audio.ok) audio.play(name); };
@@ -52,6 +56,19 @@ export function createHubScene(deps) {
     const d = doc();
     hud.setMaterials(d.profile.materials);
     hud.setNext(nextAffordable(d, data, 3));
+    guide = guideStep(d, data);
+  }
+
+  /** The walk from your tile to the guide's target (gate, or a building's door), kept until either moves. */
+  let route = { key: '', path: null };
+  function guideRoute() {
+    const p = world.player, t = guide.target;
+    const to = t.kind === 'gate' ? data.hub.gate.at : data.hub.plots.find((x) => x.building === t.id)?.door;
+    if (!to) return null;
+    const from = [Math.floor(p.x / TILE), Math.floor(p.y / TILE)];
+    const key = `${from} ${to} ${world.revealed.size} ${world.props.length}`;
+    if (key !== route.key) route = { key, path: routeTo(world.map, world.solid, from, to) };
+    return route.path;
   }
 
   /** Keep the new profile, save it, and redraw what shows it. */
@@ -226,6 +243,7 @@ export function createHubScene(deps) {
       sound('level_up');
       if (pendingBanner) { hud.showBanner(pendingBanner.title, pendingBanner.lines, view.now); pendingBanner = null; }
     } else if (e.kind === 'landed') sound('reel_land');
+    else if (e.kind === 'walk_off' && !ui.open && !world.timeline) { sound('ui_confirm'); openGate(); }
   }
 
   // ---------------------------------------------------------------- scene
@@ -234,6 +252,7 @@ export function createHubScene(deps) {
     /** In the harbor with nothing on screen and no set piece running (a safe point then). */
     get idle() { return world !== null && !ui.open && !world.timeline; },
     get world() { return world; },
+    get hudForTools() { return hud; },
     /** The harbor's live tuning (the view draws with it; a report copies what changed). */
     get tuning() { return live; },
     // For the smoke and screenshot tools.
@@ -245,7 +264,7 @@ export function createHubScene(deps) {
     enter(params = {}) {
       buildWorld();
       tuningOpen = null;
-      hud = createHubHud({ root: ui.view, icon: menuCtx.icon, glyph: (a) => ui.glyph(a), data });
+      hud = createHubHud({ root: ui.view, icon: menuCtx.icon, glyph: (a) => ui.glyph(a), data, viewW: VIEW_W, viewH: VIEW_H });
       refreshHud();
       wasBusy = false;
       if (params.results) { showResults(params.results); wasBusy = true; }
@@ -259,7 +278,7 @@ export function createHubScene(deps) {
     step(dt) {
       if (!world) return;
       // In the harbor ✕ or A and Space confirm, so only the dash's own buttons dash (R1, RB, Shift).
-      stepHub(world, ui.open ? EMPTY_FRAME : input.sampleFrame({ dashOnly: true }), dt);
+      stepHub(world, ui.open ? null : input.sampleFrame({ dashOnly: true }), dt);
       for (const e of world.events) onEvent(e);
     },
     frame(alpha, frameMs) {
@@ -284,6 +303,15 @@ export function createHubScene(deps) {
       hud.setPrompt(near && hud.speaking !== near.id ? promptFor(data, near) : null, anchor ? view.toView(anchor.x, anchor.y) : null);
       const speaker = hud.speaking ? world.people.find((p) => p.id === hud.speaking) : null;
       hud.placeBubble(speaker ? view.toView(speaker.x, speaker.y - 26) : null, view.now, near?.id ?? null);
+      // The guide: its goal at the top, and a marker where its prompt would be (over the lamp, the
+      // sign, the door), or at the edge pointing there; once it's in reach the prompt takes over.
+      const reached = guide && near && near.kind === guide.target.kind && (near.kind === 'gate' || near.id === guide.target.id);
+      const target = guide && !busy && !reached ? view.anchorOf(guide.target) : null;
+      let markAt = target ? view.toView(target.x, target.y) : null;
+      // Off screen, the arrow follows the walk there (where it leaves the screen), not a straight
+      // line through the fog.
+      if (markAt && !onScreen(markAt, VIEW_W, VIEW_H)) markAt = routeExit(guideRoute(), (t) => view.toView((t[0] + 0.5) * TILE, (t[1] + 0.5) * TILE), VIEW_W, VIEW_H) ?? markAt;
+      hud.setGuide(guide && !busy ? guide.text : null, markAt);
       hud.tick(view.now);
     },
   };

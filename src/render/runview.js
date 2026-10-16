@@ -26,7 +26,7 @@ import { packColor, fadeOut } from './feel.js';
 import { DIGIT_ADVANCE } from './font.js';
 import {
   createViewState, resetViewState, consumeEvents, markTick, noteEnemy, expireTelegraphs, expireDying, expireLights,
-  screenFlash, enemyLook, LOOK_COLOR, FX_COLOR, PF_FRAME, simSeconds, animFrameIndex, stepHop, dazeWobble, floorVariant, blockVariant,
+  screenFlash, enemyLook, LOOK_COLOR, FX_COLOR, PF_FRAME, simSeconds, animFrameIndex, stepHop, dazeWobble, groundFrame, BOLT_MS,
 } from './viewstate.js';
 import { RIGS } from './rigs.js';
 import { rigInput } from './rigpose.js';
@@ -118,8 +118,8 @@ export function createRunView({ renderer, atlas, data, access }) {
   const PARTICLE_FRAMES = [T('p1'), T('p2'), T('p3'), T('p4'), T('ring')]; // PF_FRAME order
   const SHADOW = [T('shadow_s'), T('shadow_m'), T('shadow_l')];
   const DIGIT = []; for (let d = 0; d < 10; d++) DIGIT.push(T(`digit:${d}`));
-  const FLOOR = [T('tile_floor_0'), T('tile_floor_1'), T('tile_floor_2'), T('tile_floor_3')];
-  const BLOCK = [T('tile_block_0'), T('tile_block_1'), T('tile_block_2')];
+  const groundCache = new Map();
+  const groundTex = (id) => { let t = groundCache.get(id); if (t === undefined) { t = T(id); groundCache.set(id, t); } return t; };
   const GEM = [T('gem_1'), T('gem_2'), T('gem_3'), T('gem_big')];
   // Per enemy type: its animation frames (one for a still sprite), plain, flashing, and elite.
   const typeTex = [], typeFlash = [], eliteTex = [], eliteFlash = [], typeFps = [], typeRig = [];
@@ -135,10 +135,11 @@ export function createRunView({ renderer, atlas, data, access }) {
   /** Which animation frame enemy i shows (viewstate.animFrameIndex); a held enemy stops on one frame. */
   const animFrame = (E, i, simSec) => animFrameIndex(typeTex[E.type[i]].length, typeFps[E.type[i]], simSec, E.anim[i], E.freezeT[i] > 0 || E.dazeT[i] > 0);
   const shotTex = data.weapons.map((w) => (atlas.has(w.sprite) ? T(w.sprite) : T('p3')));
+  const shotUpright = data.weapons.map((w) => w.upright === true); // drawn as they stand (weapons.js)
   const shotLight = data.weapons.map((w) => (w.tags.includes('fire') || w.tags.includes('light') ? 1 : 0));
   const hostileTex = T('proj_hostile');
   const matTex = data.materials.map((m) => T(m.icon));
-  const PK_HEAL = T('pk_heal'), PK_MAGNET = T('pk_magnet'), CHEST_E = T('chest_elite'), CHEST_B = T('chest_boss');
+  const PK_HEAL = T('pk_heal'), PK_MAGNET = T('pk_magnet'), CHEST_E = T('chest_elite'), CHEST_B = T('chest_boss'), CACHE = T('secret_cache'), EMBER = T('pk_ember');
   const playerTex = new Map(data.characters.map((c) => [c.sprite, [T(c.sprite), T(`${c.sprite}#flash`)]]));
 
   // Colors, packed once.
@@ -185,7 +186,7 @@ export function createRunView({ renderer, atlas, data, access }) {
       if (ty < 0 || ty >= tr.rows) continue;
       for (let tx = tx0; tx < tx0 + cols; tx++) {
         if (tx < 0 || tx >= tr.cols) continue;
-        const tex = tr.blocked(tx, ty) ? BLOCK[blockVariant(tx, ty, BLOCK.length)] : FLOOR[floorVariant(tx, ty)];
+        const tex = groundTex(groundFrame(tr, tx, ty));
         groundLayer.add(tex, tx * TILE + TILE / 2, ty * TILE + TILE / 2, 1, 1, 0, C.white);
       }
     }
@@ -334,10 +335,13 @@ export function createRunView({ renderer, atlas, data, access }) {
       if (kind === PICK.MATERIAL) tex = matTex[P.a[i]] || matTex[0];
       else if (kind === PICK.HEAL) tex = PK_HEAL;
       else if (kind === PICK.MAGNET) tex = PK_MAGNET;
+      else if (kind === PICK.EMBER) tex = EMBER;
       else tex = P.a[i] === 2 ? CHEST_B : CHEST_E;
       const hover = kind === PICK.CHEST ? 0 : Math.round(Math.sin(now / 260 + i));
       pickups.add(tex, Math.round(x), Math.round(y) + hover, 1, 1, 0, C.white);
     }
+    // The map's secret caches, until opened.
+    for (const s of world.secrets) if (!s.open && inView(s.x, s.y, 16)) pickups.add(CACHE, Math.round(s.x), Math.round(s.y), 1, 1, 0, C.white);
     pickups.end();
   }
 
@@ -352,8 +356,18 @@ export function createRunView({ renderer, atlas, data, access }) {
       const hostile = (P.flags[i] & PF.HOSTILE) !== 0;
       const tex = hostile ? hostileTex : (shotTex[P.def[i]] || PARTICLE_FRAMES[PF_FRAME.PLUS]);
       const dx = P.x[i] - P.px[i], dy = P.y[i] - P.py[i];
-      const rot = dx * dx + dy * dy > 0.01 ? Math.atan2(dy, dx) : 0;
+      const rot = !hostile && shotUpright[P.def[i]] === true ? 0 : dx * dx + dy * dy > 0.01 ? Math.atan2(dy, dx) : 0;
       shots.add(tex, Math.round(x), Math.round(y), 1, 1, rot, C.white);
+      n++;
+    }
+    // A beam's own sprite (the Signal Mirror's glint, the lens) where it leaves you, while it lasts.
+    const Z = world.zones;
+    for (let z = 0; z < Z.count; z++) {
+      if (Z.kind[z] !== ZONE.BEAM) continue;
+      const def = world.slots[Z.slot[z]]?.defIndex;
+      const tex = def === undefined ? null : shotTex[def];
+      if (!tex) continue;
+      shots.add(tex, Math.round(Z.x[z] + Z.dx[z] * 8), Math.round(Z.y[z] + Z.dy[z] * 8), 1, 1, 0, C.white);
       n++;
     }
     shots.end();
@@ -385,6 +399,29 @@ export function createRunView({ renderer, atlas, data, access }) {
       } else if (kind === ZONE.HAZARD && Z.age[i] >= Z.warn[i]) {
         // The pool itself (its warning is drawn with the other warnings, unlit).
         g.circle(Math.round(x), Math.round(y), r).fill({ color: C.violet1, alpha: 0.75 }).stroke({ width: 1, color: C.rot2, alpha: 0.9 });
+      }
+    }
+    drawBolts(g);
+  }
+
+  // Lightning: a jagged white-gold line from 96 px above each strike's own hit down to it, fading
+  // over BOLT_MS. The jags come from the bolt's position, so a bolt keeps its shape while it shows.
+  function drawBolts(g) {
+    const B = st.bolts;
+    for (let k = 0; k < B.n; k++) {
+      const age = now - B.t[k];
+      if (age >= BOLT_MS) continue;
+      const a = 1 - age / BOLT_MS, x = Math.round(B.x[k]), y = Math.round(B.y[k]);
+      for (let pass = 0; pass < 2; pass++) {
+        let seed = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        g.moveTo(x, y - 96);
+        for (let j = 1; j <= 6; j++) {
+          seed = (seed * 1103515245 + 12345) >>> 0;
+          const jx = j === 6 ? 0 : ((seed >>> 16) % 13) - 6;
+          g.lineTo(x + jx, y - 96 + j * 16);
+        }
+        if (pass === 0) g.stroke({ width: 3, color: C.lamp, alpha: 0.45 * a });
+        else g.stroke({ width: 1, color: WHITE, alpha: a });
       }
     }
   }
@@ -502,6 +539,12 @@ export function createRunView({ renderer, atlas, data, access }) {
     }
     lightAt(px, py - 4, lamp, C.lamp, 1); n++;
     lightAt(px, py - 4, lamp * 0.45, WHITE, 0.5); n++;
+    // An Ember on the ground glows violet, so it's seen in the dark.
+    const PU = world.pickups;
+    for (let i = 0; i < PU.count && n < L.maxLights; i++) if (PU.kind[i] === PICK.EMBER && lightAt(PU.x[i], PU.y[i], 40, C.violet, 0.7)) n++;
+    // A secret cache glows faintly violet through the dark until it's opened (you see it once
+    // you're near; nothing points the way).
+    for (const s of world.secrets) if (!s.open && n < L.maxLights && lightAt(s.x, s.y, 56 + 8 * Math.sin(now / 400), C.violet, 0.6)) n++;
     // A boss's own light: the Maw's lure glows like a lamp (that's the lure), the Tidecaller's eyes.
     for (let k = 0; k < rigLightCount && n < L.maxLights; k++) if (lightAt(rigLights[k * 4], rigLights[k * 4 + 1], rigLights[k * 4 + 2], rigLights[k * 4 + 3], 0.75)) n++;
     // Then, in order, until maxLights: fire and light shots, flashes, chests, ground, gems.

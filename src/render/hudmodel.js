@@ -72,7 +72,7 @@ export function placeHud(places, widths, bossShown, L = HUD_LAYOUT) {
   return P;
 }
 
-function entry() { return { icon: '', level: 0, levelText: '', max: false, _lv: -1 }; }
+function entry() { return { icon: '', level: 0, levelText: '', max: false, asc: 0, _lv: -1 }; }
 
 export function createHudModel() {
   return {
@@ -145,6 +145,7 @@ export function updateHudModel(m, world) {
     while (!(world.slots[s] && world.slots[s].def)) s++;
     const slot = world.slots[s++];
     e.icon = slot.def.icon; e.level = slot.level; e.max = slot.level >= slot.def.maxLevel;
+    e.asc = slot.ascensions ? slot.ascensions.length : 0;   // ascensions: pips on the icon
   });
   m.weaponCount = n;
   const ps = world.build.passives;

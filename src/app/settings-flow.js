@@ -28,6 +28,8 @@ export function openSettings({ ui, menuCtx, settings, desktop, native, atTitleOr
     { key: 'access.shake', label: 'Screen shake', kind: 'toggle', value: s.access.shake },
     { key: 'access.damageNumbers', label: 'Damage numbers', kind: 'toggle', value: s.access.damageNumbers },
     { key: 'access.flashReduction', label: 'Reduce flashing', kind: 'toggle', value: s.access.flashReduction },
+    { key: 'hud.minimap', label: 'Minimap', kind: 'choice', value: s.hud.minimap, choices: [['nearby', 'Nearby'], ['map', 'Whole map'], ['off', 'Off']] },
+    { key: 'hud.minimapSize', label: 'Minimap size', kind: 'choice', value: s.hud.minimapSize, choices: [['small', 'Small'], ['large', 'Large']] },
   );
   let screen = null;
   const apply = (key, v) => {
