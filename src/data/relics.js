@@ -24,6 +24,13 @@ export const RELICS = [
     hook: 'free_evolution_every', params: { every: 7 },
   },
   {
+    // Found, not bought: the cache in the Drowned Docks' wreck (data/maps.js secrets) gives it,
+    // and finding it once puts it in the relic pool for good.
+    id: 'wreck_lantern', name: 'Wreck Lantern', desc: 'Every 5th kill leaves burning oil on the ground.', icon: 'relic_wreck_lantern',
+    rarity: 3, unlock: 'secret:wreck_cache', weight: 80,
+    hook: 'kill_fire_pool', params: { every: 5, radius: 18, duration: 3, damage: 4, interval: 0.4, dps: 3, burn: 1.2 },
+  },
+  {
     id: 'tide_clock', name: 'Tide Clock', desc: 'Every 45s, a wave knocks back nearby enemies.', icon: 'relic_tide_clock',
     rarity: 2, unlock: 'building:tavern:2', weight: 100,
     hook: 'timed_wave', params: { every: 45, radius: 170, damage: 20, knockback: 4 },

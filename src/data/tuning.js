@@ -126,6 +126,9 @@ export const TUNING = {
     overtimeChoiceAfterBoss: true,
   },
 
+  // Embers (sim/ascend.js): an elite drops one this often (bosses and a muster's captain always do).
+  embers: { eliteChance: 0.15 },
+
   bosses: {
     minionCap: 60,             // summon waves stop when this many minions are alive
     attackRange: 420,          // px: a boss starts its next attack only this close to you
@@ -135,6 +138,7 @@ export const TUNING = {
   // What you see and hear, not what happens: the renderer and audio read these, the sim never
   // does (ARCHITECTURE §6.3). Times in milliseconds unless the name says otherwise.
   feel: {
+    firstRunTipsSec: 40,       // s a first run's how-to-play card stays (ui/menus.js runTips)
     hitStop: {                 // the sim holds this long; rendering carries on (§5.1)
       playerHurt: 70,
       eliteKill: 60,
@@ -235,9 +239,10 @@ export const HUB_TUNING = Object.freeze({
     keeperPause: 1.6,  // s a keeper stops at each corner of their walk
     dashCooldown: 0.9, // the dash's distance and time are the run's (TUNING.player.dash)
     reach: 14,         // px from a door, the gate, or a person to use it
+    walkOff: 0.15,     // s of pushing west at the quay's end, by the gate, before it sets out
   }),
   look: Object.freeze({
-    ambient: Object.freeze([0.36, 0.38, 0.52]), // the light map where no lamp reaches: a blue dark (red, green, blue)
+    ambient: Object.freeze([0.5, 0.52, 0.66]), // the light map where no lamp reaches: a blue dusk, dark but every cleared street readable (red, green, blue)
     ambientBoost: 0,             // added to all three (0 = as ambient says), as in a run
     lampColor: '#ffc873',        // the town lamp's light, and every lantern's
     lampReach: 72,               // px: the town lamp's light before its first level...
@@ -320,7 +325,7 @@ export const HUB_TUNING = Object.freeze({
 export const HUB_TUNING_RANGE = Object.freeze({
   timing: Object.freeze({
     panIn: 'above0', build: 'above0', fogPeel: 'above0', hold: 'min0', panOut: 'above0',
-    boatSpeed: 'above0', walkSpeed: 'above0', arriveSpeed: 'above0', keeperPause: 'min0', dashCooldown: 'min0', reach: 'min0',
+    boatSpeed: 'above0', walkSpeed: 'above0', arriveSpeed: 'above0', keeperPause: 'min0', dashCooldown: 'min0', reach: 'min0', walkOff: 'above0',
   }),
   look: Object.freeze({
     ambientBoost: 'any',

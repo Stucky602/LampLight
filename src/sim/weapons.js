@@ -15,7 +15,7 @@
 import { DT, TPS, EF, PF, MOTION, EMIT, FX, ZONE, HIT_SLOTS, RELIC_SLOT, HIT_RING } from './constants.js';
 import { NO_HANDLE } from './pools.js';
 import { EV } from './events.js';
-import { computeWeaponStats } from './stats.js';
+import { computeWeaponStats, WEAPON_DEFAULTS } from './stats.js';
 import { damageEnemyR, impulseR, applyStatus } from './enemies.js';
 import { hurtPlayer } from './player.js';
 import { runHooks } from './hooks.js';
@@ -56,6 +56,9 @@ const MOTION_TYPES = Object.keys(MOTION);
  * compiles to the same index (slots are rebuilt on every level-up, so without this the table
  * would grow all run); compiled lists are never changed after this.
  */
+/** Zone effects one on-hit list may hold, each throttled on its own (`every`). */
+export const ZONE_PACES = 4;
+
 export function compileList(world, effects) {
   const key = JSON.stringify(effects);
   const known = world.fxListIndex.get(key);
@@ -66,6 +69,9 @@ export function compileList(world, effects) {
     if (t === undefined) throw new Error(`Unknown on-hit effect "${e.type}" (known: ${EFFECT_TYPES.join(', ')})`);
     const c = { ...e, t };
     if (t === FX.zone) {
+      // Each zone effect in a list keeps its own pace (a weapon's own pool and a rune's).
+      c.zoneSlot = out.filter((x) => x.t === FX.zone).length;
+      if (c.zoneSlot >= ZONE_PACES) throw new Error(`An on-hit list can leave at most ${ZONE_PACES} kinds of ground`);
       const sub = [{ type: 'damage' }];
       if (e.status) sub.push({ type: 'status', ...e.status });
       c.zoneList = compileList(world, sub);
@@ -88,20 +94,81 @@ export function runeValidOn(rune, def) {
   return validOnEmit(rune, def.pipeline.emit.type);
 }
 
+/** The emitters that fire along a line (fireAlong), so firing backward too means something there. */
+export const MIRRORED_EMITS = Object.freeze(['nearest', 'facing', 'radial']);
+
 /**
- * Can this rune join the runes already socketed in a weapon? It must fit the emitter those runes
- * have given the weapon (Orbiting turns a Flare Gun into an orbit, so Backfire no longer fits),
- * and if it changes the emitter itself, every rune already there must still fit the new one.
- * So a set of runes never holds one that does nothing.
+ * Does every part of ascension `a` do something on a weapon with this emitter type, mirrored or
+ * not by its runes, piercing everything or not? Firing backward needs a line-firing emitter that
+ * doesn't already fire backward; more pierce needs a weapon that doesn't already pierce all.
  */
-export function runeFits(rune, def, socketed) {
+export function ascensionWorks(a, emitType, mirroredByRunes, piercesAll) {
+  if (a.mirror && (mirroredByRunes || !MIRRORED_EMITS.includes(emitType))) return false;
+  if (a.add?.pierce && piercesAll) return false;
+  return true;
+}
+
+/** What a weapon's runes make of it: { emit (its emitter's type), mirrored, piercesAll }. */
+export function runeShape(def, runes) {
+  let emit = def.pipeline.emit.type, mirrored = false, piercesAll = (def.base.pierce ?? 0) < 0;
+  for (const r of runes) {
+    if (!r) continue;
+    if (r.patch.emit) emit = r.patch.emit.type;
+    if (r.patch.mirror) mirrored = true;
+    if (r.patch.base && r.patch.base.pierce !== undefined) piercesAll = r.patch.base.pierce < 0;
+  }
+  return { emit, mirrored, piercesAll };
+}
+
+/**
+ * Can this rune join the runes already socketed in a weapon (and its ascensions)? It must fit the
+ * emitter those runes have given the weapon (Orbiting turns a Flare Gun into an orbit, so Backfire
+ * no longer fits), if it changes the emitter itself every rune already there must still fit the
+ * new one, and every ascension taken must still do all it says (Backfire adds nothing to Signal
+ * Pair's backward shot; Orbiting would cancel it). So a weapon never holds a rune that does
+ * nothing, nor loses what an Ember bought.
+ */
+export function runeFits(rune, def, socketed, ascensions = []) {
   // One copy of a rune per weapon: a second Backfire or Burning Ground would add nothing.
   for (const r of socketed) if (r && r.id === rune.id) return false;
-  let emit = def.pipeline.emit.type;
-  for (const r of socketed) if (r && r.patch.emit) emit = r.patch.emit.type;
-  if (!validOnEmit(rune, emit)) return false;
+  const before = runeShape(def, socketed);
+  if (!validOnEmit(rune, before.emit)) return false;
   if (rune.patch.emit) for (const r of socketed) if (r && !validOnEmit(r, rune.patch.emit.type)) return false;
+  if (ascensions.length) {
+    const after = runeShape(def, [...socketed, rune]);
+    for (const a of ascensions) if (!ascensionWorks(a, after.emit, after.mirrored, after.piercesAll)) return false;
+  }
   return true;
+}
+
+// How an ascension's on-hit numbers join an effect of the same kind the weapon already has
+// (Barbed Line on the Kraken Line's own chain, Starburst on the Flare Barrage's own burst):
+// amounts add (more hops, longer, harder); reaches take the larger; a per-hop multiplier is never
+// added (a chain's hops would grow stronger than the hit); a slow never reaches a standstill.
+// Every number an on-hit effect has is listed: a new one must be given its rule (an unlisted one
+// throws, so a future reach or rate never adds by mistake).
+const MERGE = Object.freeze({
+  hops: 'add', duration: 'add', dps: 'add', damage: 'add', amp: 'add', strength: 'add', count: 'add', pct: 'add',
+  radius: 'max', range: 'max', interval: 'keep', every: 'keep', ms: 'keep', spread: 'keep',
+});
+const MAX_SLOW = 0.8;
+
+/**
+ * Add an ascension's on-hit effect to a list: onto the list's own effect of that type (a status:
+ * of that status), its numbers joined by MERGE; or, with none, appended as a new one.
+ */
+export function addEffect(list, e) {
+  const same = list.find((x) => x.type === e.type && (e.type !== 'status' || x.status === e.status));
+  if (!same) { list.push(JSON.parse(JSON.stringify(e))); return; }
+  for (const [k, v] of Object.entries(e)) {
+    if (typeof v !== 'number') continue;
+    const rule = k === 'damageMul' ? (e.type === 'chain' ? 'max' : 'add') : MERGE[k];
+    if (!rule) throw new Error(`addEffect: no rule for joining "${k}" (${e.type}); give it one in MERGE`);
+    if (rule === 'add') same[k] = (same[k] ?? 0) + v;
+    else if (rule === 'max') same[k] = Math.max(same[k] ?? 0, v);
+    else same[k] ??= v;
+  }
+  if (same.type === 'status' && same.status === 'slow') same.pct = Math.min(same.pct, MAX_SLOW);
 }
 
 /**
@@ -114,6 +181,16 @@ export function buildSlot(world, index, def, level, runes, prev = null) {
   const onHit = def.pipeline.onHit.map((e) => ({ ...e }));
   let mirror = false;
   const baseOverride = {};
+  // Ascensions first (data/ascensions.js: an Ember's changes, kept through rebuilds and an
+  // evolution), then the runes.
+  const ascensions = prev ? prev.ascensions : [];
+  const baseAdd = {};
+  for (const a of ascensions) {
+    if (a.add) for (const [k, v] of Object.entries(a.add)) baseAdd[k] = (baseAdd[k] ?? 0) + v;
+    if (a.emitAdd) for (const [k, v] of Object.entries(a.emitAdd)) emit[k] = (emit[k] ?? 0) + v;
+    if (a.mirror) mirror = true;
+    if (a.onHitAdd) for (const e of a.onHitAdd) addEffect(onHit, e);
+  }
   for (const rune of runes) {
     if (!rune) continue;
     const p = rune.patch;
@@ -125,7 +202,12 @@ export function buildSlot(world, index, def, level, runes, prev = null) {
   }
   if (EMIT[emit.type] === undefined) throw new Error(`Unknown emitter "${emit.type}" on ${def.id} (known: ${EMIT_TYPES.join(', ')})`);
   if (MOTION[motion.type] === undefined) throw new Error(`Unknown motion "${motion.type}" on ${def.id} (known: ${MOTION_TYPES.join(', ')})`);
-  const effDef = Object.keys(baseOverride).length ? { ...def, base: { ...def.base, ...baseOverride } } : def;
+  let effDef = Object.keys(baseOverride).length ? { ...def, base: { ...def.base, ...baseOverride } } : def;
+  if (Object.keys(baseAdd).length) {
+    const b = { ...WEAPON_DEFAULTS, ...effDef.base };
+    for (const [k, v] of Object.entries(baseAdd)) if (!(k === 'pierce' && b.pierce < 0)) b[k] = (b[k] ?? 0) + v;
+    effDef = { ...effDef, base: b };
+  }
   const stats = computeWeaponStats(world.tuning, effDef, level, world.mods);
   const list = compileList(world, onHit);
   const childList = compileList(world, onHit.filter((e) => e.type !== 'split'));
@@ -145,7 +227,8 @@ export function buildSlot(world, index, def, level, runes, prev = null) {
     volleyTargets: prev ? prev.volleyTargets : new Int32Array(24).fill(NO_HANDLE),
     angle: prev ? prev.angle : 0,
     auraHandle: prev ? prev.auraHandle : NO_HANDLE,
-    lastZoneTick: prev ? prev.lastZoneTick : -1e9,
+    lastZoneTicks: prev ? prev.lastZoneTicks : new Float64Array(ZONE_PACES).fill(-1e9),
+    ascensions,   // the ascension definitions taken, in order (data/ascensions.js)
     fired: prev ? prev.fired : 0,
   };
   return slot;
@@ -158,7 +241,7 @@ export function buildRelicSlot(world) {
     stats: { damage: 0, crit: 0, critMult: 1, area: 1, knockback: 1, hitCooldown: 0 },
     emitType: -1, motionType: -1, mirror: false,
     list: compileList(world, [{ type: 'damage' }, { type: 'knockback' }]),
-    childList: 0, hitCdTicks: 0, lastZoneTick: -1e9,
+    childList: 0, hitCdTicks: 0, lastZoneTicks: new Float64Array(ZONE_PACES).fill(-1e9),
   };
 }
 
@@ -230,7 +313,8 @@ function fireAlong(world, slot, x, y, dirX, dirY, target) {
   spawnShot(world, slot, motionOpts(world, slot, x, y, dirX, dirY, target));
   if (slot.mirror) {
     shotAt(world, x, y, -dirX, -dirY, speed);
-    spawnShot(world, slot, motionOpts(world, slot, x, y, -dirX, -dirY, NO_HANDLE));
+    // A lobbed twin lands as far behind you as its pair lands ahead (the target gives the distance).
+    spawnShot(world, slot, motionOpts(world, slot, x, y, -dirX, -dirY, slot.motionType === MOTION.arc ? target : NO_HANDLE));
   }
 }
 
@@ -242,8 +326,14 @@ function motionOpts(world, slot, x, y, dirX, dirY, target) {
     case MOTION.homing: o.m0 = m.turn ?? 4; o.m1 = m.range ?? 240; break;
     case MOTION.boomerang: o.m0 = s.duration; o.m1 = dirX; o.m2 = dirY; break;
     case MOTION.arc: {
-      // Lobbed at a point `range` away along the direction (or at the target), landing when it arrives.
-      const reach = (m.range ?? 120) * s.area;
+      // Lobbed at the target where it stands now (a throw of at most `range`), or `range` along
+      // the direction with no target; it lands when it arrives. Area widens the blast, not the throw.
+      let reach = m.range ?? 120;
+      const t = target === NO_HANDLE ? -1 : world.enemies.resolve(target);
+      if (t >= 0) {
+        const tx = world.enemies.x[t] - x, ty = world.enemies.y[t] - y, d = Math.sqrt(tx * tx + ty * ty);
+        if (d < reach) reach = d;
+      }
       o.m0 = x + dirX * reach; o.m1 = y + dirY * reach;
       o.m2 = m.flight ?? 0.6;
       o.life = o.m2 + DT;
@@ -386,10 +476,13 @@ function fireOne(world, slot) {
       return true;
     }
     case EMIT.beam: {
+      // Each beam of a volley takes its own target (as `nearest` does), so +1 Projectile is
+      // another beam somewhere else, not the same one again inside its hit cooldown.
       const e = nearestTarget(world, slot, (slot.stats.radius ?? 120) * s.area);
       let dx = p.fx, dy = p.fy;
       if (e >= 0) {
         const E = world.enemies;
+        if (k < slot.volleyTargets.length) slot.volleyTargets[k] = E.handle(e);
         const ex = E.x[e] - p.x, ey = E.y[e] - p.y, d = Math.sqrt(ex * ex + ey * ey) || 1;
         dx = ex / d; dy = ey / d;
       }
@@ -493,6 +586,27 @@ function clearSlotShots(world, slotIndex, motion) {
   for (let i = P.count - 1; i >= 0; i--) {
     if (P.slot[i] === slotIndex && P.motion[i] === motion && (P.flags[i] & PF.CHILD) === 0) P.remove(i);
   }
+}
+
+/**
+ * Burning ground (a ZONE.GROUND) at a point, for a relic's hook: it hurts in pulses every
+ * `interval` s for `life` s with the on-hit list `list` (a compileList index). Cold path (a few a
+ * second at most). Returns the zone's index, or -1 if the zone pool is full.
+ */
+export function groundAt(world, slotIndex, x, y, radius, life, damage, interval, list) {
+  const Z = world.zones;
+  const z = Z.alloc();
+  if (z < 0) return -1;
+  Z.x[z] = x; Z.y[z] = y;
+  Z.kind[z] = ZONE.GROUND; Z.slot[z] = slotIndex; Z.list[z] = list;
+  Z.radius[z] = Z.maxRadius[z] = radius;
+  Z.life[z] = life;
+  Z.damage[z] = damage;
+  Z.knockback[z] = 0;
+  Z.interval[z] = Math.max(1, Math.round(interval * TPS));
+  Z.nextTick[z] = world.tick;
+  Z.def[z] = 0xffff;
+  return z;
 }
 
 function spawnZone(world, slot, kind, x, y, radius, maxRadius, life) {
@@ -741,6 +855,12 @@ export function applyHit(world, slot, listRef, e, proj) {
         if (s.crit > 0 && world.rng.combat.next() < s.crit) { dmg *= s.critMult; crit = true; }
         num[0] = dmg;
         damageEnemyR(world, e, slot.index, crit);
+        // A strike's own hit (not a hop, a pool, or a split) says so in its event (c bit 2), so the
+        // view draws its bolt from the sky there and nowhere else.
+        if (proj >= 0 && slot.emitType === EMIT.strike && (world.projectiles.flags[proj] & PF.CHILD) === 0) {
+          const ev = world.events, last = ev.count - 1;
+          if (last >= 0 && ev.type[last] === EV.HIT && ev.b[last] === E.handle(e)) ev.c[last] += 2;
+        }
         break;
       }
       case FX.knockback:
@@ -775,8 +895,9 @@ export function applyHit(world, slot, listRef, e, proj) {
       }
       case FX.zone: {
         const every = Math.round((fx.every ?? 0.25) * TPS);
-        if (world.tick - slot.lastZoneTick < every) break;
-        slot.lastZoneTick = world.tick;
+        const lz = slot.lastZoneTicks;
+        if (world.tick - lz[fx.zoneSlot] < every) break;
+        lz[fx.zoneSlot] = world.tick;
         const Z = world.zones;
         const z = Z.alloc();
         if (z < 0) break;
@@ -809,7 +930,13 @@ function splitShot(world, slot, proj, e, fx, hx, hy, damage) {
   const spread = ((fx.spread ?? 45) * PI) / 180;
   let vx = P.vx[proj], vy = P.vy[proj];
   let speed = Math.sqrt(vx * vx + vy * vy);
-  if (speed < 1) { speed = 180; vx = world.player.fx; vy = world.player.fy; } else { vx /= speed; vy /= speed; }
+  if (speed < 1) {
+    // A shot that wasn't moving (a strike, a landed flask, a drop): the pieces fly on outward,
+    // away from you through the hit point (the way you face, if it's at your feet).
+    speed = 180;
+    const p = world.player, ox = hx - p.x, oy = hy - p.y, d = Math.sqrt(ox * ox + oy * oy);
+    if (d > 1) { vx = ox / d; vy = oy / d; } else { vx = p.fx; vy = p.fy; }
+  } else { vx /= speed; vy /= speed; }
   const sc = world.scratch.sc;
   const skip = world.enemies.handle(e);
   for (let k = 0; k < count; k++) {

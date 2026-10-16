@@ -16,7 +16,7 @@ export const RUNES = [
   },
   {
     id: 'burning_ground', name: 'Burning Ground', desc: 'Hits leave burning ground.', icon: 'rune_burning', rarity: 2, unlock: 'starter', weight: 100,
-    validOn: { emit: ['nearest', 'facing', 'radial', 'orbit', 'strike', 'drop', 'wave'] },
+    validOn: { emit: ['nearest', 'facing', 'radial', 'orbit', 'strike', 'drop', 'wave', 'beam', 'summon'] },
     patch: { onHitAppend: [{ type: 'zone', radius: 14, duration: 2.5, damage: 3, interval: 0.4, every: 0.3, status: { status: 'burn', dps: 3, duration: 1.2 } }] },
   },
   {
@@ -35,7 +35,7 @@ export const RUNES = [
   },
   {
     id: 'chain_link', name: 'Chain Link', desc: 'Hits chain to 3 nearby enemies.', icon: 'rune_chain', rarity: 2, unlock: 'research:rune_stones', weight: 100,
-    validOn: { emit: ['nearest', 'facing', 'radial', 'strike', 'orbit'] },
+    validOn: { emit: ['nearest', 'facing', 'radial', 'orbit', 'beam', 'summon'] }, // not strike: Lightning Rod already jumps
     patch: { onHitAppend: [{ type: 'chain', hops: 3, range: 90, damageMul: 0.7 }] },
   },
 ];

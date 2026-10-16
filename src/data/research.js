@@ -23,6 +23,14 @@ export const RESEARCH = [
     id: 'rune_stones', name: 'Rune Stones', desc: 'Carved stones from the breakwater.',
     tier: 1, cost: { drowned_pages: 10, rope: 6 }, runs: 1, requires: [],
   },
+  {
+    id: 'signal_codes', name: 'Signal Codes', desc: 'The flashes ships used to talk across the water.',
+    tier: 1, cost: { drowned_pages: 10, timber: 6 }, runs: 1, requires: [],
+  },
+  {
+    id: 'oil_stores', name: 'Oil Stores', desc: 'A chandler\'s ledger of what burns and how well.',
+    tier: 1, cost: { drowned_pages: 12, oil: 15 }, runs: 2, requires: [],
+  },
   // Tier 2.
   {
     id: 'ships_ballast', name: "Ship's Ballast", desc: 'Notes on keeping a ship upright.',
@@ -36,9 +44,17 @@ export const RESEARCH = [
     id: 'reversed_runes', name: 'Reversed Runes', desc: 'Runes cut in reverse.',
     tier: 2, cost: { drowned_pages: 20, iron: 2 }, runs: 2, requires: ['rune_stones'],
   },
+  {
+    id: 'storm_glass', name: 'Storm Glass', desc: 'A sealed glass that clouds before lightning.',
+    tier: 2, cost: { drowned_pages: 22, coin: 35, iron: 2 }, runs: 2, requires: ['signal_codes'],
+  },
   // Tier 3.
   {
     id: 'volatile_salts', name: 'Volatile Salts', desc: 'Salts that burst when handled.',
     tier: 3, cost: { drowned_pages: 40, coin: 60, iron: 4 }, runs: 3, requires: ['almanac'],
+  },
+  {
+    id: 'corpse_lights', name: 'Corpse Lights', desc: 'Accounts of candle flames seen over drowned men.',
+    tier: 3, cost: { drowned_pages: 35, rum: 6, coin: 50 }, runs: 3, requires: ['oil_stores'],
   },
 ];

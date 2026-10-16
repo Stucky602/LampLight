@@ -32,6 +32,8 @@ export function createResultState(enemyCount, materialCount) {
     overtimeMinutes: 0,
     cleared: false,
     secrets: [],
+    embers: 0,       // Embers picked up
+    ascensions: [],  // { weapon, id, tick }: Embers spent
     weaponLevels,
     noteWeaponLevel(id, level) {
       if (!(weaponLevels.get(id) >= level)) weaponLevels.set(id, level);
@@ -108,6 +110,8 @@ export function buildRunResult(world) {
     chests: r.chests,
     overtimeMinutes: r.overtimeMinutes,
     secretsFound: r.secrets.slice(),
+    embers: r.embers,
+    ascensions: r.ascensions.map((a) => ({ ...a })),
     rerolls: r.rerolls, skips: r.skips, banished: r.banished.slice(),
     // The tuning panel or its dev commands were used in this run (the save is marked, §15).
     devTools: world.decisions.some((d) => d.kind === 'dev' || d.kind === 'tune'),

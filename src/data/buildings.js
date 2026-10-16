@@ -1,6 +1,6 @@
 // The harbor's buildings (ARCHITECTURE §10.4, §10.5; brief §6.1). Each has 5 levels after its
 // ruined state, and each level costs materials and opens something. Phase 5 builds the three MVP
-// buildings; the other plots on the hub map (data/hub.js) stay in the fog until Phase 7.
+// buildings; the other plots on the hub map (data/hub.js) stay ruins until Phase 7.
 //
 // A level's effects (the building panel describes them from here):
 //   tree: n            the Lamp Post's upgrades of tier n can be bought (data/upgrades.js)
@@ -19,10 +19,10 @@ export const BUILDINGS = [
     npc: 'lamp_keeper', material: 'oil',
     levels: [
       { cost: { oil: 15, coin: 15 }, tree: 1 },
-      { cost: { oil: 45, coin: 40, timber: 10 }, tree: 2 },
-      { cost: { oil: 90, coin: 80, rope: 15 }, tree: 3 },
-      { cost: { oil: 150, coin: 130, timber: 30, iron: 4 }, tree: 4 },
-      { cost: { oil: 230, coin: 200, rope: 30, iron: 10, map_scraps: 2 }, tree: 5 },
+      { cost: { oil: 70, coin: 60, timber: 15 }, tree: 2 },
+      { cost: { oil: 135, coin: 120, rope: 20 }, tree: 3 },
+      { cost: { oil: 225, coin: 195, timber: 45, iron: 6 }, tree: 4 },
+      { cost: { oil: 345, coin: 300, rope: 45, iron: 15, map_scraps: 3 }, tree: 5 },
     ],
   },
   {
@@ -30,10 +30,10 @@ export const BUILDINGS = [
     npc: 'librarian', material: 'drowned_pages',
     levels: [
       { cost: { drowned_pages: 10, coin: 20, timber: 5 }, researchSlots: 1, researchTier: 1 },
-      { cost: { drowned_pages: 30, coin: 45, timber: 12 }, researchTier: 2 },
-      { cost: { drowned_pages: 60, coin: 80, rope: 12 }, researchSlots: 2 },
-      { cost: { drowned_pages: 100, coin: 130, timber: 25, iron: 4 }, researchTier: 3 },
-      { cost: { drowned_pages: 150, coin: 190, rope: 25, map_scraps: 2 }, researchSlots: 3 },
+      { cost: { drowned_pages: 45, coin: 70, timber: 18 }, researchTier: 2 },
+      { cost: { drowned_pages: 90, coin: 120, rope: 18 }, researchSlots: 2 },
+      { cost: { drowned_pages: 150, coin: 195, timber: 40, iron: 6 }, researchTier: 3 },
+      { cost: { drowned_pages: 225, coin: 285, rope: 40, map_scraps: 3 }, researchSlots: 3 },
     ],
   },
   {
@@ -41,10 +41,10 @@ export const BUILDINGS = [
     npc: 'innkeeper', material: 'rum',
     levels: [
       { cost: { coin: 90, rum: 5, timber: 10 } },
-      { cost: { coin: 100, rum: 6, rope: 10 } },
-      { cost: { coin: 150, rum: 10, timber: 18 } },
-      { cost: { coin: 210, rum: 15, rope: 22, iron: 4 } },
-      { cost: { coin: 280, rum: 22, map_scraps: 3 } },
+      { cost: { coin: 150, rum: 9, rope: 15 } },
+      { cost: { coin: 225, rum: 15, timber: 25 } },
+      { cost: { coin: 315, rum: 22, rope: 35, iron: 6 } },
+      { cost: { coin: 420, rum: 33, map_scraps: 4 } },
     ],
   },
 ];

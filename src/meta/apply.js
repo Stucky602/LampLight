@@ -56,6 +56,8 @@ export function waitingReason(meta) {
  */
 function seenKeys(result) {
   const keys = [];
+  // Secrets first: the results say what was found before what it gave.
+  for (const id of list(result.secretsFound)) if (typeof id === 'string') keys.push(`secret:${id}`);
   for (const w of list(result.weapons)) { const id = idOf(w); if (id) keys.push(`weapon:${id}`); }
   if (isObj(result.weaponLevelMax)) for (const id of Object.keys(result.weaponLevelMax)) keys.push(`weapon:${id}`);
   for (const e of list(result.evolutions)) { const id = idOf(e); if (id) keys.push(`weapon:${id}`); }
@@ -128,7 +130,8 @@ export function applyRunResult(doc, result, data) {
   for (const k of seenKeys(result)) {
     if (!valid.has(k) || known.has(k)) continue;
     known.add(k);
-    changes.push({ kind: 'codex', key: k });
+    if (k.startsWith('secret:')) changes.push({ kind: 'codex', key: k, unlocks: contentFrom(data, k).map(({ what, id }) => ({ what, id })) });
+    else changes.push({ kind: 'codex', key: k });
   }
   P.codex = [...known];
 

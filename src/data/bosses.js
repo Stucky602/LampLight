@@ -11,15 +11,20 @@
 //   summon_wave   a circle of minions appears around the boss after a warning
 //   projectile_fan  slow, readable shots in a fan toward you
 //   hazard_pools  circles near you fill in, then stay harmful for a while
+//   lure          (the Maw's own) its bite's ring shows and you're drawn toward it at `pull`
+//                 px/s (slower than you walk) for the warning; then it bites inside `bite`
+//   tide_lanes    (the Tidecaller's own) `lanes` rows of pools `gap` apart across where you
+//                 stand, each warning `stagger` s after the last; stand between them
 
 export const BOSSES = [
   {
     id: 'harbor_maw',
     phases: [
-      { from: 1.0, every: 2.8, attacks: ['slam', 'summon', 'charge'] },
-      { from: 0.5, every: 2.0, attacks: ['charge', 'slam', 'charge', 'summon'] },
+      { from: 1.0, every: 2.8, attacks: ['slam', 'lure', 'summon', 'charge'] },
+      { from: 0.5, every: 2.0, attacks: ['lure', 'charge', 'slam', 'charge', 'summon'] },
     ],
     attacks: {
+      lure: { type: 'lure', bite: 46, pull: 38, warn: 1.6, damage: 26 },
       slam: { type: 'slam_ring', radius: 72, warn: 1.0, damage: 18 },
       summon: { type: 'summon_wave', enemy: 'fog_wisp', count: 12, radius: 70, warn: 0.8 },
       charge: { type: 'charge_line', length: 240, width: 20, warn: 1.0, speed: 320, damage: 20 },
@@ -28,11 +33,12 @@ export const BOSSES = [
   {
     id: 'the_tidecaller',
     phases: [
-      { from: 1.0, every: 2.6, attacks: ['fan', 'pools', 'slam'] },
-      { from: 0.6, every: 2.0, attacks: ['pools', 'fan', 'summon', 'fan'] },
-      { from: 0.3, every: 1.6, attacks: ['slam', 'fan', 'pools', 'charge'] },
+      { from: 1.0, every: 2.6, attacks: ['fan', 'tide', 'slam', 'pools'] },
+      { from: 0.6, every: 2.0, attacks: ['tide', 'fan', 'summon', 'fan'] },
+      { from: 0.3, every: 1.6, attacks: ['slam', 'tide', 'fan', 'pools', 'charge'] },
     ],
     attacks: {
+      tide: { type: 'tide_lanes', lanes: 3, gap: 76, length: 360, spacing: 32, radius: 18, warn: 1.2, stagger: 0.3, last: 2.5, damage: 10 },
       fan: { type: 'projectile_fan', count: 7, spread: 70, speed: 80, damage: 10, warn: 0.9, radius: 5, life: 5 },
       pools: { type: 'hazard_pools', count: 4, radius: 26, scatter: 90, warn: 1.1, last: 4, damage: 8 },
       slam: { type: 'slam_ring', radius: 88, warn: 1.1, damage: 24 },

@@ -64,7 +64,8 @@ export function createHubWorld({ hub, terrain, tuning, revealed, props = [], mov
     cam: { x: 0, y: 0, px: 0, py: 0 },   // where the camera looks (and looked last tick)
     timeline: null,                   // the set piece running now
     queue: [],                        // set pieces waiting their turn
-    events: [],                       // this tick's: { kind: 'dash' | 'build_start' | 'build_done' | 'landed' | 'done' }
+    events: [],                       // this tick's: { kind: 'dash' | 'build_start' | 'build_done' | 'landed' | 'done' | 'walk_off' }
+    walkOff: 0,                       // s pushing west off the quay's end (-1: fired, waiting for you to let go)
   };
   w.player.px = w.player.x; w.player.py = w.player.y;
   rebuildSolid(w);
@@ -319,7 +320,8 @@ function findNear(w) {
 }
 
 /**
- * One tick. frame: an InputFrame ({ mx, my, buttons }: axes -127..127, BTN_DASH the dash). While a
+ * One tick. frame: an InputFrame ({ mx, my, buttons }: axes -127..127, BTN_DASH the dash), or null
+ * while a screen is open (you stand still, and the walk-off keeps its state). While a
  * set piece runs you stand still. Read `w.near`, `w.timeline`, `w.events`, and the positions after.
  */
 export function stepHub(w, frame, dt) {
@@ -372,6 +374,16 @@ export function stepHub(w, frame, dt) {
   }
   w.cam.x = p.x; w.cam.y = p.y;
   w.near = findNear(w);
+  // Walking off the quay's west end, by the gate, sets out (as confirm at the gate does): a
+  // push west against the map's edge on the gate's row or the one below it, for timing.walkOff
+  // seconds. It fires once a push; only a real frame with west let go arms it again. A null
+  // frame (a screen is open: the scene passes no input) leaves it as it was, so closing the
+  // gate's screen with the stick still held west doesn't reopen it.
+  const g = w.hub.gate.at, row = Math.floor(p.y / TILE);
+  const atEdge = p.x <= w.radius + 1 && (row === g[1] || row === g[1] + 1);
+  if (atEdge && mx < -0.5 && p.dashTicks === 0) {
+    if (w.walkOff >= 0 && (w.walkOff += dt) >= w.T.walkOff - 1e-9) { w.walkOff = -1; w.events.push({ kind: 'walk_off' }); }
+  } else if (frame && mx > -0.3) w.walkOff = 0;
 }
 
 /** The building whose door this tile is (for tools and tests). */

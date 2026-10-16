@@ -114,7 +114,7 @@ async function boot() {
   // The harbor's live tuning (hub/tuning.js): its tuning panel changes it, the view and the world read it.
   const hubTuning = createHubTuning(DATA.hubTuning);
   const hubView = createHubView({ renderer, atlas, data: DATA, tuning: hubTuning });
-  const hud = createHud({ renderer, atlas, data: DATA });
+  const hud = createHud({ renderer, atlas, data: DATA, hudSettings: settings.hud }); // live: the minimap's setting
 
   // Settings save a moment after the last change (a slider held down is one save), or at once
   // when asked (before the window is replaced, before quitting, before an update reloads).
@@ -252,6 +252,7 @@ async function boot() {
     onTitle: () => scenes.go('title'),
     onHarbor: () => flow.toHarbor(),
     configFor: (choice) => flow.configFor(choice),
+    isFirstRun: () => (Number(keeper.profile?.stats?.runs) || 0) === 0,
     onRunSaved: (replay, result) => flow.onRunSaved(replay, result),
     onError: (e) => { errors.add('run end', e?.message || String(e), e?.stack); showError(e); },
     onSettings: showSettings, saveReport, copyText, startRun,

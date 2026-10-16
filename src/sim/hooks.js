@@ -19,6 +19,8 @@ export const HOOK_POINTS = Object.freeze(['onTick', 'onLevelUp', 'onKill', 'onBo
 // Late-bound sim functions (set by world.js) so hooks can act without import cycles.
 export const api = {
   explodeAt: null,      // (world, slot, x, y, radius, damage, knockback, excludeEnemy)
+  groundAt: null,       // (world, slot, x, y, radius, life, damage, interval, list) -> zone or -1
+  compileList: null,    // (world, effects) -> an on-hit list's index
   evolveOne: null,      // (world, source) -> slot index evolved or -1
   markStatsDirty: null, // (world)
   queryEnemies: null,   // (world, x, y, r, out) -> count
@@ -109,6 +111,22 @@ export const HOOKS = {
     onLevelUp(world, h) {
       h.state.count = (h.state.count || 0) + 1;
       if (h.state.count % h.params.every === 0) api.evolveOne(world, 'relic');
+    },
+  },
+
+  // Wreck Lantern (the Drowned Docks' secret): every Nth kill leaves burning oil where it fell,
+  // which burns what walks through it. The burn on the oil's own list (compiled once, at join).
+  kill_fire_pool: {
+    needs: ['every', 'radius', 'duration', 'damage', 'interval', 'dps', 'burn'],
+    init(world, h) {
+      h.state.count = 0;
+      h.state.list = api.compileList(world, [{ type: 'damage' }, { type: 'status', status: 'burn', dps: h.params.dps, duration: h.params.burn }]);
+    },
+    onKill(world, h, e) {
+      h.state.count++;
+      if (h.state.count % h.params.every !== 0) return;
+      const E = world.enemies, P = h.params;
+      api.groundAt(world, RELIC_SLOT, E.x[e], E.y[e], P.radius, P.duration, P.damage, P.interval, h.state.list);
     },
   },
 

@@ -3,14 +3,16 @@
 //
 // A boss walks at you (faster when far away) and, every `every` seconds, starts the next attack
 // in its current phase's list. An attack: WARN (the boss stops; the shape shows), then EXECUTE.
-// A charge also has a CHARGE state where the boss runs along the warned line.
+// A charge also has a CHARGE state where the boss runs along the warned line. The Maw's lure
+// draws you toward it while it warns (world.pull, read by playerStep).
 
-import { DT, TPS, EF, HIT_SLOTS } from './constants.js';
+import { DT, TPS, EF, HIT_SLOTS, PK } from './constants.js';
 import { EV, TELE } from './events.js';
 import { hurtPlayer } from './player.js';
 import { spawnEnemy } from './enemies.js';
 import { spawnHazard, spawnHostileShot } from './attacks.js';
 import { dropChest, openChest, CHEST_BOSS } from './chests.js';
+import { spawnPickup } from './pickups.js';
 import { finalBossDown } from './director.js';
 import { runHooks } from './hooks.js';
 import { sincosInto, fatan2, TAU, PI } from '../lib/fmath.js';
@@ -18,7 +20,44 @@ import { sincosInto, fatan2, TAU, PI } from '../lib/fmath.js';
 /** Boss states (bosses[k].state): walk at you, warn (the shape shows), charge, recover. */
 export const BOSS_STATE = Object.freeze({ WALK: 0, WARN: 1, CHARGE: 2, RECOVER: 3 });
 const { WALK, WARN, CHARGE, RECOVER } = BOSS_STATE;
-const ATTACK_CODE = { slam_ring: 1, charge_line: 2, summon_wave: 3, projectile_fan: 4, hazard_pools: 5 };
+const VIEW_HALF_W = 320, VIEW_HALF_H = 180; // the 640 x 360 view around you (§6.1)
+
+/**
+ * A boss's attack data, checked when a run starts: a plain message for the first thing wrong,
+ * or null. Each type's numbers must be there and make sense (a lure slower than you walk, tide
+ * rows far enough apart to stand between).
+ */
+export function checkBossDef(def, tuning, enemyIds = null) {
+  const pos = (v) => Number.isFinite(v) && v > 0;
+  const pr = tuning.player.radius;
+  for (const [name, a] of Object.entries(def.attacks)) {
+    const at = `Boss ${def.id}: attack "${name}"`;
+    if (ATTACK_CODE[a.type] === undefined) return `${at}: unknown type "${a.type}" (known: ${Object.keys(ATTACK_CODE).join(', ')})`;
+    if (!(a.warn >= 0)) return `${at}: needs a warning time`;
+    const need = {
+      slam_ring: ['radius', 'damage'], charge_line: ['length', 'width', 'speed', 'damage'], summon_wave: ['count', 'radius'],
+      projectile_fan: ['count', 'spread', 'speed', 'damage', 'radius'], hazard_pools: ['count', 'radius', 'scatter', 'last', 'damage'],
+      lure: ['bite', 'pull', 'damage'], tide_lanes: ['lanes', 'gap', 'length', 'spacing', 'radius', 'last', 'damage'],
+    }[a.type];
+    for (const k of need) if (!pos(a[k])) return `${at}: ${k} must be above 0`;
+    if (a.type === 'summon_wave' && enemyIds && !enemyIds.has(a.enemy)) return `${at}: unknown enemy "${a.enemy}"`;
+    if (a.type === 'lure' && !(a.pull < tuning.player.speed * 0.75)) return `${at}: the pull must stay well under your walking speed`;
+    if (a.type === 'lure' && !(a.bite < VIEW_HALF_H - 20)) return `${at}: the bite's ring must fit on screen`;
+    if (a.type === 'tide_lanes' && !(a.gap > 2 * (a.radius + pr) + 2 * pr)) return `${at}: the rows must be far enough apart to stand between`;
+    if (a.type === 'tide_lanes' && !(a.spacing <= 2 * a.radius)) return `${at}: the pools of a row must touch (spacing at most twice the radius)`;
+    if (a.type === 'tide_lanes' && !(a.stagger >= 0)) return `${at}: needs a stagger of 0 or more`;
+  }
+  if (!Array.isArray(def.phases) || def.phases.length === 0) return `Boss ${def.id}: needs at least one phase`;
+  for (const ph of def.phases) {
+    if (!(ph.from > 0 && ph.from <= 1)) return `Boss ${def.id}: a phase's from must be a share of HP above 0, at most 1`;
+    if (!(ph.every > 0)) return `Boss ${def.id}: a phase's every must be above 0 s`;
+    if (!Array.isArray(ph.attacks) || ph.attacks.length === 0) return `Boss ${def.id}: a phase needs attacks`;
+    for (const n of ph.attacks) if (!def.attacks[n]) return `Boss ${def.id}: a phase names unknown attack "${n}"`;
+  }
+  return null;
+}
+
+const ATTACK_CODE = { slam_ring: 1, charge_line: 2, summon_wave: 3, projectile_fan: 4, hazard_pools: 5, lure: 6, tide_lanes: 7 };
 
 function angleOf(y, x) { return x === 0 && y === 0 ? 0 : fatan2(y, x); }
 
@@ -100,11 +139,23 @@ export function warnTime(world, a) {
   return Math.max(a.warn ?? 0, world.tuning.enemies.telegraphMin);
 }
 
+/** Can this attack start now? A lure only while its whole ring is on screen (it pulls you toward it). */
+function canStart(world, e, a) {
+  if (a.type !== 'lure') return true;
+  const E = world.enemies, p = world.player;
+  return Math.abs(E.x[e] - p.x) < VIEW_HALF_W - a.bite && Math.abs(E.y[e] - p.y) < VIEW_HALF_H - a.bite;
+}
+
 function startAttack(world, e, b, phase) {
   const E = world.enemies, p = world.player;
-  const name = phase.attacks[b.next % phase.attacks.length];
-  b.next++;
-  const a = b.def.attacks[name];
+  // The next attack in the rotation that can start now (a lure waits its turn while it can't).
+  let a = null;
+  for (let tries = 0; tries < phase.attacks.length && a === null; tries++) {
+    const c = b.def.attacks[phase.attacks[b.next % phase.attacks.length]];
+    b.next++;
+    if (canStart(world, e, c)) a = c;
+  }
+  if (a === null) { b.timer = 0.25; return; } // nothing can start here: walk on and try again
   b.attack = a;
   const warn = warnTime(world, a);
   const ticks = Math.round(warn * TPS);
@@ -128,6 +179,31 @@ function startAttack(world, e, b, phase) {
     case 'projectile_fan':
       world.events.push(EV.TELEGRAPH, x, y, TELE.FAN, ticks, a.spread, angleOf(b.ady, b.adx));
       break;
+    case 'lure': {
+      // The Maw's lure: its bite's ring shows, and for the whole warning you're drawn toward it
+      // (slower than you walk: walk or dash out of the ring before the bite).
+      world.events.push(EV.TELEGRAPH, x, y, TELE.RING, ticks, a.bite, 0);
+      const P = world.pull;
+      P.x = x; P.y = y; P.speed = a.pull; P.ticks = ticks; P.boss = b.handle;
+      break;
+    }
+    case 'tide_lanes': {
+      // Lanes of pools across where you stand, east to west or north to south, one after
+      // another (`stagger` s apart): stand between two lanes, or keep moving across them.
+      const rng = world.rng.boss;
+      const across = rng.chance(0.5);
+      const shift = (rng.next() - 0.5) * a.gap;
+      const per = Math.max(2, Math.round(a.length / a.spacing));
+      for (let k = 0; k < a.lanes; k++) {
+        const off = (k - (a.lanes - 1) / 2) * a.gap + shift;
+        const w = warn + k * a.stagger;
+        for (let j = 0; j < per; j++) {
+          const along = (j - (per - 1) / 2) * a.spacing;
+          spawnHazard(world, across ? p.x + along : p.x + off, across ? p.y + off : p.y + along, a.radius, w, a.last, a.damage);
+        }
+      }
+      break;
+    }
     case 'hazard_pools': {
       // The pools are their own warning: each shows its circle for `warn`, then arms.
       const rng = world.rng.boss, sc = world.scratch.sc;
@@ -181,7 +257,15 @@ function execute(world, e, b) {
       }
       break;
     }
+    case 'lure': {
+      world.pull.ticks = 0;
+      const dx = p.x - x, dy = p.y - y, rr = a.bite + world.tuning.player.radius;
+      if (dx * dx + dy * dy <= rr * rr) hurtPlayer(world, a.damage, x, y);
+      world.events.push(EV.EXPLODE, x, y, a.bite, -1);
+      break;
+    }
     case 'hazard_pools':
+    case 'tide_lanes':
       break; // already placed at the start
     default:
       break;
@@ -197,6 +281,7 @@ export function bossDied(world, e) {
   if (!b || !b.alive) return;
   b.alive = false;
   world.director.bossesAlive--;
+  if (world.pull.boss === b.handle) world.pull.ticks = 0; // a lure ends with its Maw, not another boss
   // Which weapons did the damage, most first.
   const used = [];
   for (let s = 0; s < HIT_SLOTS; s++) if (b.damageBySlot[s] > 0) used.push(s);
@@ -204,6 +289,7 @@ export function bossDied(world, e) {
   const weapons = used.map((s) => (world.slots[s] && world.slots[s].def ? world.slots[s].def.id : 'relic'));
   world.result.bossesKilled.push({ id: b.id, tick: world.tick, weapons });
   runHooks(world, 'onBossKill', e, b.id);
+  if (world.ascensionLines.size) spawnPickup(world, PK.EMBER, E.x[e], E.y[e] + 14, 0, 0); // every boss drops an Ember
   if (b.final) {
     // The last boss's chest opens on the spot, before the stay-or-leave choice, so leaving can
     // never skip it.

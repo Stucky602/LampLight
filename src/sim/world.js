@@ -16,14 +16,14 @@
 import { CAP, HIT_SLOTS, RELIC_SLOT, DEFAULT_WEAPON_SLOTS, MAX_WEAPON_SLOTS, HIT_RING } from './constants.js';
 import { createPool, NO_HANDLE } from './pools.js';
 import { createSpatialHash } from './spatial.js';
-import { createTerrain, buildLayout, TILE } from './terrain.js';
+import { createTerrain, buildMap, TILE } from './terrain.js';
 import { createFlowField } from './flowfield.js';
 import { createEventBuffer } from './events.js';
 import { createRng } from '../lib/rng.js';
 import { createStateHash, fnv1a } from '../lib/hash.js';
 import { createPlayer, playerStep, levelCheck, xpToNext } from './player.js';
 import { ENEMY_FIELDS, enemiesAct, contactStep, resolveDeaths, removeDead, impulse, impulseR, midAttack } from './enemies.js';
-import { PROJ_FIELDS, ZONE_FIELDS, weaponsFire, moveProjectiles, projectileHits, zonesTick, explodeAt } from './weapons.js';
+import { PROJ_FIELDS, ZONE_FIELDS, weaponsFire, moveProjectiles, projectileHits, zonesTick, explodeAt, groundAt, compileList } from './weapons.js';
 import { GEM_FIELDS, PICKUP_FIELDS, pickupsStep } from './pickups.js';
 import { createDirector, directorStep, overtimeDecide } from './director.js';
 import { makeOffer, draftDecide } from './draft.js';
@@ -31,6 +31,8 @@ import { runeDecide, evolveOne } from './chests.js';
 import { createHookLists, runHooks, api as hookApi } from './hooks.js';
 import { setupCharacter, rebuildStats, markStatsDirty, addRelic } from './build.js';
 import { checkModifier } from './stats.js';
+import { checkBossDef } from './bosses.js';
+import { ascensionLines, ascendDecide, emberDecide, canAscend } from './ascend.js';
 import { createResultState, buildRunResult, leaveRun } from './run-result.js';
 import { tuneDecide, devDecide } from './dev.js';
 
@@ -43,6 +45,8 @@ export const DEFAULT_CONFIG = Object.freeze({
 
 // Hooks reach the sim through these (set once; the functions are pure over the world).
 hookApi.explodeAt = explodeAt;
+hookApi.groundAt = groundAt;
+hookApi.compileList = compileList;
 hookApi.evolveOne = evolveOne;
 hookApi.markStatsDirty = markStatsDirty;
 hookApi.impulse = impulse;
@@ -147,9 +151,13 @@ export function createWorld(config, data) {
   const character = data.characters.find((c) => c.id === cfg.character);
   if (!character) throw new Error(`Unknown character "${cfg.character}"`);
 
+  // Boss attack data is checked here, at 0:00, not when a boss first attacks at 10:00.
+  const enemyIds = new Set(data.enemies.map((x) => x.id));
+  for (const b of data.bosses) { const bad = checkBossDef(b, tuning, enemyIds); if (bad) throw new Error(bad); }
   const root = createRng(cfg.seed);
   const [cols, rows] = map.size;
-  const terrain = createTerrain({ cols, rows, solid: buildLayout(map.layout, cols, rows) });
+  const ground = buildMap(map.layout, cols, rows);
+  const terrain = createTerrain({ cols, rows, solid: ground.solid, kinds: ground.kinds });
 
   const byId = (list) => new Map(list.map((x, i) => [x.id, i]));
   const pick = (ids, list, kind) => ids.map((id) => {
@@ -199,7 +207,9 @@ export function createWorld(config, data) {
       relics: [],
       banished: new Set(),
       evolvedFrom: new Set(),
+      embers: 0,           // Embers kept, not yet spent (sim/ascend.js)
     },
+    ascensionLines: ascensionLines(data),
     mods: [],
     stats: null,
     statsDirty: true,
@@ -217,7 +227,12 @@ export function createWorld(config, data) {
     god: false,            // dev god mode (a logged dev decision; tests and the soak use config.invulnerable)
     magnetAll: 0,
     mergeGem: NO_HANDLE,
+    pull: { x: 0, y: 0, speed: 0, ticks: 0, boss: -1 }, // a boss's lure drawing the player in (bosses.js; boss = its handle)
     result: createResultState(data.enemies.length, data.materials.length),
+    // The map's secret caches (map.secrets), in pixels; each opens once a run.
+    secrets: (map.secrets || []).map((m) => ({
+      id: m.id, relic: m.relic, x: (m.at[0] + 0.5) * TILE, y: (m.at[1] + 0.5) * TILE, radius: m.radius, open: false,
+    })),
     // Scratch buffers and typed-array registers. Hot loops pass fractional numbers through
     // registers instead of call arguments (a call V8 doesn't inline boxes each one: §17).
     // Each register array has one owner: reg (enemiesAct), qreg (shot and zone hit passes),
@@ -282,6 +297,9 @@ function queueDraft(world) {
 
 /** Get the current halt ready for the player (a draft's cards are drawn when it's shown). */
 function prepareHalt(world) {
+  // An Ember's choice queued behind another (two picked up on one tick) with nothing left to
+  // take: the Ember stays kept, and no empty screen opens.
+  while (world.halts[0]?.kind === 'ascend' && !canAscend(world)) world.halts.shift();
   const h = world.halts[0];
   if (h && h.kind === 'draft' && h.offer === null) h.offer = makeOffer(world);
 }
@@ -329,6 +347,9 @@ export function currentHalt(world) {
  *   chest:    { kind: 'ok' }
  *   rune:     { kind: 'place', slot } | { kind: 'discard' }
  *   overtime: { kind: 'stay' } | { kind: 'leave' }
+ *   ascend:   { kind: 'ascend', slot, id } | { kind: 'keep' } (an Ember: sim/ascend.js)
+ * With nothing waiting: { kind: 'ember' } spends a kept Ember (the pause menu's Ascend: the run
+ * stops for the choice).
  * At any time: { kind: 'leave' } (the pause menu), { kind: 'tune', path, value } (the tuning
  * panel), and { kind: 'dev', cmd, ... } (dev commands; sim/dev.js). Every decision is logged
  * for replays. A tune or dev decision returns what it did (dev: a count); the others return
@@ -347,6 +368,12 @@ export function decide(world, d) {
     if (!world.over) prepareHalt(world);
     return out;
   }
+  if (d.kind === 'ember') {
+    if (h) throw new Error(`ember: a kept Ember is spent with nothing else waiting (the ${h.kind} is open)`);
+    emberDecide(world);   // checked first: a refused one leaves no trace
+    world.decisions.push(entry);
+    return;
+  }
   if (d.kind === 'leave' && (!h || h.kind !== 'overtime')) {
     world.decisions.push(entry);
     leaveRun(world);
@@ -362,6 +389,7 @@ export function decide(world, d) {
       break;
     case 'rune': done = runeDecide(world, h, d); break;
     case 'overtime': done = overtimeDecide(world, d); break;
+    case 'ascend': done = ascendDecide(world, d); break;
     default: throw new Error(`Unknown halt "${h.kind}"`);
   }
   world.decisions.push(entry);
@@ -387,7 +415,8 @@ export function hashWorld(world) {
   for (let s = 0; s < world.slots.length; s++) {
     const slot = world.slots[s];
     if (!slot || s === RELIC_SLOT) { h.int(-1); continue; }
-    h.int(slot.defIndex ?? -1).int(slot.level).int(slot.burst).int(slot.volley).int(slot.fired).int(slot.lastZoneTick);
+    h.int(slot.defIndex ?? -1).int(slot.level).int(slot.burst).int(slot.volley).int(slot.fired).int(slot.lastZoneTicks[0]);
+    for (let z = 1; z < slot.lastZoneTicks.length; z++) if (slot.lastZoneTicks[z] !== -1e9) h.int(slot.lastZoneTicks[z]); // a second ground's pace, when there is one
     h.float64(slot.cd).float64(slot.burstT).float64(slot.angle).float64(slot.aimX).float64(slot.aimY).int(slot.auraHandle);
     h.array(slot.volleyTargets);
     for (const r of slot.runes) h.int(r ? world.runeDefs.indexOf(r) : -1);
@@ -414,6 +443,10 @@ export function hashWorld(world) {
   for (const v of [d.hpMul, d.contactMul, d.target, d.otDensity, d.otHp, d.materialMul]) h.float64(v);
   h.array(world.result.killsByType).array(world.result.materialsRaw).array(world.result.damageBySlot);
   h.float64(world.magnetAll).int(world.mergeGem).int(world.halts.length).int(world.god ? 1 : 0);
+  for (const s of world.secrets) h.int(s.open ? 1 : 0); // nothing on a map without secrets
+  if (world.build.embers > 0) h.int(-3).int(world.build.embers);
+  for (let s = 0; s < world.slots.length; s++) { const sl = world.slots[s]; if (sl && sl.ascensions && sl.ascensions.length) { h.int(-4).int(s); for (const a of sl.ascensions) h.int(fnv1a(a.id)); } }
+  if (world.pull.ticks > 0) h.int(world.pull.ticks).int(world.pull.boss).float64(world.pull.x).float64(world.pull.y).float64(world.pull.speed);
   return h.hex();
 }
 

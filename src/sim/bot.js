@@ -18,6 +18,7 @@ import { openSocketsFor } from './chests.js';
 import { CHARGER } from './enemies.js';
 import { BOSS_STATE } from './bosses.js';
 import { sincosInto, TAU } from '../lib/fmath.js';
+import { openAscensions } from './ascend.js';
 
 const N_DIR = 16;
 /** Unit vectors for the 16 directions, as x, y pairs. */
@@ -162,8 +163,9 @@ export function createKiteBot({ archetype = 'projectile_storm', stay = false, da
       const a = b.attack;
       for (let k = 0; k < N_DIR; k++) {
         const qx = p.x + DIRS[2 * k] * look - E.x[e], qy = p.y + DIRS[2 * k + 1] * look - E.y[e];
-        if (a.type === 'slam_ring' && b.state === BOSS_STATE.WARN) {
-          const r = a.radius + PR + 10, dq = Math.sqrt(qx * qx + qy * qy);
+        if ((a.type === 'slam_ring' || a.type === 'lure') && b.state === BOSS_STATE.WARN) {
+          // A lure's ring: wider, since it draws you in while it warns.
+          const r = (a.type === 'lure' ? a.bite + 30 : a.radius) + PR + 10, dq = Math.sqrt(qx * qx + qy * qy);
           if (dq < r) danger[k] += 30 + 30 * (1 - dq / r);
         } else if (a.type === 'charge_line') {
           const len = (b.state === BOSS_STATE.WARN ? a.length : b.chargeLeft) + E.radius[e];
@@ -286,6 +288,12 @@ export function createKiteBot({ archetype = 'projectile_storm', stay = false, da
         return open.length ? { kind: 'place', slot: open[0] } : { kind: 'discard' };
       }
       case 'overtime': return stay ? { kind: 'stay' } : { kind: 'leave' };
+      case 'ascend': {
+        // The highest-level weapon that can still ascend, its first open ascension.
+        let best = -1;
+        for (let s = 0; s < world.build.weaponSlots; s++) if (openAscensions(world, s).length && (best < 0 || world.slots[s].level > world.slots[best].level)) best = s;
+        return best >= 0 ? { kind: 'ascend', slot: best, id: openAscensions(world, best)[0].id } : { kind: 'keep' };
+      }
       default: return { kind: 'ok' };
     }
   }

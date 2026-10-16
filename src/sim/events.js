@@ -11,7 +11,7 @@
 // telegraphs). Drops are counted for the debug overlay.
 
 export const EV = Object.freeze({
-  HIT: 1,          // x, y, a = damage, b = enemy handle, c = 1 if critical, d = weapon slot
+  HIT: 1,          // x, y, a = damage, b = enemy handle, c = bits: 1 critical, 2 a strike's own hit, d = weapon slot
   KILL: 2,         // x, y, a = enemy type index, b = flags (elite 1, boss 2), c = weapon slot (-1 other), d = enemy handle
   PLAYER_HURT: 3,  // x, y, a = damage taken, b = hp left
   GEM: 4,          // x, y, a = xp value
@@ -38,6 +38,9 @@ export const EV = Object.freeze({
   OVERTIME: 25,    // x, y, a = minute of overtime reached
   SHIELD_HIT: 26,  // x, y, a = damage absorbed
   ENEMY_SHOT: 27,  // x, y (a hostile shot leaves an enemy or boss)
+  SECRET: 28,      // x, y, a = secret index on the map (its cache opened)
+  ASCEND: 30,      // x, y, a = weapon slot (an Ember spent on it)
+  MUSTER: 29,      // x, y, a = escorts, b = elite handle, c = timeline event index (an elite and its crew)
 });
 
 export const TELE = Object.freeze({ RING: 1, LINE: 2, CIRCLE: 3, SUMMON: 4, FAN: 5 });

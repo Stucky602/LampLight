@@ -114,6 +114,38 @@ export function reachableFrom(map, solid, from) {
   return seen;
 }
 
+/**
+ * The shortest walk from tile `from` to tile `to` through open tiles (four ways): the tiles in
+ * order, `from` first. A solid `to` (a sign, a door in a wall) is walked up to: the walk ends at
+ * the open tile nearest it. null if there's no way (fog in between).
+ */
+export function routeTo(map, solid, from, to) {
+  const { cols, rows } = map;
+  const goal = nearestOpen(map, solid, to);
+  const [fx, fy] = from;
+  if (!goal || fx < 0 || fy < 0 || fx >= cols || fy >= rows || solid[fy * cols + fx]) return null;
+  const end = goal[1] * cols + goal[0];
+  const prev = new Int32Array(cols * rows).fill(-2);
+  const start = fy * cols + fx;
+  prev[start] = -1;
+  const queue = [start];
+  for (let k = 0; k < queue.length; k++) {
+    const i = queue[k];
+    if (i === end) break;
+    const x = i % cols, y = (i - x) / cols;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+      const j = ny * cols + nx;
+      if (prev[j] === -2 && !solid[j]) { prev[j] = i; queue.push(j); }
+    }
+  }
+  if (prev[end] === -2) return null;
+  const path = [];
+  for (let i = end; i !== -1; i = prev[i]) path.push([i % cols, Math.floor(i / cols)]);
+  return path.reverse();
+}
+
 /** Is every tile on the straight run from a to b (tile centers, along one axis) open? */
 export function segmentOpen(map, solid, a, b) {
   if (a[0] !== b[0] && a[1] !== b[1]) return false; // walks go along the streets: straight runs only

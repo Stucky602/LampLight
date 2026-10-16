@@ -6,16 +6,20 @@
 // hazard (drops warned pools), splitter (bursts into smaller enemies), ranged_slow (slow,
 // readable shots), boss (bosses.js drives its attacks).
 
-import { DT, TPS, EF, AI, HIT_SLOTS } from './constants.js';
+import { DT, TPS, EF, AI, HIT_SLOTS, PK } from './constants.js';
 import { EV, TELE, STATUS } from './events.js';
 import { hurtPlayer } from './player.js';
 import { runHooks } from './hooks.js';
-import { spawnGem, rollDrops } from './pickups.js';
-import { dropChest } from './chests.js';
+import { spawnGem, rollDrops, spawnPickup } from './pickups.js';
+import { dropChest, CHEST_BOSS, CHEST_ELITE } from './chests.js';
+
 import { bossStep, bossDied, BOSS_STATE } from './bosses.js';
 import { spawnHazard, spawnHostileShot } from './attacks.js';
 import { sincosInto, fatan2, TAU } from '../lib/fmath.js';
 import { TILE } from './terrain.js';
+
+/** E.boss for a muster's captain (an elite, not a boss, but paid like one; never an index). */
+export const MUSTER_CAPTAIN = -2;
 
 export const ENEMY_FIELDS = {
   x: Float32Array, y: Float32Array, px: Float32Array, py: Float32Array,
@@ -31,7 +35,7 @@ export const ENEMY_FIELDS = {
   dazeT: Float32Array,                      // seconds left dazed (reeled in by the Harpooner): no walking, no contact damage
   killer: Int8Array,                        // weapon slot of the killing blow (-1: not a weapon)
   anim: Float32Array,                       // render phase, fixed at spawn
-  boss: Int8Array,                          // index into world.bosses, or -1
+  boss: Int8Array,                          // index into world.bosses; -1 none; MUSTER_CAPTAIN a muster's elite (pays a boss chest)
   nextHit: [Int32Array, HIT_SLOTS],         // tick each weapon slot may hit this enemy again
   waveHit: [Int32Array, HIT_SLOTS],         // per slot: the last wave that hit it (zone handle + 1)
 };
@@ -553,7 +557,12 @@ export function resolveDeaths(world) {
       }
     }
     if ((f & EF.BOSS) !== 0) bossDied(world, i);
-    else if ((f & EF.ELITE) !== 0) dropChest(world, x, y, 1);
+    else if ((f & EF.ELITE) !== 0) {
+      dropChest(world, x, y, E.boss[i] === MUSTER_CAPTAIN ? CHEST_BOSS : CHEST_ELITE); // a muster captain pays a boss chest
+      // An Ember: always from a muster's captain, now and then from an elite (tuning.embers).
+      const chance = world.tuning.embers?.eliteChance ?? 0;
+      if (world.ascensionLines.size && (E.boss[i] === MUSTER_CAPTAIN || (chance > 0 && world.rng.loot.chance(chance)))) spawnPickup(world, PK.EMBER, x, y + 14, 0, 0);
+    }
   }
   return resolved;
 }

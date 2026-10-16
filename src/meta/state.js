@@ -3,7 +3,8 @@
 // The profile stores only what the player did: material counts, building levels, research done
 // and running, upgrade ranks, flags. Everything else is worked out from those, here: what is in
 // the run pools, how many research projects can run, which upgrades are open, which of the fog's
-// regions have cleared, each building's look, and the completion percentage.
+// regions have cleared, who and what is out in the harbor, each building's look, and the
+// completion percentage.
 //
 // `doc` is a whole profile document (schema.js defaultProfile: { v, profile, stats }). `data` is
 // the content bundle (src/data/index.js).
@@ -25,6 +26,7 @@ export function parseUnlock(ref) {
   if (typeof ref !== 'string') return { kind: 'unknown' };
   const parts = ref.split(':');
   if (parts[0] === 'research' && parts.length === 2 && parts[1]) return { kind: 'research', id: parts[1] };
+  if (parts[0] === 'secret' && parts.length === 2 && parts[1]) return { kind: 'secret', id: parts[1] };
   if (parts[0] === 'building' && parts.length === 3 && parts[1] && /^[1-9]\d*$/.test(parts[2])) return { kind: 'building', id: parts[1], level: Number(parts[2]) };
   return { kind: 'unknown' };
 }
@@ -36,7 +38,7 @@ export function levelOf(doc, id, data = null) {
   return Math.min(v, max);
 }
 
-/** A key like 'library:3' or 'start' reached? (fog regions and NPC lines use these). */
+/** A key like 'library:3' or 'start' reached? (fog regions, props, and NPC lines use these). */
 export function reached(doc, key, data = null) {
   if (key === 'start') return true;
   const m = /^([a-z][a-z0-9_]*):(\d+)$/.exec(key || '');
@@ -96,6 +98,7 @@ export function isUnlocked(doc, data, ref) {
   if (u.kind === 'starter') return true;
   if (u.kind === 'research') return researchDone(doc).has(u.id);
   if (u.kind === 'building') return levelOf(doc, u.id, data) >= u.level;
+  if (u.kind === 'secret') return Array.isArray(doc?.profile?.codex) && doc.profile.codex.includes(`secret:${u.id}`);
   return false;
 }
 
@@ -123,16 +126,22 @@ export function contentFrom(data, ref) {
   return out;
 }
 
+/** Ids of the fog's regions that have cleared. */
+export function revealedFog(doc, data) {
+  return new Set(data.hub.fog.filter((f) => reached(doc, f.revealedBy, data)).map((f) => f.id));
+}
+
+/** Every map's secrets, in map order. */
+export function secretsOf(data) {
+  return data.maps.flatMap((m) => m.secrets || []);
+}
+
 /** The look of a building at a level: its stage name (ARCHITECTURE §10.4). */
 export const STAGES = Object.freeze(['ruin', 'scaffold', 'roof', 'lit', 'keeper', 'alive']);
 export function buildingStage(level) {
   return STAGES[Math.max(0, Math.min(STAGES.length - 1, count(level)))];
 }
 
-/** Ids of the fog's regions that have cleared. */
-export function revealedFog(doc, data) {
-  return new Set(data.hub.fog.filter((f) => reached(doc, f.revealedBy, data)).map((f) => f.id));
-}
 
 /**
  * How much of the game this profile has done, as a whole percentage (the title screen's number)
@@ -154,11 +163,13 @@ export function completion(doc, data) {
 }
 
 /**
- * The codex's entries (brief §6.8): every weapon (evolutions too), passive, relic, and rune, as
- * '<kind>:<id>' keys (ids are unique within a kind, not across kinds).
+ * The codex's entries (brief §6.8): every weapon (evolutions too), passive, relic, and rune, and
+ * every map's secrets, as '<kind>:<id>' keys (ids are unique within a kind, not across kinds).
+ * A found secret ('secret:<id>') also unlocks what is keyed to it.
  */
 export function codexKeys(data) {
   return [
+    ...secretsOf(data).map((s) => `secret:${s.id}`),
     ...data.weapons.filter((w) => !w.innate).map((w) => `weapon:${w.id}`),
     ...data.passives.map((p) => `passive:${p.id}`),
     ...data.relics.map((r) => `relic:${r.id}`),

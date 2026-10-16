@@ -43,6 +43,7 @@ export function defaultSettings() {
     audio: { master: 0.8, music: 0.6, sfx: 0.8 },
     controls: { prompts: 'auto', deadzone: 0.2 },
     access: { shake: true, damageNumbers: true, flashReduction: false },
+    hud: { minimap: 'nearby', minimapSize: 'small' },
   };
 }
 
@@ -62,6 +63,7 @@ export function normalizeSettings(raw) {
   const aud = isObj(raw.audio) ? raw.audio : {};
   const ctl = isObj(raw.controls) ? raw.controls : {};
   const acc = isObj(raw.access) ? raw.access : {};
+  const hd = isObj(raw.hud) ? raw.hud : {};
   return {
     v: SETTINGS_VERSION,
     display: {
@@ -81,6 +83,10 @@ export function normalizeSettings(raw) {
       shake: bool(acc.shake, d.access.shake),
       damageNumbers: bool(acc.damageNumbers, d.access.damageNumbers),
       flashReduction: bool(acc.flashReduction, d.access.flashReduction),
+    },
+    hud: {
+      minimap: pick(hd.minimap, ['nearby', 'map', 'off'], d.hud.minimap),
+      minimapSize: pick(hd.minimapSize, ['small', 'large'], d.hud.minimapSize),
     },
   };
 }

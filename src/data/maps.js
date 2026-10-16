@@ -8,6 +8,11 @@
 //           wall   { enemy, count, speed? }   a line from one side: swarmers fly straight across
 //           ring   { enemy, count, radius?, speed? }  a ring closing in from just off screen
 //           chest  { }                        a chest (one item) on the ground a short walk away
+//           muster { name, enemy, escort, count, radius }  an elite captain and a ring of its crew,
+//                                             walking in together; the captain drops a boss chest
+// secrets: { id, name, at: [col, row], radius, relic } caches hidden on the map. Each opens once
+// a run when you reach it: its relic while you can take it, otherwise one chest item. Finding one
+// is recorded in the codex as 'secret:<id>', which unlocks content keyed to it (the relic).
 // commonDrops apply to every regular enemy; eliteDrops to elites. Coin and oil drop everywhere.
 // overtime: after the 20:00 boss the player can stay; every minute these multiply.
 
@@ -17,7 +22,16 @@ export const MAPS = [
   {
     id: 'drowned_docks', name: 'Drowned Docks', desc: 'The flooded harbor front. 20 minutes, 2 bosses.',
     size: [256, 256], ambient: 0.5,
-    layout: { kind: 'scatter', seed: 'drowned_docks_1', clusters: 260, size: [1, 3], clearRadius: 14 },
+    // A wharf with flooded slips in it (footbridges across the long ones), sheds and crates on it,
+    // and a wreck beached in the far northeast with the secret cache aboard (sim/terrain.js
+    // buildDocks).
+    layout: {
+      kind: 'docks', seed: 'drowned_docks_2', clearRadius: 14,
+      slips: { count: 34, width: 4, length: [10, 22], apart: 4, bridgeOver: 15, bridge: 4 },
+      sheds: { count: 44, size: [6, 4] },
+      crates: { count: 240, size: [1, 2] },
+      wreck: { at: [212, 40], size: [14, 8] },
+    },
     materials: ['timber', 'rope', 'drowned_pages', 'rum'],
     commonDrops: [
       { material: 'coin', chance: 0.02 },
@@ -51,14 +65,16 @@ export const MAPS = [
         { at: T(8), event: 'ring', enemy: 'bilge_rat', count: 50 },
         { at: T(10), event: 'boss', enemy: 'harbor_maw' },
         { at: T(12, 30), event: 'wall', enemy: 'gull', count: 60 },
-        { at: T(14), event: 'ring', enemy: 'drowned_sailor', count: 60 },
-        { at: T(15), event: 'elite', enemy: 'lantern_eater' },
+        { at: T(15), event: 'muster', name: "Bosun's Muster", enemy: 'drowned_bosun', escort: 'drowned_sailor', count: 24, radius: 36 },
         { at: T(16, 30), event: 'wall', enemy: 'gull', count: 80 },
+        { at: T(17), event: 'elite', enemy: 'lantern_eater' },
         { at: T(18), event: 'ring', enemy: 'bilge_rat', count: 80 },
         { at: T(20), event: 'boss', enemy: 'the_tidecaller' },
       ],
     },
     overtime: { densityPerMin: 1.12, hpPerMin: 1.15, materialsPerMin: 1.10 },
-    secrets: [],
+    secrets: [
+      { id: 'wreck_cache', name: 'Wreck Cache', at: [212, 40], radius: 10, relic: 'wreck_lantern' },
+    ],
   },
 ];

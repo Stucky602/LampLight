@@ -11,7 +11,8 @@ import { NO_HANDLE } from './pools.js';
 import { EV, PICK } from './events.js';
 import { gainXp, heal } from './player.js';
 import { runHooks } from './hooks.js';
-import { openChest } from './chests.js';
+import { openChest, openCache } from './chests.js';
+import { collectEmber } from './ascend.js';
 import { sincosInto, TAU } from '../lib/fmath.js';
 
 export const GEM_FIELDS = {
@@ -50,8 +51,9 @@ export const PICKUP_RESERVE = 32;
 
 /**
  * Drop a pickup: a material (a = material index, b = amount), a heal (a = amount), the magnet,
- * or a chest (a = chest kind). When the pool is full, materials past the reserve go straight
- * into the haul, a chest opens where it fell, and a heal or magnet takes the place of the heal
+ * a chest (a = chest kind), or an Ember (sim/ascend.js). When the pool is full, materials past
+ * the reserve go straight into the haul, a chest opens where it fell, an Ember is picked up at
+ * once, and a heal or magnet takes the place of the heal
  * or magnet lying farthest from you. (Only if all 256 slots held chests and materials would a
  * heal be dropped; the pool counts it in `refused`.)
  * Returns the pickup's index, or -1 if it was applied at once or dropped.
@@ -65,6 +67,7 @@ export function spawnPickup(world, kind, x, y, a = 0, b = 0) {
   }
   if (P.count >= P.capacity) {
     if (kind === PK.CHEST) { openChest(world, a, x, y); return -1; }
+    if (kind === PK.EMBER) { collectEmber(world, x, y); return -1; }
     const far = farthestLoose(world); // (materials never get here: they stop at the reserve)
     if (far < 0) { P.refused++; return -1; }
     P.remove(far);
@@ -164,6 +167,15 @@ export function pickupsStep(world) {
     G.x[i] += (dx / d) * step; G.y[i] += (dy / d) * step;
   }
 
+  // A secret cache opens when you step up to it (once a run).
+  const S = world.secrets;
+  for (let i = 0; i < S.length; i++) {
+    const s = S[i];
+    if (s.open) continue;
+    const dx = p.x - s.x, dy = p.y - s.y, r = s.radius + T.radius;
+    if (dx * dx + dy * dy <= r * r) openCache(world, i);
+  }
+
   const P = world.pickups;
   for (let i = P.count - 1; i >= 0; i--) {
     P.px[i] = P.x[i]; P.py[i] = P.y[i];
@@ -217,5 +229,7 @@ function collectPickup(world, i) {
   } else if (kind === PK.CHEST) {
     world.events.push(EV.PICKUP, x, y, PICK.CHEST, a);
     openChest(world, a, x, y);
+  } else if (kind === PK.EMBER) {
+    collectEmber(world, x, y);
   }
 }

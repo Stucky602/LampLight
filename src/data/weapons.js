@@ -4,8 +4,10 @@
 // base: damage, cooldown (s), amount (shots or bodies), area (x radius), speed (x motion speed),
 //       duration (s a shot or zone lasts), pierce (hits before a shot is spent; -1 = never),
 //       knockback, hitCooldown (s before this weapon can hit the same enemy again; 0 = each
-//       shot hits an enemy once), radius (px, shot size at area 1), interval (s between shots
-//       of one volley), crit (chance), critMult.
+//       shot hits an enemy once), radius (px at area 1: a shot's size; a wave's reach; a beam's
+//       length), interval (s between shots of one volley), crit (chance), critMult.
+// upright: the shot's sprite is drawn as it stands, never turned to face where it flies (a
+//       flame, a flask); otherwise sprites point right and turn with the shot.
 // pipeline.emit.assist (facing only): degrees. A facing volley bends onto the nearest enemy
 //       within this angle of the way you face (and emit.range px, default 300), so a stick that
 //       points roughly at the crowd still hits it. 0 or absent: straight ahead.
@@ -71,6 +73,67 @@ export const WEAPONS = [
     runeSlots: 2,
     evolution: { passive: 'undertow', passiveLevel: 5, into: 'storm_bell', hidden: false },
     sfx: { fire: 'bell_ring', hit: 'hit_soft' },
+  },
+
+
+  // Phase 6 (the MVP's other four, each behind the Library). They don't evolve yet: their
+  // evolutions come with the content passes (ARCHITECTURE §18).
+  {
+    id: 'signal_mirror', name: 'Signal Mirror', desc: 'Flashes a beam at the nearest enemy. Hits everything in the line.',
+    tags: ['light', 'echo'], sprite: 'fx_glint', icon: 'icon_signal_mirror', unlock: 'research:signal_codes', maxLevel: 8, weight: 100,
+    base: { damage: 14, cooldown: 1.8, amount: 1, duration: 0.25, pierce: -1, knockback: 0.3, hitCooldown: 0.3, radius: 140, interval: 0.15 },
+    levels: [null, { damage: 5 }, { amount: 1 }, { area: 0.2 }, { cooldown: -0.3 }, { damage: 7 }, { amount: 1 }, { damage: 8, area: 0.2 }],
+    pipeline: {
+      emit: { type: 'beam', width: 5 },
+      motion: { type: 'stationary' },
+      onHit: [{ type: 'damage' }, { type: 'knockback' }, { type: 'light', radius: 12, ms: 100 }],
+    },
+    runeSlots: 2,
+    sfx: { fire: 'mirror_flash', hit: 'hit_soft' },
+  },
+  {
+    id: 'oil_flask', name: 'Oil Flask', desc: 'Lobs a flask at the nearest enemy. It bursts into burning oil.',
+    tags: ['fire'], sprite: 'proj_oil_flask', upright: true, icon: 'icon_oil_flask', unlock: 'research:oil_stores', maxLevel: 8, weight: 100,
+    base: { damage: 10, cooldown: 2.6, amount: 1, duration: 3, pierce: -1, knockback: 0, hitCooldown: 0.5, radius: 16, interval: 0.3 },
+    levels: [null, { damage: 4 }, { area: 0.2 }, { amount: 1 }, { cooldown: -0.4 }, { damage: 5 }, { amount: 1 }, { area: 0.2, damage: 5 }],
+    pipeline: {
+      emit: { type: 'nearest', range: 220 },
+      motion: { type: 'arc', range: 220, flight: 0.55 },
+      onHit: [
+        { type: 'damage' },
+        { type: 'status', status: 'burn', dps: 4, duration: 1.5 },
+        { type: 'zone', radius: 22, duration: 3, damage: 4, interval: 0.4, every: 0.25, status: { status: 'burn', dps: 4, duration: 1.2 } },
+        { type: 'light', radius: 24, ms: 220 },
+      ],
+    },
+    runeSlots: 2,
+    sfx: { fire: 'flask_throw', hit: 'explode_small' },
+  },
+  {
+    id: 'lightning_rod', name: 'Lightning Rod', desc: 'Lightning strikes random enemies on screen and jumps to 2 more.',
+    tags: ['light', 'steel'], sprite: 'fx_bolt', icon: 'icon_lightning_rod', unlock: 'research:storm_glass', maxLevel: 8, weight: 100,
+    base: { damage: 20, cooldown: 2.2, amount: 2, duration: 0.1, pierce: -1, knockback: 0.4, hitCooldown: 0.3, radius: 10 },
+    levels: [null, { amount: 1 }, { damage: 6 }, { cooldown: -0.3 }, { amount: 1 }, { damage: 8 }, { area: 0.25 }, { amount: 1, damage: 6 }],
+    pipeline: {
+      emit: { type: 'strike' },
+      motion: { type: 'stationary' },
+      onHit: [{ type: 'damage' }, { type: 'knockback' }, { type: 'chain', hops: 2, range: 80, damageMul: 0.6 }, { type: 'light', radius: 26, ms: 140 }],
+    },
+    runeSlots: 2,
+    sfx: { fire: 'lightning', hit: 'hit_hard' },
+  },
+  {
+    id: 'corpse_candles', name: 'Corpse Candles', desc: 'Summons candle flames that drift after enemies. Their touch rots: rotting enemies take 25% more damage.',
+    tags: ['fire', 'rot'], sprite: 'proj_candle_flame', upright: true, icon: 'icon_corpse_candles', unlock: 'research:corpse_lights', maxLevel: 8, weight: 100,
+    base: { damage: 7, cooldown: 4.5, amount: 2, duration: 4, pierce: -1, knockback: 0, hitCooldown: 0.6, radius: 5 },
+    levels: [null, { amount: 1 }, { damage: 3 }, { duration: 1 }, { amount: 1 }, { damage: 4 }, { cooldown: -0.8 }, { amount: 1, damage: 3 }],
+    pipeline: {
+      emit: { type: 'summon' },
+      motion: { type: 'homing', speed: 70, turn: 5, range: 220 },
+      onHit: [{ type: 'damage' }, { type: 'status', status: 'rot', duration: 3, amp: 0.25 }, { type: 'light', radius: 14, ms: 120 }],
+    },
+    runeSlots: 2,
+    sfx: { fire: 'candle_summon', hit: 'hit_soft' },
   },
 
   // Evolutions.

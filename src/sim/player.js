@@ -63,7 +63,7 @@ export function playerStep(world, frame) {
   const pressed = (buttons & BTN_DASH) !== 0 && (p.prevButtons & BTN_DASH) === 0;
   p.prevButtons = buttons;
 
-  let vx, vy;
+  let vx, vy, dashing = true;
   if (p.dashTicks > 0) {
     vx = p.dashDx * p.dashSpeed; vy = p.dashDy * p.dashSpeed;
     p.dashTicks--;
@@ -82,6 +82,16 @@ export function playerStep(world, frame) {
   } else {
     const sp = T.speed * st.moveSpeed;
     vx = mx * sp; vy = my * sp;
+    dashing = false;
+  }
+  // A lure (the Harbor Maw) draws you toward it while it warns; a dash is free of it.
+  const pl = world.pull;
+  if (pl.ticks > 0) {
+    pl.ticks--;
+    if (!dashing) {
+      const dx = pl.x - p.x, dy = pl.y - p.y, d = Math.sqrt(dx * dx + dy * dy);
+      if (d > 1) { vx += (dx / d) * pl.speed; vy += (dy / d) * pl.speed; }
+    }
   }
   p.vx = vx; p.vy = vy;
   if (vx !== 0 || vy !== 0) {

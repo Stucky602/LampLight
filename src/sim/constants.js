@@ -4,7 +4,7 @@ export const DT = 1 / 60;
 export const TPS = 60;
 
 // Pool capacities (ARCHITECTURE §5.3).
-export const CAP = Object.freeze({ enemies: 4096, projectiles: 4096, gems: 4096, zones: 256, pickups: 256 });
+export const CAP = Object.freeze({ enemies: 4096, projectiles: 4096, gems: 4096, zones: 512, pickups: 256 }); // zones: weapon pools, rune pools, and a boss's tide rows at once
 
 // Weapon slots: 0..MAX_WEAPON_SLOTS-1 are the build's weapons (6 by default; a hook can open
 // more), then the character's innate weapon, then relic effects. Each has its own hit
@@ -54,4 +54,4 @@ export const ZONE = Object.freeze({ AURA: 1, GROUND: 2, WAVE: 3, BEAM: 4, HAZARD
 export const STATUS_IDS = Object.freeze(['burn', 'slow', 'freeze', 'rot']);
 
 // Pickup kinds (match events.PICK).
-export const PK = Object.freeze({ MATERIAL: 1, HEAL: 2, MAGNET: 3, CHEST: 4 });
+export const PK = Object.freeze({ MATERIAL: 1, HEAL: 2, MAGNET: 3, CHEST: 4, EMBER: 5 });

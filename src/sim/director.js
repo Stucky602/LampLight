@@ -2,7 +2,8 @@
 //
 // Keeps the number of regular enemies near the map timeline's density target, spawning on a
 // ring just outside the view (never on screen), and fires the timeline's scripted events at
-// their times: swarm walls, closing rings, elites, chests, and the bosses at 10:00 and 20:00.
+// their times: swarm walls, closing rings, elites, musters (an elite with its crew), chests, and
+// the bosses at 10:00 and 20:00.
 // A map's timeline and overtime data are checked when the run starts, so a mistake in data
 // fails at 0:00 with a plain message instead of in the middle of a run.
 // Enemy HP and contact damage grow with time. After the last boss the player may stay in
@@ -11,13 +12,13 @@
 
 import { DT } from './constants.js';
 import { EV, END } from './events.js';
-import { spawnEnemy, ringPosition } from './enemies.js';
+import { spawnEnemy, ringPosition, MUSTER_CAPTAIN } from './enemies.js';
 import { dropChest, CHEST_ELITE } from './chests.js';
 import { registerBoss } from './bosses.js';
 import { fpow, sincosInto, TAU } from '../lib/fmath.js';
 import { endRun } from './run-result.js';
 
-const EVENT_TYPES = new Set(['elite', 'boss', 'wall', 'ring', 'chest']);
+const EVENT_TYPES = new Set(['elite', 'boss', 'wall', 'ring', 'chest', 'muster']);
 const VIEW_HALF_DIAGONAL = 368; // px: a ring any tighter than this would spawn on screen (640 x 360 view)
 
 /** Check a map's timeline and overtime data; throws a plain message on the first problem. */
@@ -41,6 +42,15 @@ export function checkTimeline(map, enemyIndex, enemyDefs) {
     if ((enemyDefs[t].ai.type === 'boss') !== (e.event === 'boss')) throw new Error(`${at(e)}: bosses come only from boss events, and boss events only spawn bosses`);
     if ((e.event === 'wall' || e.event === 'ring') && !(Number.isInteger(e.count) && e.count > 0)) throw new Error(`${at(e)}: needs a whole-number count`);
     if (e.speed !== undefined && !(e.speed > 0)) throw new Error(`${at(e)}: speed must be above 0`);
+    if (e.event === 'muster') {
+      const t2 = enemyIndex.get(e.escort);
+      if (t2 === undefined) throw new Error(`${at(e)}: unknown escort "${e.escort}"`);
+      if (enemyDefs[t2].ai.type === 'boss' || enemyDefs[t2].ai.type === 'swarm') throw new Error(`${at(e)}: an escort walks with its elite (no bosses or swarmers)`);
+      if (!(Number.isInteger(e.count) && e.count > 0)) throw new Error(`${at(e)}: needs a whole-number count`);
+      if (!(e.radius > 0 && e.radius < 120)) throw new Error(`${at(e)}: the crew's radius must be above 0 and under 120 px`);
+      if (typeof e.name !== 'string' || !e.name) throw new Error(`${at(e)}: needs a name (the notice)`);
+      continue;
+    }
     if (e.radius !== undefined && !(e.radius >= VIEW_HALF_DIAGONAL)) throw new Error(`${at(e)}: a ring radius under ${VIEW_HALF_DIAGONAL} px would spawn on screen`);
   }
   const ot = map.overtime;
@@ -61,7 +71,7 @@ export function createDirector(world) {
     }
     return { from: b.from * scale, to: b.to * scale, d0: b.density[0], d1: b.density[1], types, weights };
   });
-  const events = (map.timeline.events || []).map((e) => ({ ...e, at: e.at * scale })).sort((a, b) => a.at - b.at);
+  const events = (map.timeline.events || []).map((e, index) => ({ ...e, at: e.at * scale, index })).sort((a, b) => a.at - b.at);
   let lastBoss = -1;
   events.forEach((e, i) => { if (e.event === 'boss') lastBoss = i; });
   return {
@@ -103,7 +113,7 @@ export function directorStep(world) {
   // Scripted events.
   while (d.eventIdx < d.events.length && d.events[d.eventIdx].at <= t) {
     const idx = d.eventIdx++;
-    fireEvent(world, d.events[idx], idx === d.lastBossEvent);
+    fireEvent(world, d.events[idx], idx === d.lastBossEvent, d.events[idx].index);
   }
   // Scaling with time (in timeline minutes, so short runs ramp at the same point of the run).
   const minutes = t / 60 / d.timeScale;
@@ -150,11 +160,11 @@ export function directorStep(world) {
  * turn, then a wider ring, so a player in a map corner still gets it (off screen, never on top
  * of them). Returns false only if the whole map around the player is blocked.
  */
-function eventPosition(world, out) {
+function eventPosition(world, out, beyond = 0) {
   const T = world.tuning.enemies;
-  if (ringPosition(world, T.spawnRing, out)) return true;
+  if (ringPosition(world, T.spawnRing + beyond, out)) return true;
   const p = world.player, terrain = world.terrain, sc = world.scratch.sc;
-  for (const r of [T.spawnRing, T.spawnRing * 1.5]) {
+  for (const r of [T.spawnRing + beyond, T.spawnRing * 1.5 + beyond]) {
     for (let k = 0; k < 32; k++) {
       sincosInto((k / 32) * TAU, sc, 0);
       const x = p.x + sc[1] * r, y = p.y + sc[0] * r;
@@ -166,7 +176,7 @@ function eventPosition(world, out) {
   return false;
 }
 
-function fireEvent(world, ev, isFinalBoss) {
+function fireEvent(world, ev, isFinalBoss, index) {
   const p = world.player, rng = world.rng.spawn, out = world.scratch.v2, sc = world.scratch.sc;
   const T = world.tuning.enemies;
   if (ev.event === 'chest') {
@@ -186,6 +196,27 @@ function fireEvent(world, ev, isFinalBoss) {
   switch (ev.event) {
     case 'elite': {
       if (eventPosition(world, out)) spawnEnemy(world, type, out[0], out[1], { elite: true });
+      break;
+    }
+    case 'muster': {
+      // An elite captain off screen with its crew in a ring around it; they walk in together.
+      // The captain stands out past the spawn ring by the crew's radius, so no one of them
+      // appears on screen. He drops a boss chest (MUSTER_CAPTAIN). With no open ground anywhere
+      // around you, he comes at your feet, as a boss would.
+      if (!eventPosition(world, out, ev.radius)) { out[0] = p.x; out[1] = p.y; }
+      const cx = out[0], cy = out[1];
+      const e = spawnEnemy(world, type, cx, cy, { elite: true });
+      if (e < 0) break;
+      world.enemies.boss[e] = MUSTER_CAPTAIN;
+      const esc = world.enemyIndex.get(ev.escort), terrain = world.terrain;
+      let made = 0;
+      for (let k = 0; k < ev.count; k++) {
+        sincosInto((k / ev.count) * TAU, sc, 0);
+        const x = cx + sc[1] * ev.radius, y = cy + sc[0] * ev.radius;
+        if (x < 8 || y < 8 || x > terrain.width - 8 || y > terrain.height - 8 || terrain.blockedAt(x, y)) continue;
+        if (spawnEnemy(world, esc, x, y, null) >= 0) made++;
+      }
+      world.events.push(EV.MUSTER, cx, cy, made, world.enemies.handle(e), index);
       break;
     }
     case 'boss': {

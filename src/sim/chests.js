@@ -20,6 +20,7 @@ import { relicAvailable, markStatsDirty, addRelic } from './build.js';
 
 export const CHEST_ELITE = 1;
 export const CHEST_BOSS = 2;
+export const CHEST_SECRET = 3;
 
 /** A chest on the ground where an elite or boss fell. */
 export function dropChest(world, x, y, kind) {
@@ -53,7 +54,7 @@ export function evolveOne(world, source) {
   // Runes carry over, in order, while they still fit the new weapon (and the runes before them).
   const runes = new Array(into.runeSlots || 0).fill(null);
   let r = 0;
-  for (const rune of slot.runes) if (rune && r < runes.length && runeFits(rune, into, runes)) runes[r++] = rune;
+  for (const rune of slot.runes) if (rune && r < runes.length && runeFits(rune, into, runes, slot.ascensions)) runes[r++] = rune;
   world.build.evolvedFrom.add(slot.def.id);
   world.slots[s] = buildSlot(world, s, into, 1, runes, slot);
   world.result.evolutions.push({ from: slot.def.id, into: into.id, source, tick: world.tick });
@@ -93,7 +94,7 @@ export function openSocketsFor(world, rune) {
     const slot = world.slots[s];
     if (!slot || !slot.runes.length) continue;
     if (!slot.runes.includes(null)) continue;
-    if (!runeFits(rune, slot.def, slot.runes)) continue;
+    if (!runeFits(rune, slot.def, slot.runes, slot.ascensions)) continue;
     out.push(s);
   }
   return out;
@@ -163,12 +164,38 @@ export function openChest(world, kind, x, y) {
     if (s >= 0) items.push({ kind: 'evolution', id: world.slots[s].def.id, slot: s });
     else items.push(rollItem(world, claimed));
   }
+  finishChest(world, kind, x, y, items);
+}
+
+function finishChest(world, kind, x, y, items) {
   world.result.chests++;
   world.events.push(EV.CHEST, x, y, kind, items.length);
   runHooks(world, 'onChestOpen', kind, items);
   world.halts.push({ kind: 'chest', chestKind: kind, items });
   for (const it of items) if (it.kind === 'rune') world.halts.push({ kind: 'rune', rune: it.id });
   markStatsDirty(world);
+}
+
+/**
+ * Open a map's secret cache (once a run). It holds the secret's relic while you can take it
+ * (not owned, not banished); otherwise one ordinary chest item. It shows as a chest reel.
+ */
+export function openCache(world, index) {
+  const s = world.secrets[index];
+  if (s.open) return;
+  s.open = true;
+  const relic = world.relicDefs.find((r) => r.id === s.relic) || null;
+  const b = world.build;
+  const items = [];
+  if (relic && !b.relics.includes(relic) && !b.banished.has(`relic:${relic.id}`)) {
+    addRelic(world, relic);
+    items.push({ kind: 'relic', id: relic.id });
+  } else {
+    items.push(rollItem(world, new Map()));
+  }
+  world.result.secrets.push(s.id);
+  world.events.push(EV.SECRET, s.x, s.y, index);
+  finishChest(world, CHEST_SECRET, s.x, s.y, items);
 }
 
 /** Resolve a rune placement: { kind: 'place', slot } or { kind: 'discard' }. */

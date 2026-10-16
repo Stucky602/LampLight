@@ -15,12 +15,15 @@
 //   { kind: 'dev', cmd: 'heal' }
 //   { kind: 'dev', cmd: 'clear' }                    kills nothing: removes every regular enemy
 //   { kind: 'dev', cmd: 'chest', boss?: true }        opens a chest where you stand (the reel)
+//   { kind: 'dev', cmd: 'warp', secret: 0 }          to open ground just south of a map secret
+//   { kind: 'dev', cmd: 'ember' }                    an Ember, as if picked up (the choice opens if a weapon can take it)
 
 import { HIT_RING, TPS, EF } from './constants.js';
 import { spawnEnemy } from './enemies.js';
 import { applyCard } from './draft.js';
 import { openSocketsFor, openChest, CHEST_BOSS, CHEST_ELITE } from './chests.js';
 import { addRelic, markStatsDirty } from './build.js';
+import { collectEmber } from './ascend.js';
 import { xpToNext } from './player.js';
 import { TAU, sincosInto } from '../lib/fmath.js';
 
@@ -226,6 +229,27 @@ export function devDecide(world, d) {
         n++;
       }
       return n;
+    }
+    case 'ember': {
+      const p = world.player;
+      collectEmber(world, p.x, p.y);
+      return world.build.embers;
+    }
+    case 'warp': {
+      const sec = world.secrets[d.secret];
+      if (!Number.isInteger(d.secret) || !sec) throw new Error(`dev warp: this map has no secret ${d.secret}`);
+      // The nearest open tile to a spot 6 tiles south of it, searched in growing squares.
+      const T = world.terrain, tile = T.tile;
+      const cx = Math.floor(sec.x / tile), cy = Math.floor(sec.y / tile) + 6;
+      for (let r = 0; r < 24; r++) {
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || T.blocked(cx + dx, cy + dy)) continue;
+          const p = world.player;
+          p.x = p.px = (cx + dx + 0.5) * tile; p.y = p.py = (cy + dy + 0.5) * tile;
+          return 1;
+        }
+      }
+      throw new Error('dev warp: no open ground near it');
     }
     case 'chest':
       openChest(world, d.boss === true ? CHEST_BOSS : CHEST_ELITE, world.player.x, world.player.y);

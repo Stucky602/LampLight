@@ -19,10 +19,12 @@ import { UPGRADES } from './upgrades.js';
 import { NPCS } from './npcs.js';
 import { HUB } from './hub.js';
 import { META } from './meta.js';
+import { ASCENSIONS } from './ascensions.js';
 
 export const DATA = Object.freeze({
   tuning: TUNING,
   weapons: WEAPONS,
+  ascensions: ASCENSIONS,
   passives: PASSIVES,
   runes: RUNES,
   relics: RELICS,
@@ -44,4 +46,4 @@ export const DATA = Object.freeze({
   meta: META,
 });
 
-export { TUNING, HUB_TUNING, WEAPONS, PASSIVES, RUNES, RELICS, CHARACTERS, ENEMIES, BOSSES, MAPS, MATERIALS, SFX, PALETTE, BUILDINGS, RESEARCH, UPGRADES, NPCS, HUB, META };
+export { TUNING, HUB_TUNING, WEAPONS, PASSIVES, RUNES, RELICS, CHARACTERS, ENEMIES, BOSSES, MAPS, MATERIALS, SFX, PALETTE, ASCENSIONS, BUILDINGS, RESEARCH, UPGRADES, NPCS, HUB, META };
