@@ -20,8 +20,13 @@ import { revealedFog, hubPeople, shownProps, resolveContent } from '../../meta/s
 import { restoreBuilding, buyUpgrade, startResearch, MetaError } from '../../meta/actions.js';
 import { nextAffordable } from '../../meta/next.js';
 import { devAddMaterials, devUnlockAll } from '../../meta/dev.js';
-import { buildingScreen, gateScreen, resultsScreen, hubMenuScreen } from '../../ui/hubscreens.js';
-import { rankText } from '../../ui/hubtext.js';
+import { buildingScreen, gateScreen, resultsScreen, hubMenuScreen, gearScreen, setupScreen } from '../../ui/hubscreens.js';
+import {
+  craftGear, upgradeGear, rerollGear, equipGear, unequipGear, cutRuneStone, buyConsumable, marketTrade, claimBestiary, trainPerk,
+} from '../../meta/workshop.js';
+import { startChoice, setupRows, applyRow, choiceForRun, rewardText, settleChoice, setsOutAs, checkStone } from '../setup.js';
+import { runConfigFor } from '../../meta/runconfig.js';
+import { actionLine, rankText } from '../../ui/hubtext.js';
 import { tuningScreen } from '../../ui/tuning.js';
 import { tuningDiff, tuningCopyText } from '../../ui/tuningmodel.js';
 import { createHubHud, onScreen, routeExit } from '../../ui/hubhud.js';
@@ -110,6 +115,36 @@ export function createHubScene(deps) {
     try { const out = startResearch(doc(), data, id); commit(out.doc); sound('pickup'); panel?.say(`Research started: ${data.research.find((r) => r.id === id).name}`); } catch (e) { refused(e); }
   }
 
+  /**
+   * The Phase 7 buildings' purchases (meta/workshop.js), each saved like any other and said on
+   * the panel's line (ui/hubtext.js actionLine).
+   */
+  const ACTS = { craft: craftGear, upgradeGear, reroll: rerollGear, equip: equipGear, unequip: unequipGear, cutRune: cutRuneStone, buy: buyConsumable, trade: marketTrade, claim: claimBestiary, train: trainPerk };
+  let gearPanel = null;
+  function act(name, ...args) {
+    const fn = ACTS[name];
+    if (!fn) throw new Error(`no harbor action "${name}"`);
+    try {
+      const out = fn(doc(), data, ...args);
+      commit(out.doc);
+      gearPanel?.refresh();
+      sound(name === 'equip' || name === 'unequip' ? 'ui_confirm' : 'pickup');
+      (gearPanel ?? panel)?.say(actionLine(data, out.changes[0]));
+    } catch (e) {
+      if (!(e instanceof MetaError)) throw e;
+      (gearPanel ?? panel)?.say(e.message);
+      sound('ui_back');
+    }
+  }
+
+  function openGear(uid) {
+    gearPanel = gearScreen(menuCtx, {
+      data, uid, get: () => ({ doc: doc() }), onAct: act,
+      onClose: () => { ui.close(gearPanel); gearPanel = null; panel?.refresh(); },
+    });
+    ui.push(gearPanel);
+  }
+
   // ---------------------------------------------------------------- the harbor from the profile
 
   /**
@@ -191,6 +226,8 @@ export function createHubScene(deps) {
       onRestore: () => restore(building),
       onUpgrade: (id) => upgrade(id),
       onResearch: (id) => research(id),
+      onAct: act,
+      onGear: (uid) => openGear(uid),
       onClose: () => { ui.close(panel); panel = null; },
     });
     ui.push(panel);
@@ -202,7 +239,37 @@ export function createHubScene(deps) {
     const map = data.maps[0];
     const s = gateScreen(menuCtx, {
       characters: chars, map: { name: map.name, desc: map.desc },
-      onSetOut: (id) => { ui.closeAll(); deps.startRun({ character: id }); },
+      onSetOut: (id) => setOut(id),
+      onBack: () => ui.close(s),
+    });
+    ui.push(s);
+  }
+
+  /**
+   * After the character: how the run sets out, when the harbor has opened any choice (the kit, a
+   * short or challenge run, a Tide, curses, an arcana, consumables, a rune stone); else at once.
+   */
+  function setOut(character) {
+    let choice = startChoice(doc(), data, character);
+    if (!setupRows(doc(), data, choice).length) { ui.closeAll(); deps.startRun({ character }); return; }
+    const s = setupScreen(menuCtx, {
+      // A challenge run sets out as its own character.
+      title: () => data.characters.find((c) => c.id === setsOutAs(data, choice))?.name ?? character,
+      rows: () => setupRows(doc(), data, choice),
+      summary: () => rewardText(data, choice),
+      onChange: (key, value) => { choice = settleChoice(doc(), data, applyRow(choice, key, value)); },
+      onStart: () => {
+        // Checked here as the run would check it, so a refusal stays on this screen (never the
+        // error screen), and nothing is used up.
+        const run = choiceForRun(choice);
+        try { runConfigFor(doc(), data, { ...run, seed: 0 }); checkStone(doc(), data, choice); } catch (e) {
+          if (e instanceof MetaError) return e.message;
+          throw e;
+        }
+        ui.closeAll();
+        deps.startRun(run);
+        return null;
+      },
       onBack: () => ui.close(s),
     });
     ui.push(s);
@@ -273,7 +340,7 @@ export function createHubScene(deps) {
       ui.closeAll();
       view.detach();
       hud?.destroy(); hud = null;
-      world = null; panel = null; tuningOpen = null; pendingBanner = null;
+      world = null; panel = null; gearPanel = null; tuningOpen = null; pendingBanner = null;
     },
     step(dt) {
       if (!world) return;

@@ -12,14 +12,19 @@
 // enemy again only after that cooldown (per enemy, per slot: auras, orbits, zones); a slot
 // without one relies on each shot remembering the last 4 enemies it hit (piercing shots).
 
-import { DT, TPS, EF, PF, MOTION, EMIT, FX, ZONE, HIT_SLOTS, RELIC_SLOT, HIT_RING } from './constants.js';
+import { DT, TPS, EF, PF, MOTION, EMIT, FX, ZONE, ZF, HIT_SLOTS, RELIC_SLOT, HIT_RING, PARENT_ONLY_FX } from './constants.js';
 import { NO_HANDLE } from './pools.js';
 import { EV } from './events.js';
-import { computeWeaponStats, WEAPON_DEFAULTS } from './stats.js';
+import { computeWeaponStats } from './stats.js';
 import { damageEnemyR, impulseR, applyStatus } from './enemies.js';
 import { hurtPlayer } from './player.js';
 import { runHooks } from './hooks.js';
-import { sincosInto, fcos, TAU, PI } from '../lib/fmath.js';
+import { sincosInto, fcos, fatan2, TAU, PI } from '../lib/fmath.js';
+import {
+  buildForms, formStats, createFormState, formsTick, formsAfterVolley, crowdTarget, plantRod, stokePyre,
+  eclipseScale, formsMove, skewerCatch, focusBurn, hangFlare, markEnemy, clusterFlasks, marchStrike, fuelLink,
+  shotEnded, hasShotForm, hasKillForm, zoneGone, markTick,
+} from './forms.js';
 
 export const PROJ_FIELDS = {
   x: Float32Array, y: Float32Array, px: Float32Array, py: Float32Array, vx: Float32Array, vy: Float32Array,
@@ -32,6 +37,8 @@ export const PROJ_FIELDS = {
   list: Uint16Array,
   hops: Int8Array,
   def: Uint16Array,     // weapon definition index (render picks the sprite), 0xffff for enemy shots
+  carry: Int32Array,    // Skewer: the enemy this shot carries (a handle; NO_HANDLE none)
+  scale: Uint8Array,    // drawn this many times its size (0 or 1: as it is; an Eclipse orb grows)
 };
 
 export const ZONE_FIELDS = {
@@ -40,9 +47,13 @@ export const ZONE_FIELDS = {
   kind: Uint8Array, slot: Uint8Array, list: Uint16Array,
   damage: Float32Array, knockback: Float32Array, thickness: Float32Array,
   dx: Float32Array, dy: Float32Array, length: Float32Array,
-  interval: Int32Array,  // ground zones: ticks between damage pulses
-  nextTick: Int32Array,  // ground zones: tick of the next pulse; hazards: tick the player can be hurt again
+  interval: Int32Array,  // ground zones and marks: ticks between damage pulses
+  nextTick: Int32Array,  // ground zones and marks: tick of the next pulse; hazards: tick the player can be hurt again
   def: Uint16Array,
+  target: Int32Array,    // a tether's or a mark's enemy (a handle)
+  flags: Uint8Array,     // ZF: a wave rolling inward, a beam sweeping
+  style: Uint8Array,     // ground: ZSTYLE (how it looks); mark: MARKS (what it does)
+  ang: Float32Array,     // a sweeping beam's starting angle
 };
 
 const EFFECT_TYPES = Object.keys(FX);
@@ -98,35 +109,37 @@ export function runeValidOn(rune, def) {
 export const MIRRORED_EMITS = Object.freeze(['nearest', 'facing', 'radial']);
 
 /**
- * Does every part of ascension `a` do something on a weapon with this emitter type, mirrored or
- * not by its runes, piercing everything or not? Firing backward needs a line-firing emitter that
- * doesn't already fire backward; more pierce needs a weapon that doesn't already pierce all.
+ * Does every part of Form `a` work on a weapon its runes have shaped so (runeShape)? A Form's
+ * `needs` names a motion the weapon must have, or must not have: a Skewer needs a harpoon that
+ * flies straight, a Firebomb a flask that's lobbed, a Mortar or a Salvo shots that aren't
+ * circling you (an Orbiting rune).
  */
-export function ascensionWorks(a, emitType, mirroredByRunes, piercesAll) {
-  if (a.mirror && (mirroredByRunes || !MIRRORED_EMITS.includes(emitType))) return false;
-  if (a.add?.pierce && piercesAll) return false;
+export function ascensionWorks(a, shape) {
+  const n = a.needs;
+  if (!n) return true;
+  if (n.motion && !n.motion.includes(shape.motion)) return false;
+  if (n.notMotion && n.notMotion.includes(shape.motion)) return false;
   return true;
 }
 
-/** What a weapon's runes make of it: { emit (its emitter's type), mirrored, piercesAll }. */
+/** What a weapon's runes make of it: { emit, motion (their types), mirrored }. */
 export function runeShape(def, runes) {
-  let emit = def.pipeline.emit.type, mirrored = false, piercesAll = (def.base.pierce ?? 0) < 0;
+  let emit = def.pipeline.emit.type, motion = def.pipeline.motion.type, mirrored = false;
   for (const r of runes) {
     if (!r) continue;
     if (r.patch.emit) emit = r.patch.emit.type;
+    if (r.patch.motion) motion = r.patch.motion.type;
     if (r.patch.mirror) mirrored = true;
-    if (r.patch.base && r.patch.base.pierce !== undefined) piercesAll = r.patch.base.pierce < 0;
   }
-  return { emit, mirrored, piercesAll };
+  return { emit, motion, mirrored };
 }
 
 /**
- * Can this rune join the runes already socketed in a weapon (and its ascensions)? It must fit the
+ * Can this rune join the runes already socketed in a weapon (and its Forms)? It must fit the
  * emitter those runes have given the weapon (Orbiting turns a Flare Gun into an orbit, so Backfire
  * no longer fits), if it changes the emitter itself every rune already there must still fit the
- * new one, and every ascension taken must still do all it says (Backfire adds nothing to Signal
- * Pair's backward shot; Orbiting would cancel it). So a weapon never holds a rune that does
- * nothing, nor loses what an Ember bought.
+ * new one, and every Form taken must still work after it (no Orbiting under a Skewer or a
+ * Mortar). So a weapon never holds a rune that does nothing, nor loses what an Ember bought.
  */
 export function runeFits(rune, def, socketed, ascensions = []) {
   // One copy of a rune per weapon: a second Backfire or Burning Ground would add nothing.
@@ -136,13 +149,15 @@ export function runeFits(rune, def, socketed, ascensions = []) {
   if (rune.patch.emit) for (const r of socketed) if (r && !validOnEmit(r, rune.patch.emit.type)) return false;
   if (ascensions.length) {
     const after = runeShape(def, [...socketed, rune]);
-    for (const a of ascensions) if (!ascensionWorks(a, after.emit, after.mirrored, after.piercesAll)) return false;
+    for (const a of ascensions) if (!ascensionWorks(a, after)) return false;
   }
   return true;
 }
 
-// How an ascension's on-hit numbers join an effect of the same kind the weapon already has
-// (Barbed Line on the Kraken Line's own chain, Starburst on the Flare Barrage's own burst):
+// How a Form's on-hit numbers join an effect of the same kind the weapon's own pipeline already
+// has (Great Toll's freeze on a bell that freezes, Relay on a weapon that chains). Runes come after
+// Forms and add their own effects beside these: Relay and a Chain Link rune are two chains.
+// The rules:
 // amounts add (more hops, longer, harder); reaches take the larger; a per-hop multiplier is never
 // added (a chain's hops would grow stronger than the hit); a slow never reaches a standstill.
 // Every number an on-hit effect has is listed: a new one must be given its rule (an unlisted one
@@ -154,7 +169,7 @@ const MERGE = Object.freeze({
 const MAX_SLOW = 0.8;
 
 /**
- * Add an ascension's on-hit effect to a list: onto the list's own effect of that type (a status:
+ * Add a Form's on-hit effect to a list: onto the list's own effect of that type (a status:
  * of that status), its numbers joined by MERGE; or, with none, appended as a new one.
  */
 export function addEffect(list, e) {
@@ -176,21 +191,15 @@ export function addEffect(list, e) {
  * come from the definition, patched by each rune in socket order.
  */
 export function buildSlot(world, index, def, level, runes, prev = null) {
-  let emit = { ...def.pipeline.emit };
-  let motion = { ...def.pipeline.motion };
-  const onHit = def.pipeline.onHit.map((e) => ({ ...e }));
+  // Forms first (data/ascensions.js, sim/forms.js: an Ember's changes, kept through rebuilds and
+  // an evolution), then the runes.
+  const ascensions = prev && prev.ascensions ? prev.ascensions : [];
+  const pipe = { emit: { ...def.pipeline.emit }, motion: { ...def.pipeline.motion }, onHit: def.pipeline.onHit.map((e) => ({ ...e })) };
+  const fx = buildForms(pipe, ascensions);
+  let emit = pipe.emit, motion = pipe.motion;
+  const onHit = pipe.onHit;
   let mirror = false;
   const baseOverride = {};
-  // Ascensions first (data/ascensions.js: an Ember's changes, kept through rebuilds and an
-  // evolution), then the runes.
-  const ascensions = prev ? prev.ascensions : [];
-  const baseAdd = {};
-  for (const a of ascensions) {
-    if (a.add) for (const [k, v] of Object.entries(a.add)) baseAdd[k] = (baseAdd[k] ?? 0) + v;
-    if (a.emitAdd) for (const [k, v] of Object.entries(a.emitAdd)) emit[k] = (emit[k] ?? 0) + v;
-    if (a.mirror) mirror = true;
-    if (a.onHitAdd) for (const e of a.onHitAdd) addEffect(onHit, e);
-  }
   for (const rune of runes) {
     if (!rune) continue;
     const p = rune.patch;
@@ -202,15 +211,11 @@ export function buildSlot(world, index, def, level, runes, prev = null) {
   }
   if (EMIT[emit.type] === undefined) throw new Error(`Unknown emitter "${emit.type}" on ${def.id} (known: ${EMIT_TYPES.join(', ')})`);
   if (MOTION[motion.type] === undefined) throw new Error(`Unknown motion "${motion.type}" on ${def.id} (known: ${MOTION_TYPES.join(', ')})`);
-  let effDef = Object.keys(baseOverride).length ? { ...def, base: { ...def.base, ...baseOverride } } : def;
-  if (Object.keys(baseAdd).length) {
-    const b = { ...WEAPON_DEFAULTS, ...effDef.base };
-    for (const [k, v] of Object.entries(baseAdd)) if (!(k === 'pierce' && b.pierce < 0)) b[k] = (b[k] ?? 0) + v;
-    effDef = { ...effDef, base: b };
-  }
-  const stats = computeWeaponStats(world.tuning, effDef, level, world.mods);
+  const effDef = Object.keys(baseOverride).length ? { ...def, base: { ...def.base, ...baseOverride } } : def;
+  const stats = { ...computeWeaponStats(world.tuning, effDef, level, world.mods) };
+  formStats(stats, fx, effDef);
   const list = compileList(world, onHit);
-  const childList = compileList(world, onHit.filter((e) => e.type !== 'split'));
+  const childList = compileList(world, onHit.filter((e) => !PARENT_ONLY_FX.includes(e.type)));
   const slot = {
     index, def, defIndex: world.weaponIndex.get(def.id), level, runes: runes.slice(),
     stats, emit, motion, emitType: EMIT[emit.type], motionType: MOTION[motion.type], mirror,
@@ -228,8 +233,13 @@ export function buildSlot(world, index, def, level, runes, prev = null) {
     angle: prev ? prev.angle : 0,
     auraHandle: prev ? prev.auraHandle : NO_HANDLE,
     lastZoneTicks: prev ? prev.lastZoneTicks : new Float64Array(ZONE_PACES).fill(-1e9),
-    ascensions,   // the ascension definitions taken, in order (data/ascensions.js)
+    ascensions,   // the Forms taken, in order (data/ascensions.js)
+    fx,           // the same, by mechanic (sim/forms.js)
+    fs: prev && prev.fs ? prev.fs : createFormState(),   // the Forms' running state
+    shotForms: hasShotForm(fx),
+    killForm: hasKillForm(fx),
     fired: prev ? prev.fired : 0,
+    since: prev ? prev.since : world.tick,   // the tick this weapon (or the one it evolved from) was taken
   };
   return slot;
 }
@@ -255,13 +265,13 @@ const SHOT = {
   life: -1, flags: 0, damage: -1, radius: -1, pierce: -2, motion: -1,
   m0: 0, m1: 0, m2: 0, m3: 0, target: NO_HANDLE, skip: NO_HANDLE, ringFrom: -1, list: -1, hops: -1,
 };
-function shotOpts() {
+export function shotOpts() {
   SHOT.life = -1; SHOT.flags = 0; SHOT.damage = -1; SHOT.radius = -1; SHOT.pierce = -2; SHOT.motion = -1;
   SHOT.m0 = 0; SHOT.m1 = 0; SHOT.m2 = 0; SHOT.m3 = 0;
   SHOT.target = NO_HANDLE; SHOT.skip = NO_HANDLE; SHOT.ringFrom = -1; SHOT.list = -1; SHOT.hops = -1;
   return SHOT;
 }
-function shotAt(world, x, y, dirX, dirY, speed) {
+export function shotAt(world, x, y, dirX, dirY, speed) {
   const r = world.scratch.shot;
   r[0] = x; r[1] = y; r[2] = dirX; r[3] = dirY; r[4] = speed;
 }
@@ -270,7 +280,7 @@ function shotAt(world, x, y, dirX, dirY, speed) {
  * Spawn a shot (numbers in world.scratch.shot, options in SHOT; unset options take the slot's
  * own). Its hit ring starts empty, or as a copy of shot `ringFrom`'s (chain hops), plus `skip`.
  */
-function spawnShot(world, slot, opts) {
+export function spawnShot(world, slot, opts) {
   const P = world.projectiles;
   const i = P.alloc();
   if (i < 0) return -1;
@@ -302,11 +312,12 @@ function spawnShot(world, slot, opts) {
   P.list[i] = opts.list >= 0 ? opts.list : slot.list;
   P.hops[i] = opts.hops;
   P.def[i] = slot.defIndex ?? 0xffff;
+  P.carry[i] = NO_HANDLE;
   return i;
 }
 
 /** Fire one shot of the slot's motion type from (x, y) along (dirX, dirY). Handles mirror twins. */
-function fireAlong(world, slot, x, y, dirX, dirY, target) {
+export function fireAlong(world, slot, x, y, dirX, dirY, target) {
   const m = slot.motion, s = slot.stats;
   const speed = (m.speed ?? 0) * s.speed;
   shotAt(world, x, y, dirX, dirY, speed);
@@ -355,6 +366,7 @@ export function weaponsFire(world) {
     const slot = slots[si];
     if (slot === null || slot.emitType < 0) continue;
     if (slot.emitType === EMIT.aura) { keepAura(world, slot); continue; }
+    if (slot.ascensions.length) formsTick(world, slot);
     const s = slot.stats;
     if (slot.burst > 0) {
       slot.burstT -= DT;
@@ -367,6 +379,7 @@ export function weaponsFire(world) {
     slot.cd -= DT;
     if (slot.cd > 0 || slot.burst > 0) continue;
     if (!startVolley(world, slot)) { slot.cd = 0; continue; } // nothing to fire at yet: ready and waiting
+    if (slot.ascensions.length) formsAfterVolley(world, slot, Math.max(1, Math.round(s.amount)));
     slot.cd += s.cooldown;
     if (slot.cd <= 0) slot.cd = s.cooldown;
   }
@@ -381,16 +394,34 @@ function startVolley(world, slot) {
   const p = world.player;
   switch (slot.emitType) {
     case EMIT.orbit: {
+      slot.angle += 0.61803398875 * TAU;
+      if (slot.motionType !== MOTION.orbit) {
+        // Hunting Lights: the orbs leave your side to chase, each for its duration.
+        const sc = world.scratch.sc;
+        for (let k = 0; k < amount; k++) {
+          sincosInto(slot.angle + (k / amount) * TAU, sc, 0);
+          const o = shotOpts();
+          o.motion = MOTION.homing; o.m0 = slot.motion.turn ?? 6; o.m1 = slot.motion.range ?? 260; o.pierce = -1;
+          o.radius = s.radius * s.area * eclipseScale(slot);
+          const r0 = (slot.emit.radius ?? 36) * s.area;
+          shotAt(world, p.x + sc[1] * r0, p.y + sc[0] * r0, sc[1], sc[0], (slot.motion.speed ?? 140) * s.speed);
+          const i = spawnShot(world, slot, o);
+          if (i >= 0 && slot.fx.eclipse) world.projectiles.scale[i] = eclipseScale(slot) >= 1.75 ? 3 : 2;
+        }
+        fired(world, slot, amount);
+        return true;
+      }
       clearSlotShots(world, slot.index, MOTION.orbit);
       const r = (slot.emit.radius ?? 36) * s.area;
       const w = (slot.motion.angularSpeed ?? 3) * s.speed;
-      slot.angle += 0.61803398875 * TAU;
       for (let k = 0; k < amount; k++) {
         const a = slot.angle + (k / amount) * TAU;
         const o = shotOpts();
         o.motion = MOTION.orbit; o.m0 = a; o.m1 = w; o.m2 = r;
+        o.m3 = s.radius * s.area; // its size before an Eclipse grows it
         shotAt(world, p.x, p.y, 0, 0, 0);
-        spawnShot(world, slot, o);
+        const i = spawnShot(world, slot, o);
+        if (i >= 0 && slot.fx.eclipse) { world.projectiles.radius[i] = o.m3 * eclipseScale(slot); world.projectiles.scale[i] = eclipseScale(slot) >= 1.75 ? 3 : 2; }
       }
       fired(world, slot, amount);
       return true;
@@ -412,6 +443,12 @@ function startVolley(world, slot) {
       return true;
     }
     case EMIT.summon: {
+      if (slot.fx.pyre) {
+        // Pyre: the flames gather at your side until it erupts them all (it counts as firing).
+        const n = stokePyre(world, slot, amount);
+        if (n > 0) fired(world, slot, n);
+        return true;
+      }
       for (let k = 0; k < amount; k++) {
         const sc = world.scratch.sc;
         sincosInto((k / amount) * TAU, sc, 0);
@@ -439,7 +476,7 @@ function fireOne(world, slot) {
   const k = slot.volley++;
   switch (slot.emitType) {
     case EMIT.nearest: {
-      const e = nearestTarget(world, slot, slot.emit.range ?? 360);
+      const e = slot.emit.aim === 'crowd' ? crowdTarget(world, slot.emit.range ?? 360) : nearestTarget(world, slot, slot.emit.range ?? 360);
       if (e < 0) return false;
       const E = world.enemies;
       const dx = E.x[e] - p.x, dy = E.y[e] - p.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -471,7 +508,14 @@ function fireOne(world, slot) {
       return true;
     }
     case EMIT.wave: {
-      spawnZone(world, slot, ZONE.WAVE, p.x, p.y, 0, s.radius * s.area, s.duration);
+      const z = spawnZone(world, slot, ZONE.WAVE, p.x, p.y, 0, s.radius * s.area, s.duration);
+      if (z >= 0 && slot.fx.breakers) {
+        // Breakers: the ring starts at the screen's edge (or its own reach, if wider) and rolls in.
+        const Z = world.zones;
+        Z.flags[z] |= ZF.REVERSE;
+        Z.maxRadius[z] = Math.max(Z.maxRadius[z], slot.fx.breakers.startRadius);
+        Z.radius[z] = Z.maxRadius[z];
+      }
       fired(world, slot, 1);
       return true;
     }
@@ -492,6 +536,7 @@ function fireOne(world, slot) {
         Z.dx[z] = dx; Z.dy[z] = dy;
         Z.length[z] = s.radius * s.area;
         Z.thickness[z] = (slot.emit.width ?? 8) * s.area;
+        if (slot.fx.sweep) { Z.flags[z] |= ZF.SWEEP; Z.ang[z] = fatan2(dy, dx); } // Full Circle: round from its target
       }
       fired(world, slot, 1);
       return true;
@@ -560,10 +605,14 @@ function nearestTarget(world, slot, range) {
 function strikeTargets(world, slot, amount) {
   const E = world.enemies, p = world.player, n = E.count;
   const cand = world.scratch.near;
+  // Planted Rod: strikes fall around the rod instead of anywhere on screen.
+  const rod = slot.fx.rod ? plantRod(world, slot) : false;
+  const rx = slot.fs.rodX, ry = slot.fs.rodY, rr = rod ? slot.fx.rod.radius * slot.fx.rod.radius : 0;
   let m = 0;
   for (let i = 0; i < n && m < cand.length; i++) {
     if ((E.flags[i] & EF.DEAD) !== 0) continue;
-    if (Math.abs(E.x[i] - p.x) > 320 || Math.abs(E.y[i] - p.y) > 180) continue;
+    if (rod) { const dx = E.x[i] - rx, dy = E.y[i] - ry; if (dx * dx + dy * dy > rr) continue; }
+    else if (Math.abs(E.x[i] - p.x) > 320 || Math.abs(E.y[i] - p.y) > 180) continue;
     cand[m++] = i;
   }
   const rng = world.rng.combat;
@@ -580,11 +629,18 @@ function strikeTargets(world, slot, amount) {
   return take;
 }
 
-/** Remove a slot's shots of one motion (a new ring of orbit bodies replaces the old one). */
+/**
+ * Remove a slot's shots of one motion (a new ring of orbit bodies replaces the old one). Each is
+ * spent as any shot is, so a Skewer bursts and a Tether sticks (an Orbiting harpoon's ring).
+ */
 function clearSlotShots(world, slotIndex, motion) {
-  const P = world.projectiles;
+  const P = world.projectiles, slot = world.slots[slotIndex];
+  const ends = slot && slot.fx && (slot.fx.skewer || slot.fx.tether);
   for (let i = P.count - 1; i >= 0; i--) {
-    if (P.slot[i] === slotIndex && P.motion[i] === motion && (P.flags[i] & PF.CHILD) === 0) P.remove(i);
+    if (P.slot[i] === slotIndex && P.motion[i] === motion && (P.flags[i] & PF.CHILD) === 0) {
+      if (ends) shotEnded(world, slot, i);
+      P.remove(i);
+    }
   }
 }
 
@@ -745,6 +801,7 @@ export function moveProjectiles(world) {
       default:
         P.x[i] += P.vx[i] * DT; P.y[i] += P.vy[i] * DT;
     }
+    if (P.slot[i] < HIT_SLOTS) { const sl = world.slots[P.slot[i]]; if (sl && sl.shotForms) formsMove(world, sl, i); }
   }
 }
 
@@ -821,15 +878,33 @@ export function projectileHits(world) {
       P.hitPos[i] = (P.hitPos[i] + 1) % HIT_RING;
       hit[0] = P.damage[i]; hit[1] = P.knockback[i]; hit[2] = dx; hit[3] = dy; hit[4] = P.x[i]; hit[5] = P.y[i];
       applyHit(world, slot, P.list[i], e, i);
+      if (slot.fx && slot.fx.skewer) skewerCatch(world, i, e);
       if (P.pierce[i] > 0) {
         P.pierce[i]--;
         if (P.pierce[i] === 0) { P.flags[i] |= PF.DEAD; break; }
       }
     }
-    if (P.motion[i] === MOTION.arc) P.flags[i] |= PF.DEAD; // landed: one blast, then gone
+    if (P.motion[i] === MOTION.arc) {
+      // Landed: one blast, then gone. A Mortar bursts once where it lands; a Firebomb breaks into
+      // small flasks (whatever it hit).
+      if (slot.fx && (f & PF.CHILD) === 0) {
+        if (slot.fx.mortar) {
+          const b = slot.fx.mortar.burst;
+          explodeAt(world, slot.index, P.x[i], P.y[i], b.radius * slot.stats.area, P.damage[i] * b.damageMul, slot.stats.knockback, -1);
+          // A lobbed flare that lands among them hangs where it burst (the burst is not a hit).
+          if (slot.fx.hang) hangFlare(world, slot, slot.fx.hang, P.x[i], P.y[i], P.damage[i]);
+        }
+        if (slot.fx.cluster) clusterFlasks(world, slot, slot.fx.cluster, P.x[i], P.y[i], P.damage[i], P.radius[i]);
+      }
+      P.flags[i] |= PF.DEAD;
+    }
   }
-  // Remove spent shots (walking backward: swap-with-last).
-  for (let i = P.count - 1; i >= 0; i--) if ((P.flags[i] & PF.DEAD) !== 0) P.remove(i);
+  // Remove spent shots (walking backward: swap-with-last). A Skewer or a Tether acts as its shot ends.
+  for (let i = P.count - 1; i >= 0; i--) {
+    if ((P.flags[i] & PF.DEAD) === 0) continue;
+    if (P.slot[i] < HIT_SLOTS) { const sl = slots[P.slot[i]]; if (sl && sl.fx && (sl.fx.skewer || sl.fx.tether)) shotEnded(world, sl, i); }
+    P.remove(i);
+  }
 }
 
 // ---------------------------------------------------------------- on-hit effects
@@ -910,8 +985,16 @@ export function applyHit(world, slot, listRef, e, proj) {
         Z.interval[z] = Math.max(1, Math.round((fx.interval ?? 0.4) * TPS));
         Z.nextTick[z] = world.tick;
         Z.def[z] = slot.defIndex ?? 0xffff;
+        if (slot.fx && slot.fx.fuel) fuelLink(world, slot, z); // Fuel Line
         break;
       }
+      case FX.hang: hangFlare(world, slot, fx, hx, hy, damage); break;
+      case FX.focus: focusBurn(world, slot, fx, e, damage); break;
+      case FX.mark: markEnemy(world, slot, fx, e, damage); break;
+      case FX.march:
+        // A strike's own first hit marches on (not a hop, and not a marching strike itself).
+        if (proj >= 0 && (world.projectiles.flags[proj] & PF.CHILD) === 0 && world.projectiles.hitPos[proj] === 1) marchStrike(world, slot, fx, hx, hy, damage, world.projectiles.radius[proj]);
+        break;
       case FX.light: {
         const ev = world.events, i = ev.reserve(EV.LIGHT);
         if (i >= 0) { ev.x[i] = hx; ev.y[i] = hy; ev.a[i] = fx.radius ?? 16; ev.b[i] = fx.ms ?? 120; }
@@ -1022,28 +1105,63 @@ export function zonesTick(world) {
       }
       continue;
     }
+    if (kind === ZONE.MARK) {
+      // A mark rides its enemy (sim/forms.js): Static zaps, Riptide bursts when its time is up.
+      const slot = slots[Z.slot[z]];
+      if (slot) markTick(world, slot, z); else Z.life[z] = 0;
+      continue;
+    }
     if (Z.life[z] <= 0) continue;
     const slot = slots[Z.slot[z]];
     if (slot === null || slot === undefined) { Z.life[z] = 0; continue; }
     let qx = Z.x[z], qy = Z.y[z], qr = Z.radius[z];
-    let inner = -1;
+    let inner = -1, reverse = false, damageMul = 1;
     if (kind === ZONE.AURA) {
       Z.x[z] = qx = pl.x; Z.y[z] = qy = pl.y;
     } else if (kind === ZONE.WAVE) {
       const dur = Z.age[z] + Z.life[z];
-      qr = Z.maxRadius[z] * Math.min(1, Z.age[z] / (dur > 0 ? dur : 1));
-      Z.radius[z] = qr;
-      inner = qr - Z.thickness[z];
+      const u = Math.min(1, Z.age[z] / (dur > 0 ? dur : 1));
+      reverse = (Z.flags[z] & ZF.REVERSE) !== 0;
+      if (reverse) {
+        // Breakers: the ring rolls in from its reach toward you; it holds what's inside it.
+        Z.x[z] = pl.x; Z.y[z] = pl.y; qx = pl.x; qy = pl.y;
+        const r = Z.maxRadius[z] * (1 - u);
+        Z.radius[z] = r;
+        qr = r + Z.thickness[z];
+        inner = r;
+      } else {
+        qr = Z.maxRadius[z] * u;
+        Z.radius[z] = qr;
+        inner = qr - Z.thickness[z];
+      }
     } else if (kind === ZONE.BEAM) {
       Z.x[z] = pl.x; Z.y[z] = pl.y;
+      if ((Z.flags[z] & ZF.SWEEP) !== 0) {
+        // Full Circle: round once over the beam's life, from where it first pointed.
+        const dur = Z.age[z] + Z.life[z];
+        const sc = world.scratch.sc;
+        sincosInto(Z.ang[z] + TAU * Math.min(1, Z.age[z] / (dur > 0 ? dur : 1)), sc, 0);
+        Z.dx[z] = sc[1]; Z.dy[z] = sc[0];
+      }
       qx = pl.x + Z.dx[z] * Z.length[z] * 0.5; qy = pl.y + Z.dy[z] * Z.length[z] * 0.5;
       qr = Z.length[z] * 0.5 + Z.thickness[z];
+    } else if (kind === ZONE.TETHER) {
+      // Tether: from you to the enemy the harpoon stuck in (where it fell, if it's dead).
+      const t = world.enemies.resolve(Z.target[z]);
+      if (t >= 0 && (E.flags[t] & EF.DEAD) === 0) { Z.x[z] = E.x[t]; Z.y[z] = E.y[t]; }
+      const ex = Z.x[z] - pl.x, ey = Z.y[z] - pl.y, len = Math.sqrt(ex * ex + ey * ey);
+      if (len < 1) continue;
+      Z.dx[z] = ex / len; Z.dy[z] = ey / len; Z.length[z] = len;
+      qx = pl.x + ex * 0.5; qy = pl.y + ey * 0.5;
+      qr = len * 0.5 + Z.thickness[z];
     } else if (kind === ZONE.GROUND) {
-      // Ground hurts in pulses, on its own interval.
+      // Ground hurts in pulses, on its own interval; a Fuel Line flare is one pulse at flareMul.
       if (tick < Z.nextTick[z]) continue;
       Z.nextTick[z] = tick + Z.interval[z];
+      if ((Z.flags[z] & ZF.FLARE) !== 0) { Z.flags[z] &= ~ZF.FLARE; damageMul = slot.fx && slot.fx.fuel ? slot.fx.fuel.flareMul : 1; }
     }
-    const cd = kind === ZONE.GROUND ? 0 : slot.hitCdTicks;
+    // (A tether hits each enemy at most every 0.3 s, whatever its harpoon's own cooldown.)
+    const cd = kind === ZONE.GROUND ? 0 : kind === ZONE.TETHER ? Math.max(18, slot.hitCdTicks) : slot.hitCdTicks;
     q[0] = qx; q[1] = qy; q[2] = qr;
     const m = world.enemyHash.queryR(q, near, -1);
     for (let k = 0; k < m; k++) {
@@ -1053,10 +1171,14 @@ export function zonesTick(world) {
       let dx = ex - Z.x[z], dy = ey - Z.y[z];
       if (kind === ZONE.WAVE) {
         const d = Math.sqrt(dx * dx + dy * dy);
-        if (d + E.radius[e] < inner) continue; // the ring has passed it
-      } else if (kind === ZONE.BEAM) {
-        // Distance from the enemy to the beam's segment.
-        const t = Math.max(0, Math.min(Z.length[z], dx * Z.dx[z] + dy * Z.dy[z]));
+        if (reverse) {
+          if (d + E.radius[e] < inner) continue; // the ring hasn't reached it yet
+          dx = -dx; dy = -dy;                     // dragged in, toward you
+        } else if (d + E.radius[e] < inner) continue; // the ring has passed it
+      } else if (kind === ZONE.BEAM || kind === ZONE.TETHER) {
+        // Distance from the enemy to the beam's (or the chain's) segment, from you.
+        const bx = ex - pl.x, by = ey - pl.y;
+        const t = Math.max(0, Math.min(Z.length[z], bx * Z.dx[z] + by * Z.dy[z]));
         const cx = pl.x + Z.dx[z] * t - ex, cy = pl.y + Z.dy[z] * t - ey;
         const w = Z.thickness[z] * 0.5 + E.radius[e];
         if (cx * cx + cy * cy > w * w) continue;
@@ -1076,10 +1198,17 @@ export function zonesTick(world) {
       }
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d > 1e-6) { dx /= d; dy /= d; } else { dx = pl.fx; dy = pl.fy; }
-      hit[0] = Z.damage[z]; hit[1] = Z.knockback[z]; hit[2] = dx; hit[3] = dy; hit[4] = ex; hit[5] = ey;
+      hit[0] = Z.damage[z] * damageMul; hit[1] = Z.knockback[z]; hit[2] = dx; hit[3] = dy; hit[4] = ex; hit[5] = ey;
+      // A ground's pulse says so to the kill it makes (Wards come only from the weapon's own kills).
+      world.zonePulse = kind === ZONE.GROUND ? 1 : 0;
       applyHit(world, slot, Z.list[z], e, -1);
+      world.zonePulse = 0;
     }
   }
-  for (let z = Z.count - 1; z >= 0; z--) if (Z.life[z] <= 0) Z.remove(z);
+  for (let z = Z.count - 1; z >= 0; z--) {
+    if (Z.life[z] > 0) continue;
+    if (Z.slot[z] < HIT_SLOTS) { const sl = slots[Z.slot[z]]; if (sl && sl.fs) zoneGone(world, sl, z); }
+    Z.remove(z);
+  }
 }
 

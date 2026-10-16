@@ -74,6 +74,10 @@ export const HUB = {
    * Building plots: the building's frame covers x..x+w-1, y..y+h-1 (all solid); `door` is the
    * tile you walk up to (just below the frame) to go in. The Lamp Post is a lamp on the square:
    * one solid tile you can use from any side (`anySide`); its `door` is where its prompt sits.
+   * `openAt`: the milestone that clears the fog in front of it ('start' when it's clear from the
+   * beginning): until then it's a ruin in the fog you can't walk up to (the Lamp Post's levels push
+   * the fog back to the Chapel, then the Smithy and the Apothecary, then the Cartographer and the
+   * Market).
    */
   plots: [
     { building: 'lamp_post', x: 30, y: 15, w: 1, h: 1, door: [30, 16], anySide: true },
@@ -81,20 +85,17 @@ export const HUB = {
     // it's lit; the art's layout has them in the same places (tests/content.test.js).
     { building: 'library', x: 12, y: 6, w: 5, h: 4, door: [14, 10], windows: [[1, 2], [3, 2], [1, 3], [3, 3]] },
     { building: 'tavern', x: 42, y: 8, w: 5, h: 4, door: [44, 12], windows: [[1, 2], [3, 2], [1, 3], [3, 3]] },
+    // Phase 7's six, where their ruins stood.
+    { building: 'docks', x: 33, y: 21, w: 5, h: 4, door: [35, 25], windows: [[1, 2], [3, 2]], openAt: 'start' },
+    { building: 'chapel', x: 27, y: 3, w: 5, h: 4, door: [29, 7], windows: [[1, 2], [3, 2]], openAt: 'lamp_post:3' },
+    { building: 'smithy', x: 5, y: 11, w: 5, h: 4, door: [7, 15], windows: [[1, 2]], openAt: 'lamp_post:4' },
+    { building: 'apothecary', x: 9, y: 19, w: 5, h: 4, door: [11, 23], windows: [[1, 2], [3, 2]], openAt: 'lamp_post:4' },
+    { building: 'cartographer', x: 41, y: 19, w: 5, h: 4, door: [43, 23], windows: [[1, 2], [3, 2], [1, 3], [3, 3]], openAt: 'lamp_post:5' },
+    { building: 'market', x: 48, y: 14, w: 5, h: 4, door: [50, 18], windows: [[1, 2], [3, 2]], openAt: 'lamp_post:5' },
   ],
 
-  /**
-   * Plots for the buildings Phase 7 builds (and the Lighthouse, Phase 10): drawn as ruins, most of
-   * them in the fog (the Docks' ruin sits below the square, in view from the start), so the town
-   * already has its shape.
-   */
+  /** The plot for the Lighthouse (Phase 10): a ruin in the fog, so the town already has its shape. */
   ruins: [
-    { id: 'chapel', x: 27, y: 3, w: 5, h: 4 },
-    { id: 'smithy', x: 5, y: 11, w: 5, h: 4 },
-    { id: 'market', x: 50, y: 13, w: 5, h: 4 },
-    { id: 'apothecary', x: 9, y: 19, w: 5, h: 4 },
-    { id: 'cartographer', x: 41, y: 19, w: 5, h: 4 },
-    { id: 'docks', x: 33, y: 21, w: 5, h: 4 },
     { id: 'lighthouse', x: 55, y: 17, w: 3, h: 4 },
   ],
 
@@ -111,16 +112,16 @@ export const HUB = {
   fog: [
     // Clear from the start: the square and the ruined Docks below it, the ruined Library and
     // Tavern, the quay west to the gate, and the pier.
-    { id: 'square', revealedBy: 'start', rects: [[22, 10, 17, 15], [11, 5, 11, 10], [38, 6, 11, 9], [0, 24, 39, 4], [26, 28, 8, 8]] },
+    { id: 'square', revealedBy: 'start', rects: [[22, 10, 17, 15], [11, 5, 11, 10], [38, 6, 11, 7], [0, 24, 39, 4], [26, 28, 8, 8]] },
     // Each Lamp Post level pushes the fog back further from the square: the Chapel's ruin comes
     // out at level 3, the Smithy's and the Apothecary's at 4, the Cartographer's at 5.
     { id: 'lamp_1', revealedBy: 'lamp_post:1', rects: [[18, 8, 22, 17]] },
     { id: 'lamp_2', revealedBy: 'lamp_post:2', rects: [[34, 24, 18, 4], [18, 28, 26, 8]] },
     { id: 'lamp_3', revealedBy: 'lamp_post:3', rects: [[22, 2, 18, 9]] },
     { id: 'lamp_4', revealedBy: 'lamp_post:4', rects: [[2, 10, 20, 15]] },
-    { id: 'lamp_5', revealedBy: 'lamp_post:5', rects: [[38, 12, 11, 12], [44, 23, 8, 5], [0, 28, 60, 8]] },
-    // The Library's and the Tavern's streets clear as they come back. (The Market's ruin and the
-    // Lighthouse stay in the fog: Phase 7 and Phase 10 bring them out.)
+    { id: 'lamp_5', revealedBy: 'lamp_post:5', rects: [[38, 12, 16, 12], [44, 23, 8, 5], [0, 28, 60, 8]] },
+    // The Library's and the Tavern's streets clear as they come back. (The Lighthouse stays in the
+    // fog: Phase 10 brings it out.)
     { id: 'library_1', revealedBy: 'library:1', rects: [[11, 3, 11, 8]] },
     { id: 'library_3', revealedBy: 'library:3', rects: [[2, 3, 9, 7]] },
     { id: 'library_5', revealedBy: 'library:5', rects: [[2, 2, 22, 2]] },
@@ -175,6 +176,13 @@ export const HUB = {
     lamp_keeper: { post: [31, 16], loop: [[31, 16], [34, 16], [34, 19], [26, 19], [26, 13], [31, 13]] },
     librarian: { post: [15, 10], loop: [[15, 10], [18, 10], [18, 4], [11, 4], [11, 10]] },
     innkeeper: { post: [45, 12], loop: [[45, 12], [48, 12], [48, 6], [40, 6], [40, 12]] },
+    // Phase 7's six pace the street in front of their doors.
+    dockhand: { post: [36, 25], loop: [[36, 25], [38, 25], [38, 26], [32, 26], [32, 25]] },
+    smith: { post: [8, 15], loop: [[8, 15], [10, 15], [10, 16], [4, 16], [4, 15]] },
+    warden: { post: [30, 7], loop: [[30, 7], [32, 7], [32, 8], [26, 8], [26, 7]] },
+    apothecary: { post: [12, 23], loop: [[12, 23], [15, 23], [15, 24], [11, 24], [11, 23]] },
+    cartographer: { post: [44, 23], loop: [[44, 23], [46, 23], [46, 24], [40, 24], [40, 23]] },
+    trader: { post: [51, 18], loop: [[51, 18], [53, 18], [53, 19], [47, 19], [47, 18]] },
   },
 
   /** Where characters you've unlocked wait around the square. */

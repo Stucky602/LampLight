@@ -23,17 +23,6 @@ export const HUD_LAYOUT = Object.freeze({
   overtimeY: 20,                             // ...or under the boss's bar while a boss is up
   overtimeBelowBossY: 38,
   noticeY: 96,
-  // Materials: rows 17 px apart (the tallest material icon is 16), kept 10 px clear of the
-  // right end of the boss's bar.
-  materials: Object.freeze({ top: 19, rowH: 17, clear: 10 }),
-});
-
-/** layoutMaterials's settings, from the layout above. */
-export const MATERIALS_LAYOUT = Object.freeze({
-  rightX: VIEW_W - HUD_LAYOUT.edge,
-  minX: VIEW_W / 2 + HUD_LAYOUT.bossBar.w / 2 + HUD_LAYOUT.materials.clear,
-  top: HUD_LAYOUT.materials.top,
-  rowH: HUD_LAYOUT.materials.rowH,
 });
 
 const box = () => ({ x: 0, y: 0, w: 0, h: 0 });
@@ -42,7 +31,7 @@ const box = () => ({ x: 0, y: 0, w: 0, h: 0 });
 export function createHudPlaces() {
   return {
     xp: box(), hp: box(), dash: box(), bossBar: box(),            // bars (inside their 1 px frame)
-    hpText: box(), levelText: box(), timerText: box(), killsText: box(), // texts (inside their outline)
+    hpText: box(), levelText: box(), timerText: box(), killsText: box(), glassText: box(), // texts (inside their outline)
     bossName: box(), overtime: box(), notice: box(),
   };
 }
@@ -51,7 +40,7 @@ function set(b, x, y, w, h) { b.x = x; b.y = y; b.w = w; b.h = h; }
 
 /**
  * Place the HUD's bars and texts for this frame. `widths` holds each text's width in pixels
- * (hp, level, timer, kills, boss, overtime, notice); `bossShown` moves the overtime line under
+ * (hp, level, timer, kills, glass, boss, overtime, notice); `bossShown` moves the overtime line under
  * the boss's bar. A text's box is where its glyphs start, without the 1 px outline; a bar's is
  * inside its 1 px frame.
  */
@@ -65,6 +54,8 @@ export function placeHud(places, widths, bossShown, L = HUD_LAYOUT) {
   set(P.levelText, hpX + W.hp + L.lineGap, y, W.level, FONT_H);
   set(P.timerText, Math.round(VIEW_W / 2 - W.timer / 2), y, W.timer, FONT_H);
   set(P.killsText, VIEW_W - L.edge - W.kills, y, W.kills, FONT_H);
+  // Sea Glass, to the left of the kills (a run's own money: it shows once there's any to spend).
+  set(P.glassText, P.killsText.x - L.lineGap - (W.glass ?? 0), y, W.glass ?? 0, FONT_H);
   set(P.bossBar, VIEW_W / 2 - L.bossBar.w / 2, L.bossBar.y, L.bossBar.w, L.bossBar.h);
   set(P.bossName, Math.round(VIEW_W / 2 - W.boss / 2), L.bossNameY, W.boss, FONT_H);
   set(P.overtime, Math.round(VIEW_W / 2 - W.overtime / 2), bossShown ? L.overtimeBelowBossY : L.overtimeY, W.overtime, FONT_H);
@@ -78,13 +69,13 @@ export function createHudModel() {
   return {
     xpFrac: 0, hpFrac: 0, shieldFrac: 0, dashFrac: 1, dashReady: true,
     hpText: '', levelText: '', timerText: '', killsText: '',
+    glassShown: false, glassText: '',
     weapons: [], weaponCount: 0,
     passives: [], passiveCount: 0,
-    materials: [], materialCount: 0,       // { icon, count, text }
     boss: { shown: false, name: '', frac: 0 },
     overtime: { shown: false, text: '' },
     // Last numbers behind the strings.
-    _hp: -1, _maxHp: -1, _level: -1, _secs: -1, _kills: -1, _ot: -1,
+    _hp: -1, _maxHp: -1, _level: -1, _secs: -1, _kills: -1, _ot: -1, _glass: -1,
   };
 }
 
@@ -95,28 +86,6 @@ function fillList(list, n, get) {
     get(k, e);
     if (e._lv !== e.level) { e._lv = e.level; e.levelText = e.level > 1 ? String(e.level) : ''; }
   }
-}
-
-/**
- * Lay out the materials found, right to left from `rightX`, each a count with its icon to the
- * left; a row that would reach past `minX` wraps to a new row below, so the list never runs into
- * the boss's bar in the middle of the screen. `items[k]` has iconW, iconH, textW; this writes
- * ix, iy (the icon's top left) and tx, ty (the count's). Returns the number of rows.
- */
-export function layoutMaterials(items, count, { rightX, minX, top, rowH }) {
-  let x = rightX, row = 0;
-  for (let k = 0; k < count; k++) {
-    const it = items[k];
-    const need = it.textW + 1 + it.iconW;
-    if (x - need < minX && x !== rightX) { row++; x = rightX; }
-    const y = top + row * rowH;
-    x -= it.textW;
-    it.tx = x; it.ty = y + 3;
-    x -= it.iconW + 1;
-    it.ix = x; it.iy = y + 6 - Math.floor(it.iconH / 2);   // icons differ in size: centered on the count
-    x -= 6;
-  }
-  return count > 0 ? row + 1 : 0;
 }
 
 /** Bring the model up to date with the world. Returns the model. */
@@ -136,6 +105,9 @@ export function updateHudModel(m, world) {
   if (secs !== m._secs) { m._secs = secs; m.timerText = formatClock(secs); }
   const kills = world.result.totalKills;
   if (kills !== m._kills) { m._kills = kills; m.killsText = `${formatCount(kills)} KILLS`; }
+  const glass = world.glass ?? 0;
+  m.glassShown = glass > 0 || !!world.ferry;
+  if (glass !== m._glass) { m._glass = glass; m.glassText = `${formatCount(glass)} GLASS`; }
 
   // Weapons in slot order, then passives.
   let n = 0;
@@ -151,20 +123,6 @@ export function updateHudModel(m, world) {
   const ps = world.build.passives;
   fillList(m.passives, ps.length, (k, e) => { e.icon = ps[k].def.icon; e.level = ps[k].level; e.max = ps[k].level >= ps[k].def.maxLevel; });
   m.passiveCount = ps.length;
-
-  // Materials found this run, in data order, only the ones with at least 1.
-  const raw = world.result.materialsRaw;
-  let mc = 0;
-  for (let i = 0; i < raw.length; i++) {
-    const c = Math.floor(raw[i] + 1e-9);
-    if (c <= 0) continue;
-    let e = m.materials[mc];
-    if (!e) { e = { icon: '', count: -1, text: '' }; m.materials.push(e); }
-    e.icon = world.materialDefs[i].icon;
-    if (e.count !== c) { e.count = c; e.text = String(c); }
-    mc++;
-  }
-  m.materialCount = mc;
 
   // The first living boss.
   m.boss.shown = false;

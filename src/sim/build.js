@@ -10,6 +10,7 @@ import { EV } from './events.js';
 import { computePlayerStats } from './stats.js';
 import { buildSlot, buildRelicSlot } from './weapons.js';
 import { addHook, runHooks } from './hooks.js';
+import { kindledMods } from './tasks.js';
 
 export function markStatsDirty(world) { world.statsDirty = true; }
 
@@ -58,6 +59,8 @@ export function collectMods(world) {
     }
   }
   for (const r of world.build.relics) if (r.mods) for (const m of r.mods) mods.push(m);
+  if (world.arcanaDef?.mods) for (const m of world.arcanaDef.mods) mods.push(m);   // an arcana's price
+  kindledMods(world, mods);                                                        // Wayside Lamps lit
   runHooks(world, 'modifyStats', mods);
   return mods;
 }
@@ -87,14 +90,18 @@ export function rebuildStats(world) {
   if (!world.slots[RELIC_SLOT]) world.slots[RELIC_SLOT] = buildRelicSlot(world);
 }
 
-/** Set up the character: starting weapon, innate weapon, mechanic hook. */
-export function setupCharacter(world) {
+/**
+ * Set up the character: starting weapon (or `startWeapon`, the other kit's), innate weapon,
+ * mechanic hook.
+ */
+export function setupCharacter(world, startWeapon = null) {
   const c = world.character;
   if (c.mechanic) addHook(world, c.mechanic.hook, c.mechanic.params || {}, `character:${c.id}`);
   if (c.innate) {
     const def = world.weaponDefs[world.weaponIndex.get(c.innate)];
     world.slots[INNATE_SLOT] = buildSlot(world, INNATE_SLOT, def, 1, []);
   }
-  if (c.start) addWeapon(world, world.weaponDefs[world.weaponIndex.get(c.start)]);
+  const start = startWeapon || c.start;
+  if (start) addWeapon(world, world.weaponDefs[world.weaponIndex.get(start)]);
   markStatsDirty(world);
 }

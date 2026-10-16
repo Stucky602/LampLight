@@ -20,6 +20,14 @@ import { NPCS } from './npcs.js';
 import { HUB } from './hub.js';
 import { META } from './meta.js';
 import { ASCENSIONS } from './ascensions.js';
+import { RECIPES, AFFIXES } from './gear.js';
+import { CONSUMABLES } from './consumables.js';
+import { TIDES, CURSES } from './tide.js';
+import { ARCANA } from './arcana.js';
+import { CHALLENGES } from './challenges.js';
+import { FEATS } from './feats.js';
+import { PERKS, KITS } from './mastery.js';
+import { MARKET } from './market.js';
 
 export const DATA = Object.freeze({
   tuning: TUNING,
@@ -44,6 +52,19 @@ export const DATA = Object.freeze({
   hub: HUB,
   hubTuning: HUB_TUNING,
   meta: META,
+  // Phase 7: the other six buildings' systems.
+  recipes: RECIPES,
+  affixes: AFFIXES,
+  consumables: CONSUMABLES,
+  tides: TIDES,
+  curses: CURSES,
+  arcana: ARCANA,
+  challenges: CHALLENGES,
+  feats: FEATS,
+  perks: PERKS,
+  kits: KITS,
+  market: MARKET,
 });
 
+export { RECIPES, AFFIXES, CONSUMABLES, TIDES, CURSES, ARCANA, CHALLENGES, FEATS, PERKS, KITS, MARKET };
 export { TUNING, HUB_TUNING, WEAPONS, PASSIVES, RUNES, RELICS, CHARACTERS, ENEMIES, BOSSES, MAPS, MATERIALS, SFX, PALETTE, ASCENSIONS, BUILDINGS, RESEARCH, UPGRADES, NPCS, HUB, META };

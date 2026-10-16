@@ -104,7 +104,6 @@ export const TUNING = {
   draft: {
     cards: 3,
     ownedWeight: 1.4,          // weight multiplier for level-ups of owned items
-    relicChance: 0.03,         // chance per offer of a relic card, times luck
     earlyWeaponUntil: 2,       // until you own this many weapons, one card is a new weapon when possible
     fallbackHeal: 30,
     fallbackCoin: 10,
@@ -113,7 +112,6 @@ export const TUNING = {
   chests: {
     // Boss chests roll 1, 3, or 5 items; luck shifts weight toward more.
     bossItems: [[1, 60], [3, 30], [5, 10]],
-    relicChance: 0.12,         // chance per chest item of a relic, times luck (when one is available)
     runeChance: 0.35,          // chance per chest item of a rune (when a socket is open)
     fallbackHeal: 40,          // with everything maxed, an item is this much healing...
     fallbackCoin: 25,          // ...or this much coin (even odds)
@@ -128,6 +126,58 @@ export const TUNING = {
 
   // Embers (sim/ascend.js): an elite drops one this often (bosses and a muster's captain always do).
   embers: { eliteChance: 0.15 },
+
+  // Relics (ARCHITECTURE §10.8): what a Reliquary, the vault, and the Ferryman offer.
+  relics: {
+    offer: 3,                  // a Reliquary or the vault offers this many to pick from
+    // Each row: [from minute, Trinket, Charm, Relic weights]; the last row whose minute has passed.
+    tierWeights: [[0, 100, 12, 0], [5, 70, 45, 5], [10, 35, 60, 25], [15, 15, 50, 55]],
+    reliquaryChance: 0.0006,   // per ordinary kill, times luck (after the gap)
+    reliquaryGap: 150,         // seconds at least between Reliquaries
+    reliquaryPity: 1800,       // ordinary kills since the last one that make the next certain (after the gap)
+    emptyGlass: 15,            // Sea Glass instead, when you already carry every relic there is
+  },
+
+  // Run tasks (ARCHITECTURE §10.8, sim/tasks.js). No timers: progress only while you're there.
+  // What one asks and gives grows with the minute you start it.
+  tasks: {
+    lamp: {
+      radius: 30,              // px: stand this close to light it
+      baseSec: 3, perMinSec: 0.3,   // seconds of standing it takes: base + per minute of the run
+      glass: [4, 0.6],         // Sea Glass: base + per minute
+      kindledXp: 0.06, kindledArea: 0.06,   // Kindled: per lamp lit this run
+      reveal: 20,              // tiles of the minimap it uncovers around itself
+    },
+    bell: {
+      radius: 84,              // px: the ring kills must fall inside
+      baseKills: 20, perMinKills: 4,   // kills it takes: base + per minute of the run
+      glass: [8, 1],
+    },
+    night: {
+      sec: 40,                 // Lantern Night's length
+      burn: 8,                 // damage a pulse to every enemy in your light
+      every: 0.5,              // seconds between pulses
+      light: 220,              // px: how far the light reaches
+    },
+  },
+
+  // Sea Glass (a run's own money, spent with the Ferryman; lost at the end unless the Market buys it).
+  glass: { elite: [3, 5], boss: 15 },
+
+  // The Ferryman (the Docks): a skiff you stand beside to trade. His stock turns over every
+  // restockSec, a little better each time; the Docks' level improves him.
+  ferry: {
+    radius: 28,                // px from the skiff
+    standSec: 0.6,             // standing still that long opens the trade
+    restockSec: 300,
+    prices: { trinket: 14, charm: 28, relic: 50, food: 8, reroll: 10, ember: 70 },
+    foodHeal: 40,
+    discount: 0.2,             // at the Docks' level 3
+    fastRestockSec: 240,       // at the Docks' level 4
+  },
+
+  // Character mastery (data/mastery.js): XP a run gives the character you played, and the ranks.
+  mastery: { perMinute: 1, perBoss: 5, ranks: [8, 25, 50, 90, 140, 200] },
 
   bosses: {
     minionCap: 60,             // summon waves stop when this many minions are alive

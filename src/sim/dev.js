@@ -16,6 +16,10 @@
 //   { kind: 'dev', cmd: 'clear' }                    kills nothing: removes every regular enemy
 //   { kind: 'dev', cmd: 'chest', boss?: true }        opens a chest where you stand (the reel)
 //   { kind: 'dev', cmd: 'warp', secret: 0 }          to open ground just south of a map secret
+//   { kind: 'dev', cmd: 'warp', task: 0 }            to a run task (sim/tasks.js), inside its ring
+//   { kind: 'dev', cmd: 'warp', ferry: true }        beside the Ferryman's skiff
+//   { kind: 'dev', cmd: 'glass', count }             Sea Glass
+//   { kind: 'dev', cmd: 'reliquary' }                a Reliquary's pick, now
 //   { kind: 'dev', cmd: 'ember' }                    an Ember, as if picked up (the choice opens if a weapon can take it)
 
 import { HIT_RING, TPS, EF } from './constants.js';
@@ -24,6 +28,7 @@ import { applyCard } from './draft.js';
 import { openSocketsFor, openChest, CHEST_BOSS, CHEST_ELITE } from './chests.js';
 import { addRelic, markStatsDirty } from './build.js';
 import { collectEmber } from './ascend.js';
+import { addGlass, openRelicPick } from './relics.js';
 import { xpToNext } from './player.js';
 import { TAU, sincosInto } from '../lib/fmath.js';
 
@@ -235,7 +240,24 @@ export function devDecide(world, d) {
       collectEmber(world, p.x, p.y);
       return world.build.embers;
     }
+    case 'glass':
+      if (!Number.isInteger(d.count) || d.count < 1) throw new Error('dev glass: count must be a whole number, 1 or more');
+      addGlass(world, d.count, world.player.x, world.player.y);
+      return world.glass;
+    case 'reliquary':
+      openRelicPick(world, 'reliquary', world.player.x, world.player.y);
+      return 1;
     case 'warp': {
+      if (d.task !== undefined || d.ferry) {
+        const at = d.ferry ? world.ferry : world.tasks[d.task];
+        if (!at) throw new Error(d.ferry ? 'dev warp: no Ferryman in this run' : `dev warp: this map has no task ${d.task}`);
+        const p = world.player;
+        // Beside a task (on it, for the Ferryman), on open ground.
+        const to = [at.x, at.y + (d.ferry ? 0 : 12)];
+        if (world.terrain.blockedAt(to[0], to[1])) world.terrain.nearestOpen(Math.floor(to[0] / world.terrain.tile), Math.floor(to[1] / world.terrain.tile), to);
+        p.x = p.px = to[0]; p.y = p.py = to[1];
+        return 1;
+      }
       const sec = world.secrets[d.secret];
       if (!Number.isInteger(d.secret) || !sec) throw new Error(`dev warp: this map has no secret ${d.secret}`);
       // The nearest open tile to a spot 6 tiles south of it, searched in growing squares.

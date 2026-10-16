@@ -2,8 +2,9 @@
 //
 // Elites drop a chest with 1 item. Bosses drop a chest with 1, 3, or 5 items (luck shifts the
 // odds toward more), and each item is an evolution first, while any weapon can evolve. Items are level-ups
-// of owned weapons and passives, runes (you choose which weapon's open socket gets it: a real
-// decision), and a chance at a relic. Everything but runes applies at once; the chest halt is
+// of owned weapons and passives, and runes (you choose which weapon's open socket gets it: a real
+// decision); relics come from Reliquaries, the vault, and the Ferryman instead (sim/relics.js), and
+// a map's secret cache holds its own. Everything but runes applies at once; the chest halt is
 // for the reel on screen, and each rune queues its own placement decision.
 //
 // Evolution: a maxed weapon, plus its partner passive at the required level, plus a boss chest,
@@ -16,7 +17,7 @@ import { applyCard } from './draft.js';
 import { runeFits, buildSlot } from './weapons.js';
 import { heal } from './player.js';
 import { runHooks } from './hooks.js';
-import { relicAvailable, markStatsDirty, addRelic } from './build.js';
+import { markStatsDirty, addRelic } from './build.js';
 
 export const CHEST_ELITE = 1;
 export const CHEST_BOSS = 2;
@@ -120,12 +121,6 @@ function rollItem(world, claimed) {
     const s = freeSocketFor(world, runes[i], claimed);
     claimed.set(s, (claimed.get(s) || 0) + 1);
     return { kind: 'rune', id: runes[i].id };
-  }
-  const relics = relicAvailable(world);
-  if (relics.length && rng.chance(T.relicChance * luck)) {
-    const i = rng.weighted(relics.map((r) => r.weight ?? 100));
-    addRelic(world, relics[i]);
-    return { kind: 'relic', id: relics[i].id };
   }
   const ups = ownedLevelUps(world);
   if (ups.length) {

@@ -1,11 +1,11 @@
-// Embers and ascensions (ARCHITECTURE §5.16; the ascensions themselves: data/ascensions.js).
+// Embers and Forms (ARCHITECTURE §5.16; the Forms themselves: data/ascensions.js, sim/forms.js).
 //
 // An Ember is a rare pickup: every boss drops one, the muster's captain drops one, and an elite
 // now and then (tuning.embers.eliteChance). Picking one up adds it to your Embers and, if a
-// weapon you carry can still ascend, stops the run for the choice: a weapon and one of its
-// line's ascensions, or keep the Ember for later (the pause menu's Ascend spends it then).
-// Ascensions stack: with more Embers a weapon can take more of its line's three, and its
-// evolution keeps them.
+// weapon you carry can still take a Form, stops the run for the choice: a weapon, then one of
+// its line's Forms, or keep the Ember for later (the pause menu's Ascend spends it then). Forms
+// stack: a weapon can hold all three of its line's (one of each kind), and its evolution keeps
+// them. (In the code a Form is an "ascension": the Ember's choice.)
 
 import { EV } from './events.js';
 import { PK } from './constants.js';
@@ -25,10 +25,10 @@ export function openAscensions(world, s) {
   if (!slot || !slot.def || slot.def.innate) return [];
   const line = world.ascensionLines.get(slot.def.id);
   if (!line) return [];
-  // Each once a weapon, and only one that does all it says with the runes it has (Signal Pair's
-  // backward shot does nothing on a Backfire or an Orbiting weapon).
+  // Each once a weapon, and only one that works with the runes it has (no Skewer on an Orbiting
+  // harpoon).
   const shape = runeShape(slot.def, slot.runes);
-  return line.options.filter((o) => !slot.ascensions.includes(o) && ascensionWorks(o, shape.emit, shape.mirrored, shape.piercesAll));
+  return line.options.filter((o) => !slot.ascensions.includes(o) && ascensionWorks(o, shape));
 }
 
 /** Can any weapon you carry ascend now? */

@@ -97,6 +97,46 @@ export function hurricaneLamp() {
   return { layers: [{ mask: only((y) => y >= 3), ramp: 'relic_lit' }, { mask: only((y) => y < 3), ramp: 'relic' }] };
 }
 
+/**
+ * Storm Lantern (gear): a ship's lantern, a ring on top, a square frame round a lit pane, a heavy
+ * base. The frame is iron; the pane is its own layer, lit.
+ */
+export function stormLantern() {
+  const rows = [
+    '....####....',
+    '....#..#....',
+    '..########..',
+    '.##########.',
+    '.#.#....#.#.',
+    '.#.#....#.#.',
+    '.#.#....#.#.',
+    '.#.#....#.#.',
+    '.#.#....#.#.',
+    '.##########.',
+    '..########..',
+    '.##########.',
+  ];
+  const pane = rows.map((row, y) => (y >= 4 && y <= 8 ? row.slice(0, 4).replace(/#/g, '.') + '####' + row.slice(8).replace(/#/g, '.') : '.'.repeat(row.length)));
+  return { layers: [{ mask: maskFromRows(rows), ramp: 'iron' }, { mask: maskFromRows(pane), ramp: 'candle' }] };
+}
+
+/** Salt Ring (gear): a band with a square stone set on top. */
+export function saltRing() {
+  return maskFromRows([
+    '....####....',
+    '....#..#....',
+    '....####....',
+    '..###..###..',
+    '.##......##.',
+    '##........##',
+    '##........##',
+    '##........##',
+    '.##......##.',
+    '..###..###..',
+    '....####....',
+  ]);
+}
+
 // ---------------------------------------------------------------- icons (16 x 16 pictures)
 
 /**
@@ -507,5 +547,45 @@ export function ember() {
     '#########',
     '.#######.',
     '..#####..',
+  ]);
+}
+
+/**
+ * The Ferryman's skiff, seen from the side: a low hull, the bow (left) raked up higher than the
+ * stern, and the pole standing in it. Checked against a rowing skiff: shallow, wider than tall,
+ * the bow higher than the stern.
+ */
+export function skiff() {
+  return maskFromRows([
+    '.........#..........',
+    '.........#..........',
+    '.........#..........',
+    '#........#..........',
+    '##.......#..........',
+    '.##......#.........#',
+    '.###.....#........##',
+    '..##################',
+    '..#################.',
+    '...###############..',
+    '....#############...',
+  ]);
+}
+
+/**
+ * A Reliquary: a small casket with a domed lid and a clasp. Checked against a reliquary box:
+ * smaller and more ornate than a sea chest, the lid rounded, a lock plate at the front.
+ */
+export function reliquary() {
+  return maskFromRows([
+    '...########...',
+    '..##########..',
+    '.############.',
+    '##############',
+    '##############',
+    '#####....#####',
+    '#####.##.#####',
+    '##############',
+    '##############',
+    '.############.',
   ]);
 }

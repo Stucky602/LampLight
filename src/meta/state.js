@@ -18,6 +18,9 @@ const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
  *   'starter'                 there from the start
  *   'research:<project>'      when that Library project is done
  *   'building:<id>:<level>'   when that building reaches that level
+ *   'secret:<id>'             once that map secret is found
+ *   'feat:<id>'               once that feat is done (Phase 7)
+ *   'challenge:<id>'          once that challenge run is won (Phase 7)
  *   'evolution', 'innate'     never in a pool (evolved into, or a character's own weapon)
  * Anything else reads as { kind: 'unknown' } (the content test keeps data from doing that).
  */
@@ -27,6 +30,8 @@ export function parseUnlock(ref) {
   const parts = ref.split(':');
   if (parts[0] === 'research' && parts.length === 2 && parts[1]) return { kind: 'research', id: parts[1] };
   if (parts[0] === 'secret' && parts.length === 2 && parts[1]) return { kind: 'secret', id: parts[1] };
+  if (parts[0] === 'feat' && parts.length === 2 && parts[1]) return { kind: 'feat', id: parts[1] };
+  if (parts[0] === 'challenge' && parts.length === 2 && parts[1]) return { kind: 'challenge', id: parts[1] };
   if (parts[0] === 'building' && parts.length === 3 && parts[1] && /^[1-9]\d*$/.test(parts[2])) return { kind: 'building', id: parts[1], level: Number(parts[2]) };
   return { kind: 'unknown' };
 }
@@ -45,8 +50,8 @@ export function reached(doc, key, data = null) {
   return m ? levelOf(doc, m[1], data) >= Number(m[2]) : false;
 }
 
-/** The biggest value a building's reached levels give for an effect (researchSlots, tree, ...). */
-function levelEffect(doc, data, buildingId, key) {
+/** The biggest value a building's reached levels give for an effect (researchSlots, tree, ...; data/buildings.js). */
+export function levelEffect(doc, data, buildingId, key) {
   const b = data.buildings.find((x) => x.id === buildingId);
   if (!b) return 0;
   const lv = levelOf(doc, buildingId, data);
@@ -99,31 +104,89 @@ export function isUnlocked(doc, data, ref) {
   if (u.kind === 'research') return researchDone(doc).has(u.id);
   if (u.kind === 'building') return levelOf(doc, u.id, data) >= u.level;
   if (u.kind === 'secret') return Array.isArray(doc?.profile?.codex) && doc.profile.codex.includes(`secret:${u.id}`);
+  if (u.kind === 'feat') return featsDone(doc).has(u.id);
+  if (u.kind === 'challenge') return challengesDone(doc).has(u.id);
   return false;
+}
+
+/** Feats done, as a Set of ids. */
+export function featsDone(doc) {
+  const f = doc?.profile?.feats;
+  return new Set(Array.isArray(f) ? f.filter((x) => typeof x === 'string') : []);
+}
+
+/** Challenge runs won, as a Set of ids. */
+export function challengesDone(doc) {
+  const c = doc?.profile?.challenges;
+  return new Set(Array.isArray(c) ? c.filter((x) => typeof x === 'string') : []);
 }
 
 /**
  * What this profile can meet in a run: weapon, passive, relic, and rune ids for the run's pools,
- * and the characters it can play (ARCHITECTURE §10.1 resolveContent).
+ * the characters it can play, and what the harbor can make or sell for a run: gear recipes,
+ * consumables, and arcana (ARCHITECTURE §10.1 resolveContent).
  */
 export function resolveContent(doc, data) {
-  const ids = (list) => list.filter((x) => isUnlocked(doc, data, x.unlock)).map((x) => x.id);
+  const ids = (list) => (list || []).filter((x) => isUnlocked(doc, data, x.unlock)).map((x) => x.id);
   return {
     weapons: ids(data.weapons),
     passives: ids(data.passives),
     relics: ids(data.relics),
     runes: ids(data.runes),
     characters: ids(data.characters),
+    recipes: ids(data.recipes),
+    consumables: ids(data.consumables),
+    arcana: ids(data.arcana),
   };
 }
 
-/** Everything a key ('research:<id>' or 'building:<id>:<level>') brings: [{ what, id, name }]. */
+/** The kinds of content an unlock key can bring, with their lists. */
+export function contentKinds(data) {
+  return [['character', data.characters], ['weapon', data.weapons], ['passive', data.passives], ['relic', data.relics], ['rune', data.runes],
+    ['recipe', data.recipes || []], ['consumable', data.consumables || []], ['arcana', data.arcana || []]];
+}
+
+/** Everything a key ('research:<id>', 'building:<id>:<level>', 'feat:<id>', ...) brings: [{ what, id, name }]. */
 export function contentFrom(data, ref) {
   const out = [];
-  for (const [what, list] of [['character', data.characters], ['weapon', data.weapons], ['passive', data.passives], ['relic', data.relics], ['rune', data.runes]]) {
+  for (const [what, list] of contentKinds(data)) {
     for (const x of list) if (x.unlock === ref) out.push({ what, id: x.id, name: x.name });
   }
   return out;
+}
+
+// ---------------------------------------------------------------- Phase 7
+
+/** A character's mastery XP and rank (0 to 6; tuning.mastery.ranks). */
+export function masteryOf(doc, data, character) {
+  const c = doc?.profile?.characters?.[character];
+  const xp = count(isObj(c) ? c.masteryXp : 0);
+  const ranks = data.tuning.mastery.ranks;
+  let rank = 0;
+  while (rank < ranks.length && xp >= ranks[rank]) rank++;
+  return { xp, rank, next: rank < ranks.length ? ranks[rank] : null };
+}
+
+/** A character's trained perks, as a Set of ids. */
+export function perksOf(doc, character) {
+  const c = doc?.profile?.characters?.[character];
+  return new Set(isObj(c) && Array.isArray(c.perks) ? c.perks.filter((x) => typeof x === 'string') : []);
+}
+
+/** The highest Tide this profile may choose now: what it has opened, held to what the Chapel allows. */
+export function tideAvailable(doc, data) {
+  const opened = count(doc?.profile?.tide?.unlocked);
+  return Math.min(opened, levelEffect(doc, data, 'chapel', 'tideMax'), data.tides.length);
+}
+
+/** The curses that can be chosen now (the Chapel's level: the first n, in order). */
+export function cursesAvailable(doc, data) {
+  return data.curses.slice(0, levelEffect(doc, data, 'chapel', 'curses'));
+}
+
+/** A count held of a consumable ('<id>') or a rune stone ('rune:<id>'). */
+export function heldOf(doc, key) {
+  return count(isObj(doc?.profile?.consumables) ? doc.profile.consumables[key] : 0);
 }
 
 /** Ids of the fog's regions that have cleared. */
@@ -145,8 +208,8 @@ export function buildingStage(level) {
 
 /**
  * How much of the game this profile has done, as a whole percentage (the title screen's number)
- * and the parts it is made of. Phase 5 counts building levels, upgrade ranks, research, and the
- * run content seen (the codex); later phases add their systems to the same sum.
+ * and the parts it is made of: building levels, upgrade ranks, research, the run content seen (the
+ * codex), feats, challenge runs, and Tides opened; later phases add their systems to the same sum.
  */
 export function completion(doc, data) {
   const parts = [];
@@ -158,6 +221,11 @@ export function completion(doc, data) {
   const seen = new Set(Array.isArray(doc?.profile?.codex) ? doc.profile.codex : []);
   const keys = codexKeys(data);
   add('codex', keys.filter((k) => seen.has(k)).length, keys.length);
+  // Phase 7: feats, challenge runs, and the Tides cleared.
+  const feats = featsDone(doc), wins = challengesDone(doc);
+  add('feats', (data.feats || []).filter((f) => feats.has(f.id)).length, (data.feats || []).length);
+  add('challenges', (data.challenges || []).filter((c) => wins.has(c.id)).length, (data.challenges || []).length);
+  add('tides', count(doc?.profile?.tide?.unlocked), (data.tides || []).length);
   const have = parts.reduce((s, p) => s + p.have, 0), of = parts.reduce((s, p) => s + p.of, 0);
   return { percent: of > 0 ? Math.floor((have / of) * 100) : 0, parts };
 }

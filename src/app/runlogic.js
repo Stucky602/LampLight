@@ -10,6 +10,9 @@ import { cardInfo } from '../ui/describe.js';
 import { computeWeaponStats } from '../sim/stats.js';
 import { openAscensions, canAscend } from '../sim/ascend.js';
 import { formatClock, formatCount } from '../render/hudtext.js';
+import { TASK } from '../sim/constants.js';
+import { FERRY_KINDS } from '../sim/relics.js';
+import { RELIC_TIERS } from '../data/relics.js';
 
 /** The longest hit-stop asked for by events [from, to) of the buffer (ms; 0 for none). */
 export function hitStopFor(events, from, to, hitStop) {
@@ -56,6 +59,11 @@ export function soundFor(events, i, slots) {
     case EV.EVOLVE: case EV.RELIC: case EV.RUNE: return 'evolve';
     case EV.SWARM: return 'swarm';
     case EV.BOSS_ATTACK: return null; // its warning already sounded; its shots sound as they fire
+    // Phase 7: a task started and done, Lantern Night, the Ferryman, Sea Glass.
+    case EV.TASK: return events.b[i] === 2 ? (events.a[i] === TASK.BELL ? 'bell_ring' : 'level_up') : 'ui_confirm';
+    case EV.NIGHT: return events.a[i] === 1 ? 'evolve' : null;
+    case EV.FERRY: return events.a[i] === 2 ? 'pickup' : null;
+    case EV.GLASS: return events.a[i] > 0 ? 'gem' : null;
     default: return null;
   }
 }
@@ -71,8 +79,25 @@ export function noticeFor(events, i, world) {
     case EV.PICKUP: return events.a[i] === PICK.EMBER ? 'Ember found' : null;
     case EV.SECRET: { const s = world.map.secrets?.[events.a[i]]; return s ? `Secret found: ${s.name}` : null; }
     case EV.EVOLVE: { const s = world.slots[events.a[i]]; return s?.def ? `Evolved: ${s.def.name}` : null; }
+    case EV.TASK: return taskNotice(events, i, world);
+    case EV.NIGHT: return events.a[i] === 1 ? 'Lantern Night' : 'The night ends';
+    case EV.FERRY: return events.a[i] === 1 && events.b[i] > 0 ? 'Ferryman: new stock' : null;
     default: return null;
   }
+}
+
+/** A task's notice: what it asks when it starts, what it gave when it's done. */
+function taskNotice(events, i, world) {
+  const t = world.tasks[events.c[i]];
+  if (!t) return null;
+  const lamp = t.kind === TASK.LAMP;
+  if (events.b[i] === 1) return lamp ? 'Wayside Lamp: stand by it to light it' : `Fog Bell: ${t.need} kills inside its ring`;
+  const glass = events.d[i] > 0 ? `, +${events.d[i]} Sea Glass` : '';
+  if (lamp) {
+    const lit = world.tasks.filter((x) => x.kind === TASK.LAMP && x.state === 2).length, all = world.tasks.filter((x) => x.kind === TASK.LAMP).length;
+    return `Lamp lit ${lit}/${all}: Kindled${glass}`;
+  }
+  return `Fog Bell rung${glass}`;
 }
 
 /**
@@ -123,12 +148,21 @@ export function haltView(world, halt, data) {
       return { kind: 'rune', rune: cardInfo({ kind: 'rune', id: rune.id }, data, ctx), options };
     }
     case 'ascend': {
+      // The weapons that can still take a Form, each with its line's three in the order of their
+      // kinds: taken, open, or kept off by a rune (and which).
       const weapons = [];
       for (let s = 0; s < world.build.weaponSlots; s++) {
         const open = openAscensions(world, s);
         if (!open.length) continue;
         const slot = world.slots[s];
-        weapons.push({ slot: s, name: slot.def.name, icon: slot.def.icon, level: slot.level, ascended: slot.ascensions.map((a) => a.name), options: open.map((o) => ({ id: o.id, name: o.name, desc: o.desc })) });
+        const line = world.ascensionLines.get(slot.def.id);
+        const order = ['delivery', 'flight', 'payoff'];
+        const forms = [...line.options].sort((a, b) => order.indexOf(a.axis) - order.indexOf(b.axis)).map((o) => {
+          const taken = slot.ascensions.includes(o);
+          const why = taken || open.includes(o) ? null : `Not with ${runeNames(slot)}`;
+          return { id: o.id, name: o.name, desc: o.desc, axis: o.axis, taken, why };
+        });
+        weapons.push({ slot: s, name: slot.def.name, icon: slot.def.icon, level: slot.level, taken: slot.ascensions.map((a) => a.name), forms });
       }
       return { kind: 'ascend', embers: world.build.embers, weapons };
     }
@@ -136,9 +170,39 @@ export function haltView(world, halt, data) {
       const last = world.bosses.filter((b) => b.final).at(-1);
       return { kind: 'overtime', bossName: last ? world.enemyDefs[last.type].name : 'Boss' };
     }
+    case 'relic': {
+      // A Reliquary's or the vault's three (drawn when the halt came up).
+      const relics = (halt.offer || []).map((id) => relicInfo(world, id));
+      return { kind: 'relic', vault: halt.source === 'vault', relics };
+    }
+    case 'ferry': {
+      const F = world.ferry;
+      const offers = (F?.offers || []).map((o, index) => {
+        const info = o.kind === FERRY_KINDS.relic ? relicInfo(world, o.id)
+          : o.kind === FERRY_KINDS.food ? { name: 'Food', desc: `Heals ${world.tuning.ferry.foodHeal} HP.`, icon: 'pk_heal', tier: null }
+            : o.kind === FERRY_KINDS.reroll ? { name: 'Reroll', desc: '+1 Reroll.', icon: 'item_bone', tier: null }
+              : { name: 'Ember', desc: 'An Ember: a new Form for a weapon.', icon: 'pk_ember', tier: null };
+        const carried = o.kind === FERRY_KINDS.relic && world.build.relics.some((r) => r.id === o.id);
+        const why = o.sold ? 'Sold' : carried ? 'Carried' : world.glass < o.price ? `Need ${o.price - world.glass} more Sea Glass` : null;
+        return { index, ...info, price: o.price, sold: o.sold, why };
+      });
+      return { kind: 'ferry', glass: world.glass, offers };
+    }
     default:
       throw new Error(`haltView: unknown halt "${halt.kind}"`);
   }
+}
+
+/** A relic as a card shows it: its name, what it does, its icon, and its tier by name. */
+function relicInfo(world, id) {
+  const r = world.relicDefs.find((x) => x.id === id);
+  return { id, name: r?.name ?? id, desc: r?.desc ?? '', icon: r?.icon ?? '', tier: r?.tier ?? 1, tierName: RELIC_TIERS[r?.tier ?? 1] };
+}
+
+/** A slot's runes by name, for a refusal ("Orbiting", "Orbiting and Backfire"). */
+function runeNames(slot) {
+  const n = slot.runes.filter(Boolean).map((r) => r.name);
+  return n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n.at(-1)}` : n[0] ?? 'its runes';
 }
 
 /** The pause menu's summary of the build. */
@@ -162,19 +226,39 @@ export function pauseBuild(world) {
     weapons,
     passives: world.build.passives.map((p) => ({ name: p.def.name, icon: p.def.icon, level: p.level, max: p.level >= p.def.maxLevel, desc: p.def.desc })),
     relics: world.build.relics.map((r) => ({ name: r.name, icon: r.icon, desc: r.desc })),
+    materials: materialsFound(world),
   };
+}
+
+/** The materials found so far this run, in the data's order: [{ id, name, icon, count }] (only those with 1 or more). */
+export function materialsFound(world) {
+  const out = [], raw = world.result.materialsRaw;
+  for (let i = 0; i < raw.length; i++) {
+    const c = Math.floor(raw[i] + 1e-9);
+    if (c > 0) { const m = world.materialDefs[i]; out.push({ id: m.id, name: m.name, icon: m.icon, count: c }); }
+  }
+  return out;
 }
 
 /** A share as a signed percent from 1 ("+12%", "-6%", "0%"). */
 const pctFrom1 = (v) => { const p = Math.round((v - 1) * 100); return p === 0 ? '0%' : `${p > 0 ? '+' : ''}${p}%`; };
 const num = (v, d = 0) => (Math.round(v * 10 ** d) / 10 ** d).toString();
+
+/**
+ * A weapon's damage per second since it was taken (its first second counts as a whole one): one
+ * decimal under 10, a whole number from there (§20 call 78).
+ */
+export function dpsText(total, seconds) {
+  const dps = total / Math.max(1, seconds);
+  return dps >= 10 ? formatCount(Math.round(dps)) : num(dps, 1);
+}
 const GLOBAL_PROBE = Object.freeze({ id: '__stats', tags: [], maxLevel: 1, levels: [null], base: { damage: 1, cooldown: 1, amount: 0, area: 1, speed: 1, duration: 1, pierce: 0, knockback: 1, crit: 0, critMult: 1 } });
 
 /**
  * The stats screen's content (pause, Stats): your character's numbers as the run has them now,
- * the bonuses that reach every weapon, each weapon's own numbers with the damage it has dealt
- * this run (the character's own weapon too), and the passives and relics you
- * carry. Plain data: [[label, value]] lists, worded as the cards word stats.
+ * the bonuses that reach every weapon, each weapon's own numbers with its DPS and Total Damage
+ * (the character's own weapon too), the materials found, and the passives and relics you carry.
+ * Plain data: [[label, value]] lists, worded as the cards word stats.
  */
 export function statsView(world) {
   const st = world.stats, p = world.player;
@@ -209,11 +293,13 @@ export function statsView(world) {
       name: slot.def.name, icon: slot.def.icon, level: slot.level, max: slot.level >= slot.def.maxLevel, innate: !!slot.def.innate,
       runes: slot.runes.filter(Boolean).map((r) => r.name),
       ascensions: (slot.ascensions || []).map((a) => a.name),
+      // DPS and Total Damage first, side by side (the two the run has made), then its numbers.
       lines: [
+        ['DPS', dpsText(world.result.damageBySlot[s] || 0, (world.tick - (slot.since ?? 0)) / 60)],
+        ['Total Damage', formatCount(Math.round(world.result.damageBySlot[s] || 0))],
         ['Damage', num(w.damage, 1)], ['Cooldown', `${num(w.cooldown, 2)}s`], ['Projectiles', num(w.amount)],
         ['Area', `${Math.round(w.area * 100)}%`], ['Pierce', w.pierce < 0 ? 'All' : num(w.pierce)],
         ['Duration', `${num(w.duration, 2)}s`], ['Crit Chance', `${Math.round(w.crit * 100)}%`],
-        ['Dealt this run', formatCount(Math.round(world.result.damageBySlot[s] || 0))],
       ],
     });
   }
@@ -222,7 +308,7 @@ export function statsView(world) {
     ...b.passives.map((x) => ({ ...x, kind: 'passive' })),
     ...b.relics.map((x) => ({ ...x, kind: 'relic' })),
   ];
-  return { character, allWeapons, weapons, items };
+  return { character, allWeapons, weapons, items, materials: b.materials };
 }
 
 const END_TITLES = { died: 'Defeated', left: 'Run ended', cleared: 'Map cleared' };

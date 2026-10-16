@@ -289,7 +289,8 @@ export function bossDied(world, e) {
   const weapons = used.map((s) => (world.slots[s] && world.slots[s].def ? world.slots[s].def.id : 'relic'));
   world.result.bossesKilled.push({ id: b.id, tick: world.tick, weapons });
   runHooks(world, 'onBossKill', e, b.id);
-  if (world.ascensionLines.size) spawnPickup(world, PK.EMBER, E.x[e], E.y[e] + 14, 0, 0); // every boss drops an Ember
+  // Every boss drops an Ember (more with the Kindling arcana).
+  if (world.ascensionLines.size) for (let k = 0; k <= world.emberBossExtra; k++) spawnPickup(world, PK.EMBER, E.x[e] + k * 12, E.y[e] + 14, 0, 0);
   if (b.final) {
     // The last boss's chest opens on the spot, before the stay-or-leave choice, so leaving can
     // never skip it.

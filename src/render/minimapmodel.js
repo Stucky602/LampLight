@@ -4,25 +4,30 @@
 // and they would bury the rest). Ordinary enemies aren't shown.
 //
 // Settings (save/schema.js hud): minimap 'nearby' (a window around you), 'map' (the whole map),
-// or 'off'; minimapSize 'small' or 'large'. The materials found this run sit under it.
+// or 'off'; minimapSize 'small' or 'large'.
 
 import { VIEW_W } from './layout.js';
-import { HUD_LAYOUT, MATERIALS_LAYOUT } from './hudmodel.js';
-import { EF, PK } from '../sim/constants.js';
+import { HUD_LAYOUT } from './hudmodel.js';
+import { EF, PK, TASK, TASK_STATE } from '../sim/constants.js';
 import { PLAYER_FEET_ROOM } from './playerframe.js';
 
 export const MINIMAP = Object.freeze({
   size: Object.freeze({ small: 72, large: 120 }),   // view px, square
   top: 18,               // under the kills line
-  gap: 4,                // between it and the materials under it
   // 'nearby' draws the ground at whole pixels a tile (no shimmer as it slides): small 72 tiles
   // across (about two screens), large 60 (1.5 screens, at twice the size).
   nearbyPxPerTile: Object.freeze({ small: 1, large: 2 }),
   fadeAlpha: 0.25,       // while you're under it
 });
 
-/** Mark kinds. Drawn materials first, then the other drops, elites and bosses, and you on top. */
-export const MARK = Object.freeze({ MATERIAL: 0, HEAL: 1, MAGNET: 2, EMBER: 3, CHEST: 4, ELITE: 5, BOSS: 6, PLAYER: 7 });
+/**
+ * Mark kinds. Drawn materials first, then the other drops, the places (tasks, the skiff, a
+ * secret), elites and bosses, and you on top.
+ */
+export const MARK = Object.freeze({
+  MATERIAL: 0, HEAL: 1, MAGNET: 2, EMBER: 3, CHEST: 4, ELITE: 5, BOSS: 6, PLAYER: 7,
+  LAMP: 8, LAMP_LIT: 9, BELL: 10, FERRY: 11, RELIQUARY: 12, SECRET: 13,
+});
 
 /** A diamond of radius r as rects [dx, dy, w, h, ink]: filled, or its outline only. */
 function diamondRects(r, filled) {
@@ -41,7 +46,9 @@ function diamondRects(r, filled) {
  * dark of the night). Every kind its own shape, so none is told apart by color alone: you a ring
  * with a dot; a boss a filled diamond and an elite a hollow one; a chest a hollow box wider than
  * tall; an Ember a big plus with a dark middle; food a small plus; a magnet a U; a material a
- * 2 px dot (rare ones in a brighter color).
+ * 2 px dot (rare ones in a brighter color); a Wayside Lamp a triangle pointing up (hollow until
+ * it's lit); a Fog Bell an upside-down hollow cup; the Ferryman's skiff a wide flat bowl; a
+ * Reliquary or the vault a hollow box taller than wide; a secret an X.
  */
 export const MARK_SHAPES = Object.freeze({
   [MARK.PLAYER]: [[-1, -2, 3, 1, 1], [-1, 2, 3, 1, 1], [-2, -1, 1, 3, 1], [2, -1, 1, 3, 1], [0, 0, 1, 1, 1]],
@@ -52,6 +59,12 @@ export const MARK_SHAPES = Object.freeze({
   [MARK.HEAL]: [[0, -1, 1, 3, 1], [-1, 0, 3, 1, 1]],
   [MARK.MAGNET]: [[-1, -1, 1, 2, 1], [1, -1, 1, 2, 1], [-1, 1, 3, 1, 1]],
   [MARK.MATERIAL]: [[0, 0, 2, 2, 1]],
+  [MARK.LAMP]: [[0, -2, 1, 1, 1], [-1, -1, 1, 1, 1], [1, -1, 1, 1, 1], [-2, 0, 1, 1, 1], [2, 0, 1, 1, 1], [-2, 1, 5, 1, 1]],
+  [MARK.LAMP_LIT]: [[0, -2, 1, 1, 1], [-1, -1, 3, 1, 1], [-2, 0, 5, 1, 1], [-2, 1, 5, 1, 1]],
+  [MARK.BELL]: [[-1, -2, 3, 1, 1], [-2, -1, 1, 3, 1], [2, -1, 1, 3, 1], [-3, 1, 7, 1, 1]],
+  [MARK.FERRY]: [[-3, -1, 1, 1, 1], [3, -1, 1, 1, 1], [-2, 0, 5, 1, 1]],
+  [MARK.RELIQUARY]: [[-1, -2, 3, 1, 1], [-1, 2, 3, 1, 1], [-1, -1, 1, 3, 1], [1, -1, 1, 3, 1]],
+  [MARK.SECRET]: [[-2, -2, 1, 1, 1], [2, -2, 1, 1, 1], [-1, -1, 1, 1, 1], [1, -1, 1, 1, 1], [0, 0, 1, 1, 1], [-1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [-2, 2, 1, 1, 1], [2, 2, 1, 1, 1]],
 });
 
 const BOXES = new Map();
@@ -64,19 +77,6 @@ export function minimapBox(mode, size) {
   let b = BOXES.get(s);
   if (!b) { b = Object.freeze({ x: VIEW_W - HUD_LAYOUT.edge - s, y: MINIMAP.top, w: s, h: s, size: s === MINIMAP.size.large ? 'large' : 'small' }); BOXES.set(s, b); }
   return b;
-}
-
-/**
- * The materials' layout with the minimap in place: they move down under it. They keep
- * MATERIALS_LAYOUT's minX (its reason, the boss bar, is above them now; it only stops a long row
- * reaching the middle of the screen), so the same wrapping holds with the minimap on or off.
- */
-export function materialsLayoutFor(box) {
-  if (!box) return MATERIALS_LAYOUT;
-  const top = box.y + box.h + MINIMAP.gap;
-  let l = LAYOUTS.get(top);
-  if (!l) { l = Object.freeze({ ...MATERIALS_LAYOUT, top }); LAYOUTS.set(top, l); }
-  return l;
 }
 
 /** The marks' store: made once, rewritten every frame (no garbage). */
@@ -111,6 +111,24 @@ export function minimapWindow(world, box, mode, out) {
  * viewW x viewH: the run view's camera, already kept inside the map) is marked in `seen` (a byte a
  * tile); onNew(i) is called for each tile seen for the first time. Returns how many were new.
  */
+/**
+ * Uncover a disc of tiles around a point (a lit Wayside Lamp's reach): tile (tx, ty), radius r
+ * tiles. Returns how many were new.
+ */
+export function revealDisc(seen, cols, rows, tx, ty, r, onNew) {
+  let n = 0;
+  for (let y = Math.max(0, ty - r); y <= Math.min(rows - 1, ty + r); y++) {
+    for (let x = Math.max(0, tx - r); x <= Math.min(cols - 1, tx + r); x++) {
+      if ((x - tx) * (x - tx) + (y - ty) * (y - ty) > r * r) continue;
+      const i = y * cols + x;
+      if (seen[i]) continue;
+      seen[i] = 1; n++;
+      onNew(i);
+    }
+  }
+  return n;
+}
+
 export function revealView(seen, cols, rows, tile, cx, cy, viewW, viewH, onNew) {
   const x0 = Math.max(0, Math.floor((cx - viewW / 2) / tile)), x1 = Math.min(cols - 1, Math.floor((cx + viewW / 2 - 1e-6) / tile));
   const y0 = Math.max(0, Math.floor((cy - viewH / 2) / tile)), y1 = Math.min(rows - 1, Math.floor((cy + viewH / 2 - 1e-6) / tile));
@@ -138,9 +156,21 @@ export function minimapMarks(world, marks, box, win) {
   for (let i = 0; i < P.count; i++) if (P.kind[i] === PK.MATERIAL) addMark(marks, box, win, MARK.MATERIAL, P.x[i], P.y[i], P.a[i], room);
   for (let i = 0; i < P.count; i++) {
     const kd = P.kind[i];
-    const kind = kd === PK.HEAL ? MARK.HEAL : kd === PK.MAGNET ? MARK.MAGNET : kd === PK.CHEST ? MARK.CHEST : kd === PK.EMBER ? MARK.EMBER : -1;
+    const kind = kd === PK.HEAL ? MARK.HEAL : kd === PK.MAGNET ? MARK.MAGNET : kd === PK.CHEST ? MARK.CHEST : kd === PK.EMBER ? MARK.EMBER
+      : kd === PK.RELIQUARY || kd === PK.VAULT ? MARK.RELIQUARY : -1;
     if (kind >= 0) addMark(marks, box, win, kind, P.x[i], P.y[i], kd === PK.CHEST ? P.a[i] : 0, room);
   }
+  // The places: the run's tasks once you've found one (or from 0:00 with the Cartographer), the
+  // Ferryman's skiff, and the map's secrets with the Cartographer's last level.
+  const H = world.config.harbor || {};
+  for (const t of world.tasks || []) {
+    if (!H.tasksOnMap && t.state === TASK_STATE.IDLE) continue;
+    const kind = t.kind === TASK.BELL ? MARK.BELL : t.state === TASK_STATE.DONE ? MARK.LAMP_LIT : MARK.LAMP;
+    if (t.kind === TASK.BELL && t.state === TASK_STATE.DONE) continue;
+    addMark(marks, box, win, kind, t.x, t.y, 0, room);
+  }
+  if (world.ferry) addMark(marks, box, win, MARK.FERRY, world.ferry.x, world.ferry.y, 0, room);
+  if (H.secretsOnMap) for (const s of world.secrets) if (!s.open) addMark(marks, box, win, MARK.SECRET, s.x, s.y, 0, room);
   const E = world.enemies;
   for (let i = 0; i < E.count; i++) {
     const f = E.flags[i];
@@ -164,7 +194,7 @@ const FIGURE_HALF = 11, FIGURE_UP = FIGURE_HALF + PLAYER_FEET_ROOM, FIGURE_DOWN 
 const FRAME_W = 2;   // the minimap's frame round its box
 
 /**
- * How solid something over the play field is this frame (the minimap, or the materials under it):
+ * How solid something over the play field is this frame (the minimap, or the How to play card):
  * faded (MINIMAP.fadeAlpha) while your figure overlaps `box` (with the minimap's frame), so a
  * corner it covers never hides you (§6.2 item 11b), else 1. at: your feet in the view (px).
  */

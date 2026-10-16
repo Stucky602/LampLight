@@ -6,13 +6,15 @@
 // Pickups: materials (pulled like gems), healing, the magnet (pulls every gem on the map), and
 // chests (walk over them; they don't move).
 
-import { DT, EF, PK } from './constants.js';
+import { DT, EF, PK, PK_STAYS } from './constants.js';
+import { TILE } from './terrain.js';
 import { NO_HANDLE } from './pools.js';
 import { EV, PICK } from './events.js';
 import { gainXp, heal } from './player.js';
 import { runHooks } from './hooks.js';
 import { openChest, openCache } from './chests.js';
 import { collectEmber } from './ascend.js';
+import { openRelicPick, addGlass } from './relics.js';
 import { sincosInto, TAU } from '../lib/fmath.js';
 
 export const GEM_FIELDS = {
@@ -60,6 +62,12 @@ export const PICKUP_RESERVE = 32;
  */
 export function spawnPickup(world, kind, x, y, a = 0, b = 0) {
   const P = world.pickups;
+  // What waits where it fell (a chest, a Reliquary, the vault) must be somewhere you can stand:
+  // one dropped over water or on a crate moves to the nearest open tile.
+  if (PK_STAYS.includes(kind) && world.terrain.blockedAt(x, y)) {
+    const at = world.scratch.open;
+    if (world.terrain.nearestOpen(Math.floor(x / TILE), Math.floor(y / TILE), at)) { x = at[0]; y = at[1]; }
+  }
   if (kind === PK.MATERIAL && P.count >= P.capacity - PICKUP_RESERVE) {
     addMaterial(world, a, b);
     world.events.push(EV.PICKUP, x, y, PICK.MATERIAL, a);
@@ -68,6 +76,8 @@ export function spawnPickup(world, kind, x, y, a = 0, b = 0) {
   if (P.count >= P.capacity) {
     if (kind === PK.CHEST) { openChest(world, a, x, y); return -1; }
     if (kind === PK.EMBER) { collectEmber(world, x, y); return -1; }
+    if (kind === PK.GLASS) { addGlass(world, a, x, y); return -1; }
+    if (kind === PK.RELIQUARY || kind === PK.VAULT) { openRelicPick(world, kind === PK.VAULT ? 'vault' : 'reliquary', x, y); return -1; }
     const far = farthestLoose(world); // (materials never get here: they stop at the reserve)
     if (far < 0) { P.refused++; return -1; }
     P.remove(far);
@@ -102,11 +112,11 @@ export function rollDrops(world, e, def, flags) {
     if ((flags & EF.ELITE) !== 0) dropTable(world, map.eliteDrops, x, y, rng, luck);
     else if ((flags & (EF.BOSS | EF.MINION)) === 0) dropTable(world, map.commonDrops, x, y, rng, luck);
   }
-  // Healing and the magnet: rare, from regular enemies only.
+  // Healing and the magnet: rare, from regular enemies only (no food under the Hunger curse).
   if ((flags & (EF.BOSS | EF.MINION | EF.SWARM)) === 0) {
     const pk = world.map.pickups;
     if (pk) {
-      if (rng.chance(pk.heal * luck)) spawnPickup(world, PK.HEAL, x, y, pk.healAmount ?? 30, 0);
+      if (rng.chance(pk.heal * luck)) { if (!world.config.noFood) spawnPickup(world, PK.HEAL, x, y, pk.healAmount ?? 30, 0); }
       else if (rng.chance(pk.magnet * luck)) spawnPickup(world, PK.MAGNET, x, y, 0, 0);
     }
   }
@@ -183,8 +193,8 @@ export function pickupsStep(world) {
     const d2 = dx * dx + dy * dy;
     const kind = P.kind[i];
     if (d2 <= pick2) { collectPickup(world, i); continue; }
-    // Materials, healing, and the magnet fly to you like gems; chests stay put.
-    if (kind === PK.CHEST) continue;
+    // Materials, healing, the magnet, and Sea Glass fly to you like gems; chests, Reliquaries, and the vault stay put.
+    if (PK_STAYS.includes(kind)) continue;
     if (P.state[i] === 0) {
       if (d2 > magR2) continue;
       P.state[i] = 1;
@@ -231,5 +241,10 @@ function collectPickup(world, i) {
     openChest(world, a, x, y);
   } else if (kind === PK.EMBER) {
     collectEmber(world, x, y);
+  } else if (kind === PK.GLASS) {
+    addGlass(world, a, x, y);
+  } else if (kind === PK.RELIQUARY || kind === PK.VAULT) {
+    world.events.push(EV.PICKUP, x, y, kind, 0);
+    openRelicPick(world, kind === PK.VAULT ? 'vault' : 'reliquary', x, y);
   }
 }

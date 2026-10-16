@@ -18,7 +18,7 @@ export function createPlayer(x, y) {
     moving: false,
     hp: 100, shield: 0,
     level: 1, xp: 0, xpNext: 5,
-    dashTicks: 0, dashDx: 0, dashDy: 0, dashSpeed: 0, dashCd: 0,
+    dashTicks: 0, dashDx: 0, dashDy: 0, dashSpeed: 0, dashCd: 0, dashStart: -1,
     iframes: 0,            // ticks of invulnerability left
     prevButtons: 0,
     bonusArmor: 0,         // from hooks (the Harpooner)
@@ -76,9 +76,10 @@ export function playerStep(world, frame) {
     p.dashCd = T.dash.cooldown * st.dashCooldown;
     vx = p.dashDx * p.dashSpeed; vy = p.dashDy * p.dashSpeed;
     p.dashTicks = ticks - 1;
+    p.dashStart = world.tick; // the tick a dash began (Lunge throws on it)
     if (p.dashTicks === 0) endDash(p, T);
     world.events.push(EV.DASH, p.x, p.y, p.dashDx, p.dashDy);
-    runHooks(world, 'onDash');
+    world.dashedNow = true; // its hooks run once the enemy grid is rebuilt (world.js stepWorld)
   } else {
     const sp = T.speed * st.moveSpeed;
     vx = mx * sp; vy = my * sp;
@@ -108,7 +109,7 @@ export function playerStep(world, frame) {
 export function hurtPlayer(world, amount, x, y) {
   if (world.over || !(amount > 0) || isInvulnerable(world)) return 0;
   const p = world.player, T = world.tuning.player;
-  let dmg = amount - world.stats.armor - p.bonusArmor;
+  let dmg = amount * world.enemyDamageMul - world.stats.armor - p.bonusArmor; // a Tide hits harder
   if (dmg < T.minDamageTaken) dmg = T.minDamageTaken;
   if (p.shield > 0) {
     const absorbed = p.shield < dmg ? p.shield : dmg;
@@ -117,10 +118,16 @@ export function hurtPlayer(world, amount, x, y) {
     world.events.push(EV.SHIELD_HIT, p.x, p.y, absorbed);
   }
   p.iframes = Math.round(T.contactIframes * TPS);
-  if (dmg <= 0) return 0;
+  if (dmg <= 0) {
+    // A shield took all of it: still a hit taken, for what answers one (Barnacle Shell).
+    if (world.hooks.onHurt.length > 0) runHooks(world, 'onHurt', 0);
+    return 0;
+  }
   p.hp -= dmg;
   world.result.damageTaken += dmg;
+  if (world.result.firstHurtTick < 0) world.result.firstHurtTick = world.tick;
   world.events.push(EV.PLAYER_HURT, x, y, dmg, p.hp > 0 ? p.hp : 0);
+  if (world.hooks.onHurt.length > 0) runHooks(world, 'onHurt', dmg);
   if (p.hp <= 0) playerDown(world);
   return dmg;
 }

@@ -30,4 +30,46 @@ export const NPCS = [
       { when: 'tavern:5', text: 'Sailors come back when the lamps do. Funny, that.' },
     ],
   },
+  {
+    id: 'dockhand', name: 'Ned', desc: 'Keeps the Docks.', sprite: 'npc_dockhand', home: 'docks',
+    lines: [
+      { when: 'docks:4', text: 'The Ferryman pays in favors. I take them.' },
+      { when: 'docks:5', text: 'Every hull here floats. Most of them on purpose.' },
+    ],
+  },
+  {
+    id: 'smith', name: 'Hob', desc: 'Runs the Smithy.', sprite: 'npc_smith', home: 'smithy',
+    lines: [
+      { when: 'smithy:4', text: 'Bring iron. I can make most things out of most things.' },
+      { when: 'smithy:5', text: 'Six slots. Wear them all or the work was for nothing.' },
+    ],
+  },
+  {
+    id: 'warden', name: 'Brother Hale', desc: 'Keeps the Chapel.', sprite: 'npc_warden', home: 'chapel',
+    lines: [
+      { when: 'chapel:4', text: 'The tide comes higher every time you ask it to.' },
+      { when: 'chapel:5', text: 'Ten tides. Nobody asked for an eleventh yet.' },
+    ],
+  },
+  {
+    id: 'trader', name: 'Fenn', desc: 'Runs the Market.', sprite: 'npc_trader', home: 'market',
+    lines: [
+      { when: 'market:4', text: 'A bad trade beats no trade. Usually.' },
+      { when: 'market:5', text: 'Sea Glass. Pretty, worthless, and I buy it anyway.' },
+    ],
+  },
+  {
+    id: 'apothecary', name: 'Old Moss', desc: 'Runs the Apothecary.', sprite: 'npc_apothecary', home: 'apothecary',
+    lines: [
+      { when: 'apothecary:4', text: 'Drink it before you go out. Not after.' },
+      { when: 'apothecary:5', text: 'Three bottles a run. More and you rattle.' },
+    ],
+  },
+  {
+    id: 'cartographer', name: 'Pell', desc: 'Keeps the charts.', sprite: 'npc_cartographer', home: 'cartographer',
+    lines: [
+      { when: 'cartographer:4', text: 'The docks are bigger than they look. Smaller than they feel.' },
+      { when: 'cartographer:5', text: 'I marked the wreck. Don\'t say I gave it away.' },
+    ],
+  },
 ];

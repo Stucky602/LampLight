@@ -7,8 +7,9 @@
 // which asks first while a save still fails. Apart from main.js so the gate tests it
 // (tests/app.test.js).
 
-import { applyRunResult, runConfigFor } from '../meta/index.js';
+import { applyRunResult, runConfigFor, startRunProfile } from '../meta/index.js';
 import { mergeRuns } from './hublogic.js';
+import { checkStone } from './setup.js';
 
 /**
  * @param {object} o
@@ -49,7 +50,12 @@ export function createGameFlow({ keeper, scenes, data, saveReplay, flushSettings
      * smoke and screenshot tools can ask for everything instead (all: true), to show any character.
      */
     configFor(choice) {
-      return choice.all ? { seed: choice.seed, character: choice.character, map: data.maps[0].id } : runConfigFor(keeper.profile, data, choice);
+      if (choice.all) return { seed: choice.seed, character: choice.character, map: data.maps[0].id, ...(choice.harbor ? { harbor: choice.harbor } : {}) };
+      const cfg = runConfigFor(keeper.profile, data, choice);
+      checkStone(keeper.profile, data, { ...choice, curses: choice.curses || [], consumables: choice.consumables || [] }); // a stone that can't be placed is never used up
+      // The consumables and the rune stone it takes are used up as it sets out (saved now).
+      keeper.keep(startRunProfile(keeper.profile, data, choice));
+      return cfg;
     },
     /** The title's first button (Start, or Continue): the harbor. */
     fromTitle() { return scenes.go('hub'); },

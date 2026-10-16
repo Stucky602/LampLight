@@ -28,12 +28,14 @@ export const BUY_ORDER = Object.freeze(['building', 'research', 'upgrade']);
 /**
  * Spend like a player who wants the town back first: while anything is affordable, restore the
  * next building level, else start research, else buy an upgrade rank (BUY_ORDER); the cheapest
- * first within each. Returns { doc, bought: changes }.
+ * first within each. Phase 7's goals (gear, perks, consumables) aren't bought: they don't change
+ * what a measured run brings home here, so the hours are the town's, research's, and the
+ * upgrades'. Returns { doc, bought: changes }.
  */
 export function buyGreedy(doc, data) {
   const bought = [];
   for (let guard = 0; guard < 500; guard++) {
-    const can = purchaseOptions(doc, data).filter((o) => o.progress >= 1);
+    const can = purchaseOptions(doc, data).filter((o) => o.progress >= 1 && BUY_ORDER.includes(o.kind));
     if (!can.length) break;
     can.sort((a, b) => BUY_ORDER.indexOf(a.kind) - BUY_ORDER.indexOf(b.kind) || total(a.cost) - total(b.cost));
     const o = can[0];

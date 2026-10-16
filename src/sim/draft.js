@@ -6,14 +6,14 @@
 // 2. Banished items are gone for the rest of the run.
 // 3. A weighted draw without replacement gives 3 cards (4 with the hub upgrade).
 // 4. Early on (until you own 2 weapons) at least one card is a new weapon when possible.
-// 5. A rare relic card (chance times luck, at most one per offer) can replace a card.
-// 6. With nothing left to level: fallback cards (heal, coin), next to a relic card if there is one.
+// 5. With nothing left to level: fallback cards (heal, coin).
+// Relics are never cards: they come from Reliquaries, the vault, and the Ferryman (sim/relics.js).
 // Reroll, banish, and skip spend charges (from the character, passives, and the hub).
 
 import { PASSIVE_SLOTS } from './constants.js';
 import { heal } from './player.js';
 import { addMaterial } from './pickups.js';
-import { addRelic, freeWeaponSlot, addWeapon, markStatsDirty, relicAvailable } from './build.js';
+import { freeWeaponSlot, addWeapon, markStatsDirty } from './build.js';
 
 function banishKey(card) { return `${card.kind}:${card.id}`; }
 
@@ -86,21 +86,8 @@ export function makeOffer(world) {
       if (pickW.length) cards[cards.length - 1] = pickW[0];
     }
   }
-  // The rare relic card replaces the last card, but never the early rule's only new weapon.
-  const relics = relicAvailable(world);
-  if (relics.length && world.rng.draft.chance(T.relicChance * world.stats.luck)) {
-    const i = world.rng.draft.weighted(relics.map((r) => r.weight ?? 100));
-    const card = { kind: 'relic', id: relics[i].id, level: 1, isNew: true, w: 0 };
-    if (cards.length < n) cards.push(card);
-    else {
-      let at = cards.length - 1;
-      if (early && isNewWeapon(cards[at]) && cards.filter(isNewWeapon).length === 1) at--;
-      if (at >= 0) cards[at] = card;
-    }
-  }
-  // Nothing left to level (a lone relic card at most): the fallback cards join, so a relic is
-  // never forced on you.
-  if (!cards.some((c) => c.kind !== 'relic')) cards.push(...fallbackCards());
+  // Nothing left to level: the fallback cards.
+  if (!cards.length) cards.push(...fallbackCards());
   return cards.map(stripWeight);
 }
 
@@ -154,7 +141,7 @@ export function draftDecide(world, halt, d) {
       if (!repl.length) repl = drawCards(world, cands, 1, showing);
       if (repl.length) cards[d.index] = stripWeight(repl[0]);
       else cards.splice(d.index, 1);
-      if (!cards.some((x) => x.kind !== 'relic')) halt.offer = [...cards, ...fallbackCards()];
+      if (!cards.length) halt.offer = fallbackCards();
       return false;
     }
     case 'skip':
@@ -192,9 +179,6 @@ export function applyCard(world, c) {
       }
       break;
     }
-    case 'relic':
-      addRelic(world, world.relicDefs.find((r) => r.id === c.id));
-      break;
     case 'heal':
       heal(world, world.tuning.draft.fallbackHeal);
       break;

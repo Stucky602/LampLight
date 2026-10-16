@@ -10,6 +10,12 @@
 //   { kind: 'codex', key }                          seen for the first time ('weapon:flare_gun')
 //   { kind: 'bestiary', id, kills }                 a lifetime kill count crossed a milestone
 //   { kind: 'best_time', seconds, previous }        the longest run so far
+//   { kind: 'glass_coin', glass, count }            Sea Glass left over, bought by the Market as Coin
+//   { kind: 'mastery', character, rank }            the character reached a new mastery rank
+//   { kind: 'tide', level }                         a Tide opened (clearing the one below it)
+//   { kind: 'challenge', id, unlocks, materials }   a challenge run won
+//   { kind: 'feat', id, unlocks, materials }        a feat done
+//   { kind: 'feat_found', id }                      an 'after_found' feat now on the Tavern's list
 // A run counts for research when it lasts META.researchQualifySec (5:00) or kills a boss, so
 // quitting at once can't farm it, and a real attempt is never wasted (§10.2, §20 call 7).
 // A run that used the tuning panel or its dev commands (result.devTools) marks the profile the
@@ -19,7 +25,8 @@
 // number that isn't finite, a list that isn't a list) reads as nothing rather than throwing, so a
 // damaged result can never cost the run's haul.
 
-import { researchActive, researchDone, codexKeys, contentFrom } from './state.js';
+import { researchActive, researchDone, codexKeys, contentFrom, levelEffect, masteryOf, featsDone, challengesDone } from './state.js';
+import { judgeFeats, challengeWon } from './feats.js';
 import { countOf as count } from './costs.js';
 import { clockText } from '../lib/text.js';
 
@@ -147,6 +154,72 @@ export function applyRunResult(doc, result, data) {
 
   // The longest run (the first run sets it without a line: there was nothing to beat).
   if (secs > prevBest && prevBest > 0) changes.push({ kind: 'best_time', seconds: secs, previous: prevBest });
+
+  // ---------------------------------------------------------------- Phase 7
+
+  // Bosses this build knows (an entry it can't read counts for nothing, as in `qualifies`).
+  const bossIds = new Set(data.enemies.filter((e) => (e.tags || []).includes('boss')).map((e) => e.id));
+  const bosses = list(result.bossesKilled).filter((b) => bossIds.has(isObj(b) ? b.id : b)).length;
+  const cleared = result.end === 'cleared' || result.cleared === true;
+  st.bossKills = count(st.bossKills) + bosses;
+  st.clears = count(st.clears) + (cleared ? 1 : 0);
+  st.lampsLit = count(st.lampsLit) + count(result.lampsLit);
+  st.bellsRung = count(st.bellsRung) + count(result.bellsRung);
+  const bump = (id, k) => { P.materials[id] = count(P.materials[id]) + k; };
+
+  // Sea Glass left over: the Market buys it as Coin, from its level 2.
+  const rate = levelEffect(out, data, 'market', 'glassToCoin');
+  const glass = count(result.seaGlass);
+  if (rate > 0 && glass > 0) {
+    const coin = Math.floor(glass * rate);
+    if (coin > 0) { bump('coin', coin); changes.push({ kind: 'glass_coin', glass, count: coin }); }
+  }
+
+  // Mastery: the character played gains XP (a point a minute, more for each boss); a new rank says so.
+  const ch = data.characters.find((c) => c.id === result.character);
+  if (ch) {
+    if (!isObj(P.characters)) P.characters = {};
+    const before = masteryOf(out, data, ch.id).rank;
+    const M = data.tuning.mastery;
+    const gain = Math.floor((secs / 60) * M.perMinute) + bosses * M.perBoss;
+    const c = isObj(P.characters[ch.id]) ? P.characters[ch.id] : (P.characters[ch.id] = { unlocked: true, masteryXp: 0, perks: [] });
+    c.masteryXp = count(c.masteryXp) + gain;
+    const after = masteryOf(out, data, ch.id).rank;
+    if (after > before) changes.push({ kind: 'mastery', character: ch.id, rank: after });
+  }
+
+  // Tides: clearing the map at the highest Tide opened opens the next (Tide 1 from a first clear),
+  // one at a time: a challenge run's own Tide above it opens nothing.
+  if (!isObj(P.tide)) P.tide = { unlocked: 0, selected: 0 };
+  const playedTide = count(result.tide);
+  if (cleared && playedTide === count(P.tide.unlocked) && playedTide < (data.tides || []).length) {
+    P.tide.unlocked = playedTide + 1;
+    changes.push({ kind: 'tide', level: playedTide + 1 });
+  }
+
+  // A challenge run won, once: what it opens, or its materials.
+  const wins = challengesDone(out);
+  const chal = (data.challenges || []).find((c) => c.id === result.challenge);
+  if (chal && !wins.has(chal.id) && challengeWon(chal, result)) {
+    P.challenges = [...wins, chal.id];
+    for (const [id, k] of Object.entries(chal.reward?.materials || {})) bump(id, k);
+    changes.push({ kind: 'challenge', id: chal.id, unlocks: contentFrom(data, `challenge:${chal.id}`).map(({ what, id }) => ({ what, id })), materials: { ...(chal.reward?.materials || {}) } });
+  }
+
+  // Feats done (with the lifetime numbers this run added), and 'after_found' ones discovered:
+  // once the Tavern keeps the list (before that, nobody's counting).
+  const featsBefore = featsDone(out);
+  const foundBefore = new Set(Array.isArray(P.featsFound) ? P.featsFound.filter((x) => typeof x === 'string') : []);
+  const judged = levelEffect(out, data, 'tavern', 'feats') ? judgeFeats(data, result, st, featsBefore, foundBefore) : { done: [], found: [] };
+  if (judged.done.length) P.feats = [...featsBefore, ...judged.done.map((f) => f.id)];
+  for (const f of judged.done) {
+    for (const [id, k] of Object.entries(f.reward?.materials || {})) bump(id, k);
+    changes.push({ kind: 'feat', id: f.id, unlocks: contentFrom(data, `feat:${f.id}`).map(({ what, id }) => ({ what, id })), materials: { ...(f.reward?.materials || {}) } });
+  }
+  if (judged.found.length) {
+    P.featsFound = [...foundBefore, ...judged.found.map((f) => f.id)];
+    for (const f of judged.found) changes.push({ kind: 'feat_found', id: f.id });
+  }
 
   if (result.devTools === true) P.flags = { ...(isObj(P.flags) ? P.flags : {}), devTools: true };
   return { doc: out, changes };

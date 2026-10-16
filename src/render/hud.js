@@ -1,6 +1,6 @@
 // The HUD (ARCHITECTURE §6.2 layer 13): drawn at 640 x 360 in its own layer, so it never jitters
 // with the camera or the shake. HP (and shield), the dash cooldown, the XP bar, the timer, level,
-// kills, weapon and passive icons with levels, materials found, the boss's health, overtime,
+// kills, weapon and passive icons with levels, the minimap, the boss's health, overtime,
 // short notices, and the screen flashes.
 //
 // What to show comes from render/hudmodel.js (tested); this file lays it out. Text uses the 5 x 7
@@ -10,8 +10,8 @@ import { Container, Graphics, Sprite } from 'pixi.js';
 import { VIEW_W, VIEW_H } from './layout.js';
 import { color as pal } from '../data/palette.js';
 import { glyphKey, FONT_ADVANCE, FONT_H, textWidth } from './font.js';
-import { createHudModel, updateHudModel, layoutMaterials, HUD_LAYOUT, createHudPlaces, placeHud } from './hudmodel.js';
-import { minimapBox, materialsLayoutFor, minimapFade } from './minimapmodel.js';
+import { createHudModel, updateHudModel, HUD_LAYOUT, createHudPlaces, placeHud } from './hudmodel.js';
+import { minimapBox } from './minimapmodel.js';
 import { createMinimap } from './minimap.js';
 
 /** A line of pixel text. set() rebuilds its glyphs only when the text or color changes. */
@@ -50,7 +50,7 @@ export function createPixelText(atlas, { outlined = true, tint = 0xffffff } = {}
 const COL = {
   xp: pal('gem-3'), hp: pal('rot-3'), shield: pal('sea-6'), dashReady: pal('lamp-5'), dashWait: pal('fog-2'),
   frame: pal('night-0'), back: pal('night-1'), back2: pal('night-2'), boss: pal('rot-2'), hurt: pal('rot-2'), wash: pal('lamp-5'),
-  asc: pal('violet-4'), text: pal('fog-5'), dim: pal('fog-4'), level: pal('lamp-5'), max: pal('lamp-5'), warn: pal('rot-4'), notice: pal('lamp-6'),
+  asc: pal('violet-4'), glass: pal('sea-5'), text: pal('fog-5'), dim: pal('fog-4'), level: pal('lamp-5'), max: pal('lamp-5'), warn: pal('rot-4'), notice: pal('lamp-6'),
 };
 
 export function createHud({ renderer, atlas, hudSettings = { minimap: 'nearby', minimapSize: 'small' } }) {
@@ -60,15 +60,14 @@ export function createHud({ renderer, atlas, hudSettings = { minimap: 'nearby', 
   const pipsG = new Graphics();      // ascension pips, over the icons (kept the last child)
   const minimap = createMinimap();   // top right (render/minimap.js), under the kills
   let mapWorld = null;
-  const matBox = { x: 0, y: 0, w: 0, h: 0 }, feet = { x: 0, y: 0 };   // scratch: the materials' extent, your feet in the view
   root.addChild(flashG, g, minimap.root);
   const txt = (tint) => { const t = createPixelText(atlas, { tint }); root.addChild(t.view); return t; };
-  const timer = txt(COL.text), level = txt(COL.level), kills = txt(COL.dim), hp = txt(COL.text);
+  const timer = txt(COL.text), level = txt(COL.level), kills = txt(COL.dim), hp = txt(COL.text), glass = txt(COL.glass);
   const boss = txt(COL.warn), overtime = txt(COL.warn), notice = txt(COL.notice);
-  const icons = [], iconLv = [], mats = [], matTxt = [], matPlace = [];
+  const icons = [], iconLv = [];
   const model = createHudModel();
   const places = createHudPlaces();
-  const widths = { hp: 0, level: 0, timer: 0, kills: 0, boss: 0, overtime: 0, notice: 0 };
+  const widths = { hp: 0, level: 0, timer: 0, kills: 0, glass: 0, boss: 0, overtime: 0, notice: 0 };
   const L = HUD_LAYOUT;
   let noticeUntil = 0;
 
@@ -117,10 +116,10 @@ export function createHud({ renderer, atlas, hudSettings = { minimap: 'nearby', 
     draw(world, nowMs, flash) {
       const m = updateHudModel(model, world);
       // Texts first (their widths decide where things go), then place everything (hudmodel.js).
-      hp.set(m.hpText); level.set(m.levelText); timer.set(m.timerText); kills.set(m.killsText);
+      hp.set(m.hpText); level.set(m.levelText); timer.set(m.timerText); kills.set(m.killsText); glass.set(m.glassText);
       if (m.boss.shown) boss.set(m.boss.name);
       if (m.overtime.shown) overtime.set(m.overtime.text);
-      widths.hp = hp.width; widths.level = level.width; widths.timer = timer.width; widths.kills = kills.width;
+      widths.hp = hp.width; widths.level = level.width; widths.timer = timer.width; widths.kills = kills.width; widths.glass = m.glassShown ? glass.width : 0;
       widths.boss = boss.width; widths.overtime = overtime.width; widths.notice = notice.width;
       const P = placeHud(places, widths, m.boss.shown);
       g.clear(); pipsG.clear();
@@ -133,43 +132,15 @@ export function createHud({ renderer, atlas, hudSettings = { minimap: 'nearby', 
       level.view.position.set(P.levelText.x, P.levelText.y);
       timer.view.position.set(P.timerText.x, P.timerText.y);
       kills.view.position.set(P.killsText.x, P.killsText.y);
+      glass.view.visible = m.glassShown;
+      glass.view.position.set(P.glassText.x, P.glassText.y);
       let k = iconRow(m.weapons, m.weaponCount, L.icons.weaponsY, 0);
       k = iconRow(m.passives, m.passiveCount, L.icons.passivesY, k);
       for (let j = k; j < icons.length; j++) { icons[j].visible = false; iconLv[j].view.visible = false; }
-      // Materials found this run: right-aligned under the kills, the last found nearest the
-      // edge, wrapping before they reach the boss's bar (hudmodel.js layoutMaterials).
-      for (let j = 0; j < m.materialCount; j++) {
-        const e = m.materials[m.materialCount - 1 - j];
-        if (!mats[j]) { mats[j] = new Sprite(); root.addChild(mats[j]); matTxt[j] = createPixelText(atlas, { tint: COL.dim }); root.addChild(matTxt[j].view); matPlace[j] = { iconW: 0, iconH: 0, textW: 0, ix: 0, iy: 0, tx: 0, ty: 0 }; }
-        matTxt[j].set(e.text);
-        const tex = atlas.tex(e.icon);
-        mats[j].texture = tex;
-        const pl = matPlace[j];
-        pl.iconW = tex.frame.width; pl.iconH = tex.frame.height; pl.textW = matTxt[j].width;
-      }
-      // The minimap (its setting, read live), and the materials moved down under it.
+      // The minimap (its setting, read live). Materials found are on the pause menu, not here.
       if (mapWorld !== world) { minimap.attach(world); mapWorld = world; }
       const mapBox = minimapBox(hudSettings.minimap, hudSettings.minimapSize);
       minimap.draw(mapBox, hudSettings.minimap, renderer.camera, nowMs);
-      layoutMaterials(matPlace, m.materialCount, materialsLayoutFor(mapBox));
-      // The materials fade as the minimap does while you stand under them (they reach down into
-      // the play field once a few rows wrap under a Large minimap).
-      matBox.x = Infinity; matBox.y = Infinity; let mx1 = -Infinity, my1 = -Infinity;
-      for (let j = 0; j < m.materialCount; j++) {
-        const pl = matPlace[j];
-        matBox.x = Math.min(matBox.x, pl.ix); matBox.y = Math.min(matBox.y, pl.iy, pl.ty);
-        mx1 = Math.max(mx1, pl.tx + pl.textW); my1 = Math.max(my1, pl.iy + pl.iconH, pl.ty + FONT_H);
-      }
-      matBox.w = mx1 - matBox.x; matBox.h = my1 - matBox.y;
-      feet.x = world.player.x - renderer.camera.x + VIEW_W / 2; feet.y = world.player.y - renderer.camera.y + VIEW_H / 2;
-      const matAlpha = m.materialCount ? minimapFade(matBox, feet) : 1;
-      for (let j = 0; j < m.materialCount; j++) {
-        const pl = matPlace[j];
-        matTxt[j].view.position.set(pl.tx, pl.ty); mats[j].position.set(pl.ix, pl.iy);
-        mats[j].visible = true; matTxt[j].view.visible = true;
-        mats[j].alpha = matAlpha; matTxt[j].view.alpha = matAlpha;
-      }
-      for (let j = m.materialCount; j < mats.length; j++) { if (mats[j]) { mats[j].visible = false; matTxt[j].view.visible = false; } }
       boss.view.visible = m.boss.shown;
       if (m.boss.shown) {
         bar(P.bossBar.x, P.bossBar.y, P.bossBar.w, P.bossBar.h, m.boss.frac, COL.boss);

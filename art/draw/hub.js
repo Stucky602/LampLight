@@ -530,3 +530,126 @@ export function librarySign() {
     'KKKKKKKKKKKKKK',
   ]);
 }
+
+/**
+ * The Docks' sign: an anchor. Checked against a ship's anchor: the ring at the top, the stock
+ * across, the shank down the middle, and the two arms curving up to their points.
+ */
+export function docksSign() {
+  return paint('hub_sign_docks', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K22222GG22222K',
+    'K2222G22G2222K',
+    'K22222GG22222K',
+    'K222GGGGGG222K',
+    'K22222GG22222K',
+    'K2G222GG222G2K',
+    'K2GG22GG22GG2K',
+    'K22GGGGGGGG22K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}
+
+/**
+ * The Smithy's sign: an anvil. Checked against a blacksmith's anvil: the flat face (lit), the
+ * horn tapering to a point on the left, the narrow waist, and the wide foot.
+ */
+export function smithySign() {
+  return paint('hub_sign_smithy', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K2222GGGGGG22K',
+    'KFFFFFFFFFFF2K',
+    'K222FFFFFFFF2K',
+    'K22222FFF2222K',
+    'K22222FFF2222K',
+    'K222FFFFFFF22K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}
+
+/**
+ * The Chapel's sign: a bell. Checked against a church bell: the rounded crown, the flared lip, and
+ * the clapper below it.
+ */
+export function chapelSign() {
+  return paint('hub_sign_chapel', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K22222LL22222K',
+    'K2222LyyL2222K',
+    'K2222LyyL2222K',
+    'K222LyyyyL222K',
+    'K222LyyyyL222K',
+    'K22LyyyyyyL22K',
+    'K22LLLLLLLL22K',
+    'K22222LL22222K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}
+
+/**
+ * The Market's sign: a pair of scales. Checked against a merchant's balance: the post, the beam
+ * across it, and a pan hung from each end.
+ */
+export function marketSign() {
+  return paint('hub_sign_market', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K22222yy22222K',
+    'K2yyyyyyyyyy2K',
+    'K2y222yy222y2K',
+    'K2y222yy222y2K',
+    'KLLL22yy22LLLK',
+    'K22222yy22222K',
+    'K2222yyyy2222K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}
+
+/**
+ * The Apothecary's sign: a stoppered bottle. Checked against an old medicine bottle: a cork in a
+ * narrow neck, the round body, and what's in it showing green through the glass.
+ */
+export function apothecarySign() {
+  return paint('hub_sign_apothecary', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K222223322222K',
+    'K22222GG22222K',
+    'K22222GG22222K',
+    'K2222GGGG2222K',
+    'K222GmmmmG222K',
+    'K222GMMmmG222K',
+    'K222GmmmmG222K',
+    'K2222GGGG2222K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}
+
+/**
+ * The Cartographer's sign: a compass rose. Checked against a chart's compass rose: four points out
+ * from the middle, north marked in red.
+ */
+export function cartographerSign() {
+  return paint('hub_sign_cartographer', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K22222OO22222K',
+    'K22222GG22222K',
+    'K2222GGGG2222K',
+    'K2GGGGFFGGGG2K',
+    'K2GGGGFFGGGG2K',
+    'K2222GGGG2222K',
+    'K22222GG22222K',
+    'K22222GG22222K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}

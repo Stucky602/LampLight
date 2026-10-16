@@ -19,6 +19,7 @@ import { CHARGER } from './enemies.js';
 import { BOSS_STATE } from './bosses.js';
 import { sincosInto, TAU } from '../lib/fmath.js';
 import { openAscensions } from './ascend.js';
+import { FERRY_KINDS } from './relics.js';
 
 const N_DIR = 16;
 /** Unit vectors for the 16 directions, as x, y pairs. */
@@ -253,7 +254,6 @@ export function createKiteBot({ archetype = 'projectile_storm', stay = false, da
     const hurt = world.player.hp < world.stats.maxHp * 0.5;
     if (c.kind === 'heal') return hurt ? 50 : 1;
     if (c.kind === 'coin') return 0.5;
-    if (c.kind === 'relic') return 60;
     let s = 10;
     const def = c.kind === 'weapon' ? world.weaponDefs[world.weaponIndex.get(c.id)] : world.passiveDefs.find((x) => x.id === c.id);
     const tags = (def && def.tags) || [];
@@ -294,9 +294,24 @@ export function createKiteBot({ archetype = 'projectile_storm', stay = false, da
         for (let s = 0; s < world.build.weaponSlots; s++) if (openAscensions(world, s).length && (best < 0 || world.slots[s].level > world.slots[best].level)) best = s;
         return best >= 0 ? { kind: 'ascend', slot: best, id: openAscensions(world, best)[0].id } : { kind: 'keep' };
       }
+      case 'relic': {
+        // A Reliquary's or the vault's three: the highest tier, the first of those.
+        let best = 0;
+        halt.offer.forEach((id, i) => { if (tierOf(world, id) > tierOf(world, halt.offer[best])) best = i; });
+        return { kind: 'pick', index: best };
+      }
+      case 'ferry': {
+        // A relic it can afford and doesn't carry, food when hurt, or nothing.
+        const F = world.ferry, hurt = world.player.hp < world.stats.maxHp * 0.5;
+        const k = F.offers.findIndex((o) => !o.sold && o.price <= world.glass
+          && ((o.kind === FERRY_KINDS.relic && !world.build.relics.some((r) => r.id === o.id)) || (o.kind === FERRY_KINDS.food && hurt)));
+        return k >= 0 ? { kind: 'buy', index: k } : { kind: 'done' };
+      }
       default: return { kind: 'ok' };
     }
   }
+
+  function tierOf(world, id) { return world.relicDefs.find((r) => r.id === id)?.tier ?? 0; }
 
   return { input, decide };
 }

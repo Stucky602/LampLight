@@ -96,6 +96,13 @@ export const RAMPS = Object.freeze({
   bone: r('lamp-6', 'skin-3', 'skin-2'),
   candle: r('lamp-6', 'lamp-5', 'lamp-4'),
   oil: r('lamp-5', 'lamp-4', 'lamp-3', 'lamp-6'),
+  // Phase 7: gear, consumables, arcana, Sea Glass, and the run's tasks.
+  gear: r('fog-5', 'fog-4', 'fog-3'),
+  item: r('moss-4', 'moss-3', 'moss-2', 'lamp-5'),
+  arcana: r('lamp-6', 'lamp-5', 'lamp-4'),
+  seaglass: r('sea-6', 'sea-5', 'sea-4'),
+  bellmetal: r('lamp-5', 'lamp-4', 'lamp-3', 'night-1'),
+  skiff: r('wood-4', 'wood-3', 'wood-2'),
   // Obstacles: darker than any actor, lighter than the ground (§16.4).
   crate: r('wood-3', 'wood-2', 'wood-1', 'night-1'),
 });
@@ -141,10 +148,10 @@ export const BUILDINGS_LAYOUT = Object.freeze({
   tavern: [[52, 53, 55, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [72, 84, 73, 84, 75], [72, 84, 85, 84, 75]],
   chapel: [[48, 49, 49, 49, 50], [60, 61, STONE_GABLE, 61, 62], [76, 88, 77, 88, 79], [76, 77, 89, 77, 79]],
   smithy: [[52, 53, 55, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [76, 88, 77, 77, 79], [76, 77, 78, 77, 79]],
-  market: [[52, 53, 53, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [72, 84, 73, 84, 75], [72, 85, 73, 74, 75]],
+  market: [[52, 53, 53, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [72, 84, 73, 84, 75], [72, 74, 85, 74, 75]],
   apothecary: [[48, 49, 51, 49, 50], [60, 61, 63, 61, 62], [72, 84, 73, 84, 75], [72, 73, 85, 73, 75]],
   cartographer: [[52, 53, 53, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [76, 88, 77, 88, 79], [76, 88, 89, 88, 79]],
-  docks: [[48, 49, 49, 49, 50], [60, 61, 61, 61, 62], [72, 73, 73, 73, 75], [72, 74, 73, 74, 75]],
+  docks: [[48, 49, 49, 49, 50], [60, 61, 61, 61, 62], [72, 84, 73, 84, 75], [72, 74, 85, 74, 75]],
   lighthouse: [[48, 51, 50], [60, STONE_GABLE, 62], [76, 88, 79], [76, 89, 79]],
 });
 
@@ -244,6 +251,35 @@ export const SPRITES = Object.freeze([
   { id: 'relic_reapers_wake', kind: 'icon', ...ob(134) },
   { id: 'relic_seventh_bell', kind: 'icon', draw: 'bell' },
   { id: 'relic_tide_clock', kind: 'icon', ...ob(629) },
+  // Phase 7's relics.
+  { id: 'relic_gull_feather', kind: 'icon', ...ob(568) },
+  { id: 'relic_brass_button', kind: 'icon', ...ob(189), ramp: 'gold' },
+  { id: 'relic_spark_flint', kind: 'icon', ...ob(566), ramp: 'fire' },
+  { id: 'relic_barnacle_shell', kind: 'icon', ...ob(386), ramp: 'tide' },
+  { id: 'relic_bloodied_hook', kind: 'icon', ...ob(660), ramp: 'heart' },
+  { id: 'relic_drowned_bell', kind: 'icon', ...ob(570), ramp: 'tide' },
+  // Gear (the Smithy), consumables (the Apothecary), and arcana (the gate).
+  { id: 'gear_lantern', kind: 'icon', draw: 'stormLantern' },
+  { id: 'gear_coat', kind: 'icon', ...ob(86) },
+  { id: 'gear_boots', kind: 'icon', ...ob(40) },
+  { id: 'gear_compass', kind: 'icon', ...ob(708), ramp: 'gold' },
+  { id: 'gear_ring', kind: 'icon', draw: 'saltRing', ramp: 'candle' },
+  { id: 'gear_pier_lamp', kind: 'icon', ...ob(488), ramp: 'gold' },
+  { id: 'gear_charm', kind: 'icon', ...ob(389), ramp: 'tide' },
+  { id: 'gear_pendant', kind: 'icon', ...ob(437), ramp: 'bellmetal' },
+  { id: 'gear_bosun', kind: 'icon', ...ob(87), ramp: 'steel' },
+  { id: 'item_salts', kind: 'icon', ...ob(669) },
+  { id: 'item_tonic', kind: 'icon', ...ob(670), ramp: 'oil' },
+  { id: 'item_bone', kind: 'icon', ...ob(620), ramp: 'bone' },
+  { id: 'item_pebble', kind: 'icon', ...ob(676), ramp: 'iron' },
+  { id: 'item_token', kind: 'icon', ...ob(671), ramp: 'wood' },
+  { id: 'item_salve', kind: 'icon', ...ob(719), ramp: 'wood' },
+  { id: 'item_dust', kind: 'icon', ...ob(720), ramp: 'magnet' },
+  { id: 'item_pouch', kind: 'icon', ...ob(241), ramp: 'seaglass' },
+  { id: 'arcana_high_water', kind: 'icon', draw: 'wave', ramp: 'tide' },
+  { id: 'arcana_brine', kind: 'icon', ...ob(579), ramp: 'tide' },
+  { id: 'arcana_kindling', kind: 'icon', ...ob(567), ramp: 'fire' },
+  { id: 'arcana_glassblower', kind: 'icon', ...ob(581), ramp: 'seaglass' },
   { id: 'rune_splitting', kind: 'icon', draw: 'rune' },
   { id: 'rune_burning', kind: 'icon', draw: 'rune' },
   { id: 'rune_orbiting', kind: 'icon', draw: 'rune' },
@@ -252,6 +288,13 @@ export const SPRITES = Object.freeze([
 
   // ------------------------------------------------------------ props
   { id: 'prop_lamppost', kind: 'item', draw: 'lampPost' },
+  // The run's tasks and what they leave (Phase 7): a Wayside Lamp is the lamppost; a Fog Bell, the
+  // Ferryman's skiff, a Reliquary, the vault, and a shard of Sea Glass.
+  { id: 'task_bell', kind: 'item', draw: 'bell', ramp: 'bellmetal' },
+  { id: 'ferry_skiff', kind: 'item', draw: 'skiff', ramp: 'skiff' },
+  { id: 'pk_reliquary', kind: 'item', draw: 'reliquary', ramp: 'relic_lit' },
+  { id: 'pk_vault', kind: 'item', draw: 'reliquary', ramp: 'gold' },
+  { id: 'pk_glass', kind: 'item', draw: 'crystal', ramp: 'seaglass' },
 
   // ------------------------------------------------------------ the run map (the Drowned Docks)
   // Wet boards, some worn to the grain; crates, barrels, and wreckage block the way.
@@ -307,15 +350,26 @@ export const SPRITES = Object.freeze([
   // The buildings, one frame per stage (a level's stage: meta/state.js buildingStage).
   ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_library_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.library, stage, sign: 'library' })),
   ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_tavern_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.tavern, stage, sign: 'tavern' })),
-  // The plots of the buildings to come (Phase 7, and the Lighthouse in Phase 10): ruins for now.
-  ...['chapel', 'smithy', 'market', 'apothecary', 'cartographer', 'docks', 'lighthouse']
-    .map((id) => ({ id: `bld_${id}_ruin`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT[id], stage: 'ruin' })),
+  // Phase 7's six, each with its own sign.
+  ...['docks', 'smithy', 'chapel', 'market', 'apothecary', 'cartographer'].flatMap((b) => ['ruin', 'roof', 'lit', 'keeper', 'alive']
+    .map((stage) => ({ id: `bld_${b}_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT[b], stage, sign: b }))),
+  // The Lighthouse's plot (Phase 10): a ruin for now.
+  { id: 'bld_lighthouse_ruin', kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.lighthouse, stage: 'ruin' },
   // The townsfolk (Tiny Dungeon): Old Wick, Silas, and Bram.
   { id: 'npc_lamp_keeper', kind: 'npc', pack: 'dungeon', tile: 86, colors: { '#bd6c4a': 'fog-2', '#763b36': 'wood-2', '#c0cbdc': 'fog-4', '#8b9bb4': 'fog-3' } },
   // Silas: the townsman in a long ink-violet coat (the pack's wizard, with his hat, read as a wizard).
   { id: 'npc_librarian', kind: 'npc', pack: 'dungeon', tile: 85, colors: { '#c0cbdc': 'violet-3', '#8b9bb4': 'violet-2', '#bd6c4a': 'wood-2', '#763b36': 'wood-1' } },
   // Bram: the pack's bearded man with a headband, in a green tunic (tile 88 read as bare-chested).
   { id: 'npc_innkeeper', kind: 'npc', pack: 'dungeon', tile: 112, colors: { '#25956a': 'moss-2', '#43e1b3': 'moss-3' } },
+  // Phase 7's keepers: Ned (the pack's helmeted man, in sea blue), Hob (the bare-armed bearded man),
+  // Brother Hale (the hooded man), Fenn (the brown-haired man, in a lamp-gold coat), Old Moss (the
+  // pack's wizard, in a moss robe), and Pell (the townsman again, in green).
+  { id: 'npc_dockhand', kind: 'npc', pack: 'dungeon', tile: 87, colors: { '#c0cbdc': 'sea-4', '#8b9bb4': 'sea-3' } },
+  { id: 'npc_smith', kind: 'npc', pack: 'dungeon', tile: 88 },
+  { id: 'npc_warden', kind: 'npc', pack: 'dungeon', tile: 111 },
+  { id: 'npc_trader', kind: 'npc', pack: 'dungeon', tile: 98, colors: { '#c0cbdc': 'lamp-4', '#8b9bb4': 'lamp-3' } },
+  { id: 'npc_apothecary', kind: 'npc', pack: 'dungeon', tile: 84, colors: { '#9b4ca3': 'moss-2', '#d176d0': 'moss-3' } },
+  { id: 'npc_cartographer', kind: 'npc', pack: 'dungeon', tile: 85, colors: { '#c0cbdc': 'moss-3', '#8b9bb4': 'moss-2', '#bd6c4a': 'wood-2', '#763b36': 'wood-1' } },
   // Drawn in code in the pack's style (art/draw/hub.js): the sea, the pier, the quay and its wall,
   // the boat, the scaffold, signs, lanterns, and window boxes.
   { id: 'hub_drawn', kind: 'fx', draw: 'hub' },

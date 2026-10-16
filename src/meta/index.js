@@ -9,3 +9,5 @@ export * from './next.js';
 export * from './runconfig.js';
 export * from './reconcile.js';
 export * from './dev.js';
+export * from './workshop.js';
+export * from './feats.js';

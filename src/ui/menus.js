@@ -190,27 +190,109 @@ export function runeScreen(ctx, { rune, options, onPlace, onDiscard }) {
   });
 }
 
+/** How each kind of Form reads on a card (data/ascensions.js FORM_AXES). */
+export const AXIS_LABEL = Object.freeze({ delivery: 'How it fires', flight: 'How it flies', payoff: 'What it leaves' });
+
 /**
- * Ascend (an Ember picked up, or spent from the pause menu): a row a weapon that can still
- * ascend, its open ascensions as cards beside it; or keep the Ember for later.
- * weapons: [{ slot, name, icon, level, ascended: [names], options: [{ id, name, desc }] }]
+ * Ascend, step 1 (an Ember picked up, or spent from the pause menu): the weapons that can still
+ * take a Form, each with the Forms it has; pick one to see its Forms. Or keep the Ember for later.
+ * weapons: [{ slot, name, icon, level, taken: [names], forms: [...] (see formsScreen) }]
  */
-export function ascendScreen(ctx, { embers, weapons, onAscend, onKeep }) {
-  const rows = weapons.map((w, r) => h('div', { class: 'ascend-row' },
-    h('div', { class: 'ascend-weapon' }, ctx.icon(w.icon, 2),
-      h('div', null, h('div', { class: 'card-title' }, w.name), h('div', { class: 'card-sub' }, w.ascended.length ? `Ascended: ${w.ascended.join(', ')}` : `Lv ${w.level}`))),
-    ...w.options.map((o, c) => h('div', { class: 'card ascend-option', data: { focus: `a${r}_${c}` }, onclick: () => onAscend(w.slot, o.id) },
-      h('div', { class: 'card-title' }, o.name), h('div', { class: 'card-desc' }, o.desc)))));
+export function ascendScreen(ctx, { embers, weapons, onPick, onKeep }) {
+  const rows = weapons.map((w, r) => h('div', { class: 'card ascend-weapon', data: { focus: `w${r}` }, onclick: () => onPick(w) },
+    ctx.icon(w.icon, 2),
+    h('div', null,
+      h('div', { class: 'card-title' }, w.name),
+      h('div', { class: 'card-sub' }, `Forms: ${w.taken.length} of ${w.forms.length}`),
+      w.taken.length ? h('div', { class: 'card-note' }, w.taken.join(', ')) : null)));
   const el = panel('ascend-screen', 'Ascend',
-    h('div', { class: 'card-desc center' }, `Spend an Ember to change a weapon for the rest of the run. Embers: ${embers}`),
-    h('div', { class: 'ascend-rows' }, ...rows),
+    h('div', { class: 'card-desc center' }, `Embers: ${embers}`),
+    h('div', { class: `ascend-rows${rows.length === 1 ? ' one' : ''}` }, ...rows),
     h('div', { class: 'menu-col' }, button('Keep for later', 'keep', () => onKeep(), { cls: 'wide quiet' })));
-  const scope = createFocusScope(el, { initial: 'a0_0' });
+  const scope = createFocusScope(el, { initial: 'w0' });
   return simpleScreen(el, scope, {
     ignoreMs: 250,
     onBack: () => scope.focusKey('keep'),
     onAction: (a) => { if (a === 'pause' && ctx.pause) { ctx.pause(); return true; } return false; },
   });
+}
+
+/**
+ * Ascend, step 2: one weapon's three Forms, in the order of their kinds, each with what kind it
+ * is. One it has already shows Taken; one its runes won't allow says why; either is shown, not
+ * offered. Back returns to the weapons.
+ * weapon: { name, icon, forms: [{ id, name, desc, axis, taken, why }] } (why: null when it can be taken)
+ */
+export function formsScreen(ctx, { weapon, onAscend, onBack }) {
+  const cards = weapon.forms.map((f, c) => {
+    const off = f.taken || f.why;
+    // One that can't be taken still takes focus; pressing it plays the menu's "no".
+    return h('div', { class: `card ascend-option${off ? ' off' : ''}`, data: { focus: `f${c}` }, 'aria-disabled': off ? 'true' : null,
+      onclick: () => { if (off) ctx.sound?.('ui_back'); else onAscend(f.id); } },
+    h('div', { class: 'card-sub' }, AXIS_LABEL[f.axis] ?? ''),
+    h('div', { class: 'card-title' }, f.name),
+    h('div', { class: 'card-desc' }, f.desc),
+    f.taken ? h('div', { class: 'card-note' }, 'Taken') : f.why ? h('div', { class: 'card-note' }, f.why) : null);
+  });
+  const first = Math.max(0, weapon.forms.findIndex((f) => !f.taken && !f.why));
+  const el = panel('ascend-screen forms-screen', weapon.name,
+    h('div', { class: 'ascend-head' }, ctx.icon(weapon.icon, 2), h('div', { class: 'card-desc' }, `Forms: ${weapon.forms.filter((f) => f.taken).length} of ${weapon.forms.length}`)),
+    h('div', { class: 'ascend-forms' }, ...cards),
+    h('div', { class: 'menu-col' }, button('Back', 'back', () => onBack(), { cls: 'wide quiet' })));
+  const scope = createFocusScope(el, { initial: `f${first}` });
+  return simpleScreen(el, scope, {
+    onBack,
+    onAction: (a) => { if (a === 'pause' && ctx.pause) { ctx.pause(); return true; } return false; },
+  });
+}
+
+/**
+ * A Reliquary or the vault: one relic of three, each with its tier. relics: [{ name, desc, icon,
+ * tierName }].
+ */
+export function relicScreen(ctx, { vault, relics, onPick }) {
+  const cards = relics.map((r, i) => h('div', { class: 'card draft-card kind-relic', data: { focus: `c${i}` }, onclick: () => onPick(i) },
+    h('div', { class: 'card-head' }, ctx.icon(r.icon, 2), h('div', null, h('div', { class: 'card-title' }, r.name), h('div', { class: 'card-sub' }, r.tierName))),
+    h('div', { class: 'card-desc' }, r.desc)));
+  const el = panel('relic-screen', vault ? 'Vault' : 'Reliquary', h('div', { class: 'cards draft-cards' }, ...cards), hint(ctx, ['confirm', 'Take']));
+  const scope = createFocusScope(el, { initial: 'c0' });
+  return simpleScreen(el, scope, {
+    ignoreMs: 300,
+    onBack: () => scope.focusKey('c0'), // a pick: Back stays on the cards
+    onAction: (a) => { if (a === 'pause' && ctx.pause) { ctx.pause(); return true; } return false; },
+  });
+}
+
+/**
+ * The Ferryman's trade: his offers for Sea Glass, bought one at a time while the screen stays;
+ * Done closes it. view(): { glass, offers: [{ name, desc, icon, tierName?, price, sold, why }] },
+ * read again after each purchase.
+ */
+export function ferryScreen(ctx, { view, onBuy, onDone }) {
+  const list = h('div', { class: 'list ferry-list' });
+  const head = h('div', { class: 'card-desc center' });
+  const note = h('div', { class: 'bld-note' });
+  const el = panel('ferry-screen', 'Ferryman', head, list, note, h('div', { class: 'menu-col' }, button('Done', 'done', () => onDone(), { cls: 'wide' })),
+    hint(ctx, ['confirm', 'Buy'], '   ', ['back', 'Done']));
+  const scope = createFocusScope(el, { initial: 'o0' });
+  function draw() {
+    const v = view();
+    head.textContent = `Sea Glass: ${v.glass}`;
+    fill(list, ...v.offers.map((o, i) => h('div', {
+      class: `list-row${o.why ? ' off' : ''}`, data: { focus: `o${i}`, why: o.why },
+      onclick: () => { if (o.why) { note.textContent = o.why; ctx.sound?.('ui_back'); } else onBuy(i); },
+    },
+    h('div', { class: 'row-top' }, ctx.icon(o.icon, 1), h('span', { class: 'row-name' }, ` ${o.name}${o.tierName ? ` (${o.tierName})` : ''}`), h('span', { class: 'row-rank' }, o.sold ? 'Sold' : `${o.price} Sea Glass`)),
+    h('div', { class: 'row-desc' }, o.desc))));
+    scope.refresh();
+  }
+  draw();
+  const screen = simpleScreen(el, scope, {
+    ignoreMs: 300,
+    onBack: () => onDone(),
+    onAction: (a) => { if (a === 'pause' && ctx.pause) { ctx.pause(); return true; } return false; },
+  });
+  return { ...screen, refresh: draw, say: (t) => { note.textContent = t || ''; } };
 }
 
 export function overtimeScreen(ctx, { bossName, onStay, onLeave }) {
@@ -229,15 +311,22 @@ export function overtimeScreen(ctx, { bossName, onStay, onLeave }) {
 
 // ---------------------------------------------------------------- pause and run end
 
+/** Materials as icons with counts ([{ icon, name, count }]), or "None". */
+function matList(ctx, mats = []) {
+  return mats.length
+    ? h('div', { class: 'mat-list' }, ...mats.map((m) => h('div', { class: 'mat', title: m.name }, ctx.icon(m.icon, 1), ` ${m.count} ${m.name}`)))
+    : h('div', { class: 'card-desc' }, 'None');
+}
+
 /**
- * build: { time, weapons: [{ name, icon, level, max, runes }], passives: [...], relics: [{ name, icon }] }
+ * build: { time, weapons: [{ name, icon, level, max, runes }], passives: [...], relics: [{ name, icon }], materials: [{ icon, name, count }] }
  */
 export function pauseScreen(ctx, { build, onResume, onSettings, onStats = null, onAscend = null, onReport, onLeave, reportNote = null }) {
   // Every item in the build can take focus; the line under the rows says what it is and does.
   const detail = h('div', { class: 'build-detail' }, 'Select an item for details.');
   const describe = (w) => [
     h('div', { class: 'card-title' }, `${w.name}${w.level ? `  Lv ${w.level}${w.max ? ' MAX' : ''}` : ''}`),
-    w.ascensions?.length ? h('div', { class: 'card-note' }, `Ascended: ${w.ascensions.join(', ')}`) : null,
+    w.ascensions?.length ? h('div', { class: 'card-note' }, `Forms: ${w.ascensions.join(', ')}`) : null,
     w.runes?.length ? h('div', { class: 'card-note' }, `Runes: ${w.runes.join(', ')}`) : null,
     w.desc ? h('div', { class: 'card-desc' }, w.desc) : null,
   ];
@@ -261,6 +350,7 @@ export function pauseScreen(ctx, { build, onResume, onSettings, onStats = null, 
         h('h2', null, 'Weapons'), iconRow(build.weapons),
         h('h2', null, 'Passives'), iconRow(build.passives),
         build.relics.length ? [h('h2', null, 'Relics'), iconRow(build.relics)] : null,
+        h('h2', null, 'Materials found'), matList(ctx, build.materials),
         detail)),
     note);
   const onFocus = (target) => {
@@ -281,7 +371,7 @@ export function statsScreen(ctx, { view, onBack }) {
   const dl = (lines) => h('dl', { class: 'stats' }, ...lines.map(([k, v]) => [h('dt', null, k), h('dd', null, v)]));
   const weapon = (w, k) => h('div', { class: 'stats-weapon', data: { focus: `w${k}` } },
     h('div', { class: 'stats-weapon-head' }, ctx.icon(w.icon, 1), h('span', { class: 'card-title' }, w.innate ? `${w.name} (built in)` : `${w.name}  Lv ${w.level}${w.max ? ' MAX' : ''}`)),
-    w.ascensions.length ? h('div', { class: 'card-note' }, `Ascended: ${w.ascensions.join(', ')}`) : null,
+    w.ascensions.length ? h('div', { class: 'card-note' }, `Forms: ${w.ascensions.join(', ')}`) : null,
     w.runes.length ? h('div', { class: 'card-note' }, `Runes: ${w.runes.join(', ')}`) : null,
     dl(w.lines));
   const item = (it, k) => h('div', { class: 'stats-weapon stats-item', data: { focus: `i${k}` } },
@@ -289,7 +379,8 @@ export function statsScreen(ctx, { view, onBack }) {
     h('div', { class: 'card-desc' }, it.desc));
   const el = panel('stats-screen', 'Stats',
     h('div', { class: 'stats-grid' },
-      h('div', { class: 'stats-col' }, h('h2', null, 'Character'), dl(view.character), h('h2', null, 'All weapons'), dl(view.allWeapons)),
+      h('div', { class: 'stats-col' }, h('h2', null, 'Character'), dl(view.character)),
+      h('div', { class: 'stats-col' }, h('h2', null, 'All weapons'), dl(view.allWeapons), h('h2', null, 'Materials found'), matList(ctx, view.materials)),
       h('div', { class: 'stats-col stats-weapons' }, h('h2', null, 'Weapons'),
         view.weapons.length ? view.weapons.map(weapon) : h('div', { class: 'card-desc' }, 'None'),
         h('h2', null, 'Items'),

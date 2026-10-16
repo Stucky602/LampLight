@@ -9,4 +9,14 @@ export const META = Object.freeze({
   // Library's research of the tiers they open) is paid for from map 1 (tests/content.test.js), and
   // "the MVP harbor fully restored" is these at their last level (tools/pacing).
   mvpBuildings: Object.freeze(['lamp_post', 'library', 'tavern']),
+  // The Cartographer's bestiary rewards (data/buildings.js bestiary): what each milestone of
+  // META.bestiaryMilestones pays out once claimed, per enemy kind. The third and fourth add a
+  // small, capped bonus against that kind (`damageMul`, at most bestiaryBonusMax over every claim).
+  bestiaryRewards: Object.freeze([
+    Object.freeze({ materials: Object.freeze({ coin: 20 }) }),
+    Object.freeze({ materials: Object.freeze({ coin: 60, drowned_pages: 6 }) }),
+    Object.freeze({ materials: Object.freeze({ coin: 150, iron: 2 }), damageMul: 0.03 }),
+    Object.freeze({ materials: Object.freeze({ coin: 400, map_scraps: 3 }), damageMul: 0.03 }),
+  ]),
+  bestiaryBonusMax: 0.06,
 });

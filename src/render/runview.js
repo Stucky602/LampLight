@@ -17,7 +17,8 @@
 
 import { Container, Graphics, ParticleContainer, Particle, Sprite, RenderTexture, TilingSprite } from 'pixi.js';
 import { TELE, PICK, END } from '../sim/events.js';
-import { EF, PF, ZONE, AI, CAP, INNATE_SLOT } from '../sim/constants.js';
+import { EF, PF, ZONE, ZSTYLE, MARKS, AI, CAP, INNATE_SLOT, TASK, TASK_STATE } from '../sim/constants.js';
+import { taskRadius, isNight } from '../sim/tasks.js';
 import { CHARGER, RANGED } from '../sim/enemies.js';
 import { TILE } from '../sim/terrain.js';
 import { VIEW_W, VIEW_H, MARGIN, splitCamera } from './layout.js';
@@ -140,11 +141,13 @@ export function createRunView({ renderer, atlas, data, access }) {
   const hostileTex = T('proj_hostile');
   const matTex = data.materials.map((m) => T(m.icon));
   const PK_HEAL = T('pk_heal'), PK_MAGNET = T('pk_magnet'), CHEST_E = T('chest_elite'), CHEST_B = T('chest_boss'), CACHE = T('secret_cache'), EMBER = T('pk_ember');
+  // Phase 7: a Reliquary, the vault, Sea Glass, the run's tasks, and the Ferryman's skiff.
+  const RELIQ = T('pk_reliquary'), VAULT = T('pk_vault'), GLASS = T('pk_glass'), LAMP = T('prop_lamppost'), BELL = T('task_bell'), SKIFF = T('ferry_skiff');
   const playerTex = new Map(data.characters.map((c) => [c.sprite, [T(c.sprite), T(`${c.sprite}#flash`)]]));
 
   // Colors, packed once.
   const C = {
-    white: packColor(WHITE), lamp: FX_COLOR.lamp, cool: FX_COLOR.cool, ember: FX_COLOR.ember, gem: FX_COLOR.gem,
+    white: packColor(WHITE), dim: packColor(pal('fog-2')), lamp: FX_COLOR.lamp, cool: FX_COLOR.cool, ember: FX_COLOR.ember, gem: FX_COLOR.gem,
     warn: FX_COLOR.warn, warnHot: FX_COLOR.warnHot, violet: FX_COLOR.violet,
     crit: pal('lamp-5'), hurt: pal('rot-4'), heal: pal('moss-4'), number: pal('fog-5'),
     rot3: pal('rot-3'), rot2: pal('rot-2'), violet1: pal('violet-1'), fog: pal('night-4'),
@@ -336,12 +339,21 @@ export function createRunView({ renderer, atlas, data, access }) {
       else if (kind === PICK.HEAL) tex = PK_HEAL;
       else if (kind === PICK.MAGNET) tex = PK_MAGNET;
       else if (kind === PICK.EMBER) tex = EMBER;
+      else if (kind === PICK.RELIQUARY) tex = RELIQ;
+      else if (kind === PICK.VAULT) tex = VAULT;
+      else if (kind === PICK.GLASS) tex = GLASS;
       else tex = P.a[i] === 2 ? CHEST_B : CHEST_E;
-      const hover = kind === PICK.CHEST ? 0 : Math.round(Math.sin(now / 260 + i));
+      const hover = kind === PICK.CHEST || kind === PICK.VAULT || kind === PICK.RELIQUARY ? 0 : Math.round(Math.sin(now / 260 + i));
       pickups.add(tex, Math.round(x), Math.round(y) + hover, 1, 1, 0, C.white);
     }
     // The map's secret caches, until opened.
     for (const s of world.secrets) if (!s.open && inView(s.x, s.y, 16)) pickups.add(CACHE, Math.round(s.x), Math.round(s.y), 1, 1, 0, C.white);
+    // The tasks (a Wayside Lamp is a lamppost, a Fog Bell a bell on the ground) and the skiff.
+    for (const t of world.tasks) {
+      if (!inView(t.x, t.y, 24)) continue;
+      pickups.add(t.kind === TASK.LAMP ? LAMP : BELL, Math.round(t.x), Math.round(t.y) - (t.kind === TASK.LAMP ? 8 : 0), 1, 1, 0, t.state === TASK_STATE.DONE && t.kind === TASK.BELL ? C.dim : C.white);
+    }
+    if (world.ferry && inView(world.ferry.bx, world.ferry.by, 24)) pickups.add(SKIFF, Math.round(world.ferry.bx), Math.round(world.ferry.by) + Math.round(Math.sin(now / 500)), 1, 1, 0, C.white);
     pickups.end();
   }
 
@@ -357,7 +369,8 @@ export function createRunView({ renderer, atlas, data, access }) {
       const tex = hostile ? hostileTex : (shotTex[P.def[i]] || PARTICLE_FRAMES[PF_FRAME.PLUS]);
       const dx = P.x[i] - P.px[i], dy = P.y[i] - P.py[i];
       const rot = !hostile && shotUpright[P.def[i]] === true ? 0 : dx * dx + dy * dy > 0.01 ? Math.atan2(dy, dx) : 0;
-      shots.add(tex, Math.round(x), Math.round(y), 1, 1, rot, C.white);
+      const sc = P.scale[i] > 1 ? P.scale[i] : 1; // an Eclipse orb, grown
+      shots.add(tex, Math.round(x), Math.round(y), sc, sc, rot, C.white);
       n++;
     }
     // A beam's own sprite (the Signal Mirror's glint, the lens) where it leaves you, while it lasts.
@@ -392,16 +405,91 @@ export function createRunView({ renderer, atlas, data, access }) {
       } else if (kind === ZONE.BEAM) {
         g.moveTo(Math.round(x), Math.round(y)).lineTo(Math.round(x + Z.dx[i] * Z.length[i]), Math.round(y + Z.dy[i] * Z.length[i]))
           .stroke({ width: Math.max(2, Z.thickness[i]), color: C.lamp, alpha: 0.7 * (1 - u) + 0.2 });
+      } else if (kind === ZONE.GROUND && Z.style[i] === ZSTYLE.FLARE) {
+        // A hanging flare: a bright point over the spot, its light below, sparks falling from it.
+        const fy = Math.round(y) - 18;
+        g.circle(Math.round(x), Math.round(y), r).fill({ color: C.lamp, alpha: 0.08 * (1 - u * 0.5) });
+        g.circle(Math.round(x), fy, 2).fill({ color: WHITE, alpha: 0.95 }).circle(Math.round(x), fy, 4).fill({ color: C.lamp, alpha: 0.4 });
+        if (((now / 40) | 0) % 3 === i % 3) st.sparks.spawn(x + (st.rand() - 0.5) * 6, fy, (st.rand() - 0.5) * 30, 60, 500, PF_FRAME.DOT, C.ember, 0, 0);
+      } else if (kind === ZONE.GROUND && Z.style[i] === ZSTYLE.WARD) {
+        // A ward: a small lantern on the ground, pulsing its ring outward.
+        const ring = (Z.age[i] / 0.6) % 1; // on sim time: its own age
+        g.circle(Math.round(x), Math.round(y), Math.max(2, r * ring)).stroke({ width: 1, color: C.lamp, alpha: 0.5 * (1 - ring) });
+        g.rect(Math.round(x) - 2, Math.round(y) - 4, 4, 5).fill({ color: C.lamp, alpha: 0.9 }).rect(Math.round(x) - 1, Math.round(y) - 6, 2, 2).fill({ color: C.fog, alpha: 1 });
       } else if (kind === ZONE.GROUND) {
         const flick = 0.18 + 0.07 * Math.sin(now / 70 + i);
         g.circle(Math.round(x), Math.round(y), r).fill({ color: C.rot3, alpha: flick * (1 - u * 0.6) });
         if (((now / 50) | 0) % 5 === i % 5) st.sparks.spawn(x + (st.rand() - 0.5) * r, y + (st.rand() - 0.5) * r, 0, -20, 400, PF_FRAME.DOT, C.ember, 0, 0);
+      } else if (kind === ZONE.TETHER) {
+        // A tether: the harpoon's chain, from you to the enemy it's stuck in.
+        g.moveTo(Math.round(px), Math.round(py)).lineTo(Math.round(x), Math.round(y)).stroke({ width: 2, color: C.fog, alpha: 0.95 })
+          .moveTo(Math.round(px), Math.round(py)).lineTo(Math.round(x), Math.round(y)).stroke({ width: 1, color: C.number, alpha: 0.7 * (1 - u) + 0.3 });
+      } else if (kind === ZONE.MARK && Z.style[i] === MARKS.STATIC) {
+        // A charged enemy: a flicker of sparks on it.
+        if (((now / 60) | 0) % 4 === i % 4) st.sparks.spawn(x + (st.rand() - 0.5) * 8, y - 4 + (st.rand() - 0.5) * 8, 0, 0, 160, PF_FRAME.DOT, C.lamp, 0, 0);
       } else if (kind === ZONE.HAZARD && Z.age[i] >= Z.warn[i]) {
         // The pool itself (its warning is drawn with the other warnings, unlit).
         g.circle(Math.round(x), Math.round(y), r).fill({ color: C.violet1, alpha: 0.75 }).stroke({ width: 1, color: C.rot2, alpha: 0.9 });
       }
     }
+    drawTaskRings(g, px, py);
     drawBolts(g);
+    drawZaps(g);
+    drawSlotProps(g, px, py);
+  }
+
+  // The tasks' rings: a lamp's reach and how lit it is; a bell's ring and how many kills it has.
+  function drawTaskRings(g) {
+    for (const t of world.tasks) {
+      if (t.state === TASK_STATE.DONE) continue;
+      const r = taskRadius(world, t);
+      if (!inView(t.x, t.y, r + 8)) continue;
+      const x = Math.round(t.x), y = Math.round(t.y);
+      const col = t.kind === TASK.LAMP ? C.lamp : C.cool;
+      g.circle(x, y, r).stroke({ width: 1, color: col, alpha: t.state === TASK_STATE.ACTIVE ? 0.55 : 0.25 });
+      if (t.state === TASK_STATE.ACTIVE && t.need > 0) {
+        const f = Math.min(1, t.progress / t.need);
+        // The progress, round the ring from the top.
+        g.moveTo(x, y - r).arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2).stroke({ width: 3, color: col, alpha: 0.9 });
+      }
+    }
+  }
+
+  // Static's zaps: a short jagged line from a charged enemy to the neighbor it zapped.
+  function drawZaps(g) {
+    const Zp = st.zaps;
+    for (let k = 0; k < Zp.n; k++) {
+      const age = now - Zp.t[k];
+      if (age >= BOLT_MS) continue;
+      const a = 1 - age / BOLT_MS;
+      const x1 = Zp.x[k], y1 = Zp.y[k], x2 = Zp.x2[k], y2 = Zp.y2[k];
+      const mx = (x1 + x2) / 2 + ((k * 7) % 9) - 4, my = (y1 + y2) / 2 + ((k * 5) % 9) - 4;
+      g.moveTo(Math.round(x1), Math.round(y1)).lineTo(Math.round(mx), Math.round(my)).lineTo(Math.round(x2), Math.round(y2)).stroke({ width: 1, color: WHITE, alpha: a });
+    }
+  }
+
+  // What a weapon's Forms stand in the world: a Planted Rod, a Pyre at your side.
+  function drawSlotProps(g, px, py) {
+    for (let s = 0; s < world.slots.length; s++) {
+      const sl = world.slots[s];
+      if (!sl || !sl.fx) continue;
+      if (sl.fx.rod && sl.fs.rodUntil >= world.tick) {
+        const x = Math.round(sl.fs.rodX), y = Math.round(sl.fs.rodY);
+        if (inView(x, y, 30)) {
+          g.rect(x - 1, y - 22, 2, 22).fill({ color: C.fog, alpha: 1 }).rect(x - 2, y - 24, 4, 2).fill({ color: C.number, alpha: 1 });
+          g.circle(x, y - 25, 2 + (((simSeconds(world) / 0.12) | 0) % 2)).fill({ color: C.lamp, alpha: 0.8 });
+        }
+      }
+      if (sl.fx.pyre && sl.fs.pyre > 0) {
+        // The pyre: a heap at your side with a flame for each one gathered.
+        const x = Math.round(px + 12), y = Math.round(py - 4), n = sl.fs.pyre;
+        g.rect(x - 4, y + 2, 9, 2).fill({ color: C.fog, alpha: 1 });
+        for (let k = 0; k < n; k++) {
+          const fx = x - 3 + (k % 4) * 2, fy = y - Math.floor(k / 4) * 3 + Math.round(Math.sin(simSeconds(world) / 0.09 + k));
+          g.rect(fx, fy, 1, 2).fill({ color: k % 2 ? C.lamp : C.ember, alpha: 0.9 });
+        }
+      }
+    }
   }
 
   // Lightning: a jagged white-gold line from 96 px above each strike's own hit down to it, fading
@@ -542,6 +630,20 @@ export function createRunView({ renderer, atlas, data, access }) {
     // An Ember on the ground glows violet, so it's seen in the dark.
     const PU = world.pickups;
     for (let i = 0; i < PU.count && n < L.maxLights; i++) if (PU.kind[i] === PICK.EMBER && lightAt(PU.x[i], PU.y[i], 40, C.violet, 0.7)) n++;
+    // The tasks: a lit lamp burns, an unlit one glows faintly so it's seen; a waking bell, faintly
+    // blue. The Ferryman's lantern. A Reliquary and the vault glow.
+    for (const t of world.tasks) {
+      if (n >= L.maxLights) break;
+      if (t.kind === TASK.LAMP && lightAt(t.x, t.y - 14, t.state === TASK_STATE.DONE ? 110 : 34, C.lamp, t.state === TASK_STATE.DONE ? 0.9 : 0.5)) n++;
+      else if (t.kind === TASK.BELL && t.state !== TASK_STATE.DONE && lightAt(t.x, t.y, 30, C.cool, 0.5)) n++;
+    }
+    if (world.ferry && n < L.maxLights && lightAt(world.ferry.bx, world.ferry.by - 10, 50, C.lamp, 0.8)) n++;
+    for (let i = 0; i < PU.count && n < L.maxLights; i++) {
+      if (PU.kind[i] === PICK.RELIQUARY && lightAt(PU.x[i], PU.y[i], 46, C.violet, 0.8)) n++;
+      else if (PU.kind[i] === PICK.VAULT && lightAt(PU.x[i], PU.y[i], 60, C.lamp, 0.9)) n++;
+    }
+    // Lantern Night: your light reaches as far as it burns.
+    if (isNight(world) && n < L.maxLights) { lightAt(px, py, world.tuning.tasks.night.light * 2, C.lamp, 0.55); n++; }
     // A secret cache glows faintly violet through the dark until it's opened (you see it once
     // you're near; nothing points the way).
     for (const s of world.secrets) if (!s.open && n < L.maxLights && lightAt(s.x, s.y, 56 + 8 * Math.sin(now / 400), C.violet, 0.6)) n++;
@@ -571,12 +673,14 @@ export function createRunView({ renderer, atlas, data, access }) {
     for (let i = 0; i < G.count && n < L.maxLights; i++) if (lightAt(G.x[i], G.y[i], L.gem * (G.big[i] ? 3 : 1), C.gem, 0.35)) n++;
     lights.end(); fogCut.end();
     stats.lights = n;
-    const amb = Math.min(1, Math.max(0, (world.map.ambient ?? 0.35) + L.ambientBoost));
+    // Lantern Night lifts the dark and the fog.
+    const night = isNight(world);
+    const amb = Math.min(1, Math.max(0, (world.map.ambient ?? 0.35) + L.ambientBoost + (night ? 0.3 : 0)));
     const r0 = performance.now();
     app.render({ container: lightRoot, target: lightRT, clear: true, clearColor: [amb, amb, Math.min(1, amb * 1.08), 1] });
     // Fog: drifting noise, anchored to the world, cut away by the same lights.
     fogTile.tint = C.fog;
-    fogTile.alpha = feel.fog.density;
+    fogTile.alpha = feel.fog.density * (night ? 0.15 : 1);
     const drift = (now / 1000) * feel.fog.drift;
     fogTile.tilePosition.set(-origin.x / 2 + drift * 0.5, -origin.y / 2 + drift * 0.2);
     app.render({ container: fogRoot, target: fogRT, clear: true, clearColor: [0, 0, 0, 0] });

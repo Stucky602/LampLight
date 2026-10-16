@@ -11,6 +11,9 @@ import { EV, TELE, STATUS } from './events.js';
 import { hurtPlayer } from './player.js';
 import { runHooks } from './hooks.js';
 import { spawnGem, rollDrops, spawnPickup } from './pickups.js';
+import { formKill } from './forms.js';
+import { bellKill } from './tasks.js';
+import { maybeReliquary, glassFor } from './relics.js';
 import { dropChest, CHEST_BOSS, CHEST_ELITE } from './chests.js';
 
 import { bossStep, bossDied, BOSS_STATE } from './bosses.js';
@@ -34,10 +37,12 @@ export const ENEMY_FIELDS = {
   slowT: Float32Array, slowPct: Float32Array, freezeT: Float32Array, rotT: Float32Array, rotAmp: Float32Array,
   dazeT: Float32Array,                      // seconds left dazed (reeled in by the Harpooner): no walking, no contact damage
   killer: Int8Array,                        // weapon slot of the killing blow (-1: not a weapon)
+  killedByZone: Uint8Array,                 // 1 when that blow was a zone's pulse (ground, a ward), not the weapon's own hit
   anim: Float32Array,                       // render phase, fixed at spawn
   boss: Int8Array,                          // index into world.bosses; -1 none; MUSTER_CAPTAIN a muster's elite (pays a boss chest)
   nextHit: [Int32Array, HIT_SLOTS],         // tick each weapon slot may hit this enemy again
   waveHit: [Int32Array, HIT_SLOTS],         // per slot: the last wave that hit it (zone handle + 1)
+  focusN: Uint8Array, focusT: Int32Array,   // Burning Glass: hits held in a beam, and the tick of the last one
 };
 
 export const KB_UNIT = 100; // knockback 1 = an impulse of 100 px/s against mass 1
@@ -62,12 +67,12 @@ export function spawnEnemy(world, type, x, y, opts = null) {
   E.type[i] = type;
   E.hp[i] = E.maxHp[i] = def.hp * (isBoss ? world.director.bossHpMul : hpMul) * (elite ? T.eliteHp : 1);
   E.radius[i] = def.radius * (elite ? T.eliteSize : 1);
-  E.speed[i] = def.speed;
+  E.speed[i] = def.speed * world.enemySpeedMul; // a Tide or Fast Water makes them quicker
   E.mass[i] = def.mass * (elite ? T.eliteMass : 1);
   E.contact[i] = def.contact * world.director.contactMul * (elite ? T.eliteContact : 1);
   E.xp[i] = def.xp * (elite ? T.eliteXp : 1);
   E.ai[i] = AI[def.ai.type];
-  E.killer[i] = -1;
+  E.killer[i] = -1; E.killedByZone[i] = 0;
   E.boss[i] = -1;
   E.anim[i] = world.rng.spawn.next();
   let f = 0;
@@ -136,6 +141,7 @@ export function damageEnemyR(world, e, slot, crit) {
   const E = world.enemies;
   if ((E.flags[e] & EF.DEAD) !== 0 || !(amount > 0)) return 0;
   if (E.rotT[e] > 0) amount *= 1 + E.rotAmp[e];
+  if (world.bestiaryMul !== null && slot < HIT_SLOTS) amount *= world.bestiaryMul[E.type[e]]; // the Cartographer's bestiary bonus
   E.hp[e] -= amount;
   E.flash[e] = world.tuning.enemies.flashTicks;
   if (slot < HIT_SLOTS) world.result.damageBySlot[slot] += amount;
@@ -146,6 +152,7 @@ export function damageEnemyR(world, e, slot, crit) {
   if (E.hp[e] <= 0) {
     E.flags[e] |= EF.DEAD;
     E.killer[e] = slot < HIT_SLOTS ? slot : -1;
+    E.killedByZone[e] = world.zonePulse;
   }
   return amount;
 }
@@ -543,9 +550,15 @@ export function resolveDeaths(world) {
     const ev = world.events, kk = ev.reserve(EV.KILL);
     if (kk >= 0) { ev.x[kk] = x; ev.y[kk] = y; ev.a[kk] = type; ev.b[kk] = ((f & EF.ELITE) !== 0 ? 1 : 0) | ((f & EF.BOSS) !== 0 ? 2 : 0); ev.c[kk] = E.killer[i]; ev.d[kk] = E.handle(i); }
     runHooks(world, 'onKill', i, type);
+    const ks = E.killer[i];
+    if (ks >= 0) { const sl = world.slots[ks]; if (sl && sl.killForm) formKill(world, sl, x, y, E.killedByZone[i] === 1); } // Forms that act on a kill
     const xp = E.xp[i] * world.killXpMul;
     if (xp > 0) spawnGem(world, x, y, xp);
     rollDrops(world, i, def, f);
+    // Phase 7: a waking Fog Bell's count, a Reliquary now and then from an ordinary kill, Sea Glass from elites and bosses.
+    if (world.tasks.length) bellKill(world, x, y);
+    if ((f & (EF.ELITE | EF.BOSS | EF.MINION)) === 0) maybeReliquary(world, x, y);
+    else { const g = glassFor(world, f); if (g > 0) spawnPickup(world, PK.GLASS, x, y - 8, g, 0); }
     if (def.ai.type === 'splitter') {
       const into = world.enemyIndex.get(def.ai.into);
       const cnt = def.ai.count;
@@ -560,7 +573,7 @@ export function resolveDeaths(world) {
     else if ((f & EF.ELITE) !== 0) {
       dropChest(world, x, y, E.boss[i] === MUSTER_CAPTAIN ? CHEST_BOSS : CHEST_ELITE); // a muster captain pays a boss chest
       // An Ember: always from a muster's captain, now and then from an elite (tuning.embers).
-      const chance = world.tuning.embers?.eliteChance ?? 0;
+      const chance = (world.tuning.embers?.eliteChance ?? 0) * world.emberEliteMul;
       if (world.ascensionLines.size && (E.boss[i] === MUSTER_CAPTAIN || (chance > 0 && world.rng.loot.chance(chance)))) spawnPickup(world, PK.EMBER, x, y + 14, 0, 0);
     }
   }

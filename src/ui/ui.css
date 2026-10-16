@@ -20,6 +20,7 @@
   --night-2: #141925;
   --night-3: #1c2331;
   --night-4: #262f42;
+  --night-5: #34405a;
   --fog-1: #4a5670;
   --fog-2: #6b7892;
   --fog-3: #95a3b9;
@@ -359,6 +360,13 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .building-screen .panel { width: calc(var(--u) * 470); padding: calc(var(--u) * 8) calc(var(--u) * 10); }
 .bld-head { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: calc(var(--u) * 8); }
 .bld-head h1 { text-align: left; margin: 0; }
+/* An item at the Smithy: its icon, its name, then its slot and tier. */
+.gear-screen .bld-head { grid-template-columns: auto 1fr auto; align-items: center; margin-bottom: calc(var(--u) * 4); }
+.gear-screen .list { max-height: calc(var(--u) * 220); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: var(--u); }
+/* The gate's second step: what the focused row's value does, under the list. */
+/* At 720p a full gate (a kit, every curse, three slots) is taller than the view: its rows scroll inside the panel. */
+.setup-screen .settings-list { max-height: calc(var(--u) * 180); overflow-y: auto; padding: var(--u); }
+.setup-detail { min-height: calc(var(--u) * 20); margin-top: calc(var(--u) * 4); display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
 .bld-level { color: var(--lamp-4); }
 .bld-desc { grid-column: 1 / -1; color: var(--fog-3); margin: calc(var(--u) * 2) 0 calc(var(--u) * 6); max-width: none; }
 .bld-body { display: flex; gap: calc(var(--u) * 10); align-items: flex-start; }
@@ -376,8 +384,8 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .list-row { padding: calc(var(--u) * 2) calc(var(--u) * 4); border: var(--u) solid var(--night-4); background: var(--night-2); cursor: pointer; display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
 .list-row.static { cursor: default; }
 .list-row.off .row-name { color: var(--fog-2); }
-.row-top { display: flex; justify-content: space-between; gap: calc(var(--u) * 6); }
-.row-name { color: var(--fog-5); }
+.row-top { display: flex; align-items: center; gap: calc(var(--u) * 3); }
+.row-name { color: var(--fog-5); flex: 1; min-width: 0; text-align: left; }
 .row-rank { color: var(--lamp-4); font-size: calc(var(--u) * 7); }
 .row-desc { color: var(--fog-3); font-size: calc(var(--u) * 7); }
 .row-adds { color: var(--violet-4); font-size: calc(var(--u) * 7); }
@@ -424,18 +432,23 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .run-tips .tips-title { color: var(--lamp-5); margin-bottom: calc(var(--u) * 2); }
 .run-tips .glyph { color: var(--lamp-6); }
 
-/* Stats (ui/menus.js statsScreen): two columns, the weapons' list scrolling if it's long. */
-.stats-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: calc(var(--u) * 12); }
-.stats-weapons { max-height: calc(var(--u) * 230); overflow-y: auto; }
+/* Stats (ui/menus.js statsScreen): three columns (the character; every weapon's bonuses and the
+   materials; the weapons and items, scrolling with the focus), so the panel fits the view. */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr 1.9fr; gap: calc(var(--u) * 10); }
+.stats-weapons { max-height: calc(var(--u) * 240); overflow-y: auto; }
 .stats-weapon { margin-bottom: calc(var(--u) * 6); padding-bottom: calc(var(--u) * 4); border-bottom: var(--u) solid var(--night-4); }
 .stats-weapon:focus-within, .stats-weapon.focus { outline: var(--u) solid var(--lamp-5); }
 .stats-weapon-head { display: flex; align-items: center; gap: calc(var(--u) * 4); }
 .stats-item { padding-bottom: calc(var(--u) * 3); margin-bottom: calc(var(--u) * 3); }
 
-/* Ascend (ui/menus.js ascendScreen): a row a weapon, its open ascensions as cards beside it. */
-.ascend-rows { display: flex; flex-direction: column; gap: calc(var(--u) * 6); max-height: calc(var(--u) * 230); overflow-y: auto; }
-.ascend-row { display: grid; grid-template-columns: calc(var(--u) * 120) repeat(3, 1fr); gap: calc(var(--u) * 6); align-items: stretch; }
-.ascend-weapon { display: flex; gap: calc(var(--u) * 4); align-items: center; }
+/* Ascend (ui/menus.js ascendScreen, formsScreen): the weapons that can take a Form, then one
+   weapon's three Forms side by side. */
+.ascend-rows { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 6); max-height: calc(var(--u) * 230); overflow-y: auto; }
+.ascend-rows.one { grid-template-columns: minmax(0, 50%); justify-content: center; }
+.ascend-weapon { display: flex; gap: calc(var(--u) * 6); align-items: center; padding: calc(var(--u) * 4); }
+.ascend-head { display: flex; gap: calc(var(--u) * 6); align-items: center; margin-bottom: calc(var(--u) * 6); }
+.ascend-forms { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--u) * 6); }
 .ascend-option { padding: calc(var(--u) * 4); }
-.stats-screen .panel { width: calc(var(--u) * 560); max-width: none; }
+.ascend-option.off { opacity: 0.5; }
+.stats-screen .panel { width: calc(var(--u) * 600); max-width: none; }
 .stats-weapons .stats-weapon dl.stats { grid-template-columns: auto auto auto auto; }

@@ -10,7 +10,7 @@
 // tool's, a test's) may lack a part, which reads as empty and is written as a new one (writable).
 
 import { canPay, missing, pay, scale } from './costs.js';
-import { levelOf, rankOf, treeTier, researchTier, researchSlots, researchDone, researchActive, resolveContent } from './state.js';
+import { levelOf, rankOf, treeTier, researchTier, researchSlots, researchDone, researchActive, resolveContent, reached } from './state.js';
 
 export class MetaError extends Error {
   constructor(msg) { super(msg); this.name = 'MetaError'; }
@@ -53,7 +53,8 @@ export function levelFor(data, buildingId, key, value) {
 /** Content that became available between two resolveContent results: [{ what, id }]. */
 export function newlyUnlocked(before, after) {
   const out = [];
-  for (const [what, key] of [['character', 'characters'], ['weapon', 'weapons'], ['passive', 'passives'], ['relic', 'relics'], ['rune', 'runes']]) {
+  for (const [what, key] of [['character', 'characters'], ['weapon', 'weapons'], ['passive', 'passives'], ['relic', 'relics'], ['rune', 'runes'],
+    ['recipe', 'recipes'], ['consumable', 'consumables'], ['arcana', 'arcana']]) {
     const had = new Set(before[key]);
     for (const id of after[key]) if (!had.has(id)) out.push({ what, id });
   }
@@ -70,11 +71,22 @@ export function nextLevelCost(doc, data, id) {
   return lv < b.levels.length ? b.levels[lv].cost : null;
 }
 
+/**
+ * The milestone the fog in front of a building clears at, when it hasn't yet (its plot's
+ * `openAt`, data/hub.js), else null: a ruin in the fog can't be walked up to or restored.
+ */
+export function fogOver(doc, data, id) {
+  const at = data.hub.plots.find((p) => p.building === id)?.openAt;
+  return at && at !== 'start' && !reached(doc, at, data) ? at : null;
+}
+
 export function whyNotRestore(doc, data, id) {
   const b = data.buildings.find((x) => x.id === id);
   if (!b) return `There is no building called "${id}".`;
   const cost = nextLevelCost(doc, data, id);
   if (!cost) return 'Already at max level';
+  const fog = fogOver(doc, data, id);
+  if (fog) return `Requires ${buildingName(data, fog.split(':')[0])} Lv ${fog.split(':')[1]}`;
   if (!canPay(partOf(doc, 'materials'), cost)) return `Need ${shortText(data, partOf(doc, 'materials'), cost)}`;
   return null;
 }

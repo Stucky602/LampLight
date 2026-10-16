@@ -78,7 +78,7 @@ export function createDirector(world) {
     timeScale: scale,
     bands, events, eventIdx: 0, lastBossEvent: lastBoss,
     band: 0,
-    hpMul: 1, contactMul: 1, bossHpMul: world.config.mode === 'short' ? world.tuning.run.shortBossHp : 1,
+    hpMul: 1, contactMul: 1, bossHpMul: (world.config.mode === 'short' ? world.tuning.run.shortBossHp : 1) * (world.config.hpMul ?? 1), // a Tide's hp too
     materialMul: 1, otDensity: 1, otHp: 1,
     target: 0, regularAlive: 0, bossesAlive: 0,
     finalBossDead: false,

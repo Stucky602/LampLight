@@ -19,8 +19,13 @@ import { atlasInputs, codeOf } from '../atlas/sources.mjs';
 /** The committed yields, from the repo's root. */
 export const YIELDS_FILE = 'tools/pacing/yields.json';
 
-/** The parts of DATA a fresh profile's run reads only through its run config (hashed as the config). */
-export const HARBOR_ONLY = Object.freeze(['buildings', 'research', 'upgrades', 'npcs', 'hub', 'hubTuning', 'meta']);
+/**
+ * The parts of DATA a fresh profile's run reads only through its run config (hashed as the
+ * config). Phase 7's are all chosen at the gate or bought in the harbor, and a fresh profile has
+ * none of them: gear, consumables, Tides and curses, arcana, challenges, feats, mastery, the Market.
+ */
+export const HARBOR_ONLY = Object.freeze(['buildings', 'research', 'upgrades', 'npcs', 'hub', 'hubTuning', 'meta',
+  'recipes', 'affixes', 'consumables', 'tides', 'curses', 'arcana', 'challenges', 'feats', 'perks', 'kits', 'market']);
 
 /** The code a measured run runs: measure.mjs and every file it imports, but not the data files (hashed as data). */
 export function yieldsInputs(root) {

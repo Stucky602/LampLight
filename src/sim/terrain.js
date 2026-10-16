@@ -62,6 +62,30 @@ export function createTerrain({ cols, rows, solid = null, kinds = null }) {
       return t.blocked(Math.floor(px / TILE), Math.floor(py / TILE));
     },
 
+    /**
+     * The middle of the open tile nearest tile (tx, ty) (straight-line distance; the first in scan
+     * order on a tie, so the same map always picks the same tile), written to out[0], out[1] in px.
+     * Rings out from the tile; once one is found at ring r, nothing beyond ring r * 1.42 can be
+     * nearer. Returns false when none is within `reach` rings.
+     */
+    nearestOpen(tx, ty, out, reach = 64) {
+      let best = -1, bx = 0, by = 0, last = reach - 1;
+      for (let r = 0; r <= last; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || t.blocked(tx + dx, ty + dy)) continue;
+            const d = dx * dx + dy * dy;
+            if (best >= 0 && d >= best) continue;
+            best = d; bx = tx + dx; by = ty + dy;
+          }
+        }
+        if (best >= 0 && last > Math.ceil(r * 1.42)) last = Math.ceil(r * 1.42);
+      }
+      if (best < 0) return false;
+      out[0] = (bx + 0.5) * TILE; out[1] = (by + 0.5) * TILE;
+      return true;
+    },
+
     /** Number of solid tiles in the tile rectangle [tx0, tx1] x [ty0, ty1] (clipped to the map). */
     solidIn(tx0, ty0, tx1, ty1) {
       const x0 = tx0 < 0 ? 0 : tx0, y0 = ty0 < 0 ? 0 : ty0;

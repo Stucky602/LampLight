@@ -12,7 +12,7 @@
 import { createRecordedRun } from '../../sim/replay.js';
 import { currentHalt, buildRunResult } from '../../sim/world.js';
 import { tuningDiff, tuningCopyText } from '../../ui/tuningmodel.js';
-import { levelUpScreen, chestScreen, runeScreen, overtimeScreen, pauseScreen, endScreen, confirmScreen, runTips, statsScreen, ascendScreen } from '../../ui/menus.js';
+import { levelUpScreen, chestScreen, runeScreen, overtimeScreen, pauseScreen, endScreen, confirmScreen, runTips, statsScreen, ascendScreen, formsScreen, relicScreen, ferryScreen } from '../../ui/menus.js';
 import { tuningScreen } from '../../ui/tuning.js';
 import { hitStopFor, soundFor, noticeFor, haltView, pauseBuild, runSummary, createEventLog, panelTuning, statsView } from '../runlogic.js';
 import { formatClock } from '../../render/hudtext.js';
@@ -81,10 +81,32 @@ export function createRunScene(deps) {
       case 'ascend':
         haltScreen = ui.push(ascendScreen(menuCtx, {
           embers: v.embers, weapons: v.weapons,
-          onAscend: (slot, id) => { decide({ kind: 'ascend', slot, id }); next(); },
+          // A weapon, then its Forms (a screen over this one; Back returns here).
+          onPick: (w) => {
+            const fs = ui.push(formsScreen(menuCtx, {
+              weapon: w,
+              onAscend: (id) => { ui.close(fs); decide({ kind: 'ascend', slot: w.slot, id }); next(); },
+              onBack: () => ui.close(fs),
+            }));
+          },
           onKeep: () => { decide({ kind: 'keep' }); next(); },
         }));
         break;
+      case 'relic':
+        haltScreen = ui.push(relicScreen(menuCtx, {
+          vault: v.vault, relics: v.relics,
+          onPick: (i) => { decide({ kind: 'pick', index: i }); next(); },
+        }));
+        break;
+      case 'ferry': {
+        const s = ferryScreen(menuCtx, {
+          view: () => haltView(world, currentHalt(world) ?? h, data),
+          onBuy: (i) => { decide({ kind: 'buy', index: i }); s.refresh(); },
+          onDone: () => { decide({ kind: 'done' }); next(); },
+        });
+        haltScreen = ui.push(s);
+        break;
+      }
       case 'overtime':
         haltScreen = ui.push(overtimeScreen(menuCtx, {
           bossName: v.bossName,
@@ -223,11 +245,13 @@ export function createRunScene(deps) {
     toggleTuningForTools: () => toggleTuning(),
     openSettingsForTools: () => deps.onSettings(),
     openChestForTools: () => rec.decide({ kind: 'dev', cmd: 'chest', boss: true }),
-    enter({ character, seed, all = false }) {
-      lastConfig = { character, seed: undefined, all };
+    enter({ character, seed, all = false, ...choice }) {
+      // Run again sets out the same way, without the consumables and rune stone (used up).
+      lastConfig = { ...choice, character, seed: undefined, all, consumables: [], rune: '' };
       const s = seed ?? `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
-      // The profile's pools and upgrades (the app's configFor); tools without one get everything.
-      const config = deps.configFor ? deps.configFor({ character, seed: s, all }) : { seed: s, character, map: data.maps[0].id };
+      // The profile's pools and upgrades, and the gate's choices (the app's configFor); tools
+      // without one get everything.
+      const config = deps.configFor ? deps.configFor({ ...choice, character, seed: s, all }) : { seed: s, character, map: data.maps[0].id };
       rec = createRecordedRun(config, data, buildId);
       world = rec.world;
       world.eventsPerTick = false;

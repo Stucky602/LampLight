@@ -40,6 +40,11 @@ export const EV = Object.freeze({
   ENEMY_SHOT: 27,  // x, y (a hostile shot leaves an enemy or boss)
   SECRET: 28,      // x, y, a = secret index on the map (its cache opened)
   ASCEND: 30,      // x, y, a = weapon slot (an Ember spent on it)
+  ZAP: 31,         // x, y (a Static charge) -> a, b (the neighbor it zapped)
+  TASK: 32,        // x, y, a = kind (TASK), b = state reached (1 started, 2 done), c = task index, d = Sea Glass it gave
+  GLASS: 33,       // x, y, a = Sea Glass gained (negative: spent), b = held now
+  NIGHT: 34,       // x, y, a = 1 Lantern Night begins, 0 it ends
+  FERRY: 35,       // x, y, a = 1 new stock, 2 a purchase (b = offer index)
   MUSTER: 29,      // x, y, a = escorts, b = elite handle, c = timeline event index (an elite and its crew)
 });
 

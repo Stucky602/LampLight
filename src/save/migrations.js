@@ -20,6 +20,26 @@ export const PROFILE_MIGRATIONS = [
     if (p.research && typeof p.research === 'object') delete p.research.slots;
     return out;
   },
+  // v2 -> v3 (Phase 7): gear gets a counter for its items, and the new parts start empty:
+  // consumables and rune stones held, bestiary rewards claimed, feats found, challenge runs won,
+  // the gate's last choices, and four lifetime numbers. Nothing the player earned moves.
+  (doc) => {
+    const out = structuredClone(doc);
+    out.v = 3;
+    const p = out.profile && typeof out.profile === 'object' ? out.profile : (out.profile = {});
+    const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+    if (!obj(p.gear)) p.gear = { inventory: [], equipped: {} };
+    const items = Array.isArray(p.gear.inventory) ? p.gear.inventory : [];
+    // The next uid follows the highest one an item already has.
+    p.gear.next = items.reduce((m, it) => (obj(it) && Number.isInteger(it.uid) && it.uid >= m ? it.uid + 1 : m), 1);
+    p.gear.rolls = 0;
+    for (const k of ['consumables', 'bestiaryClaimed']) if (!obj(p[k])) p[k] = {};
+    for (const k of ['featsFound', 'challenges']) if (!Array.isArray(p[k])) p[k] = [];
+    if (!obj(p.setup)) p.setup = { character: '', kit: '', mode: 'standard', curses: [], arcana: '', consumables: [], rune: '', challenge: '' };
+    const st = obj(out.stats) ? out.stats : (out.stats = {});
+    for (const k of ['bossKills', 'clears', 'lampsLit', 'bellsRung']) if (!Number.isFinite(st[k])) st[k] = 0;
+    return out;
+  },
 ];
 
 export class SaveTooNewError extends Error {

@@ -1,7 +1,7 @@
 // The shape of a save. Bump PROFILE_VERSION whenever the profile's stored shape changes, add a
 // migration in migrations.js, and add a fixture save to tests/fixtures/saves/ for the new version.
 
-export const PROFILE_VERSION = 2;
+export const PROFILE_VERSION = 3;
 export const SETTINGS_VERSION = 1;
 export const SAVE_FORMAT = 'lamplight-save';
 
@@ -15,16 +15,25 @@ export function defaultProfile() {
       research: { done: [], active: [] },  // active: [{ id, runsLeft }]; slots come from the Library's level
       upgrades: {},                        // Lamp Post upgradeId -> rank (v2)
       characters: {},                      // characterId -> { unlocked, masteryXp, perks: [] }
-      gear: { inventory: [], equipped: {} },
+      // Gear (v3): items { uid, id (recipe), tier, affixes: [ids], rolls? (that item's re-rolls:
+      // with its uid, the seed of what its next re-roll offers) }; equipped: slot -> uid; next:
+      // the next item's uid; rolls: every re-roll made (a count, for the record).
+      gear: { inventory: [], equipped: {}, next: 1, rolls: 0 },
+      consumables: {},                     // v3: '<consumable id>' or 'rune:<rune id>' (a rune stone) -> count held
       bestiary: {},                        // enemyId -> kills
+      bestiaryClaimed: {},                 // v3: enemyId -> how many of its milestones the Cartographer has paid
       codex: [],                           // what the codex has seen: '<kind>:<id>' keys ('weapon:flare_gun')
       feats: [],                           // completed feat ids
+      featsFound: [],                      // v3: 'after_found' feats whose discovery has fired
+      challenges: [],                      // v3: challenge runs won
+      // v3: the gate's last choices (kept so the next run starts the same way).
+      setup: { character: '', kit: '', mode: 'standard', curses: [], arcana: '', consumables: [], rune: '', challenge: '' },
       tide: { unlocked: 0, selected: 0 },
       prestige: { cycle: 0, relics: [] },
       flags: {},                           // first-time and dialogue flags
       orphans: {},                         // content this build doesn't know, kept, never deleted
     },
-    stats: { runs: 0, playtimeSec: 0, kills: 0, deaths: 0, bestTimeSec: 0 },
+    stats: { runs: 0, playtimeSec: 0, kills: 0, deaths: 0, bestTimeSec: 0, bossKills: 0, clears: 0, lampsLit: 0, bellsRung: 0 },
   };
 }
 

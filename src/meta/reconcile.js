@@ -13,6 +13,7 @@
 
 import { countOf } from './costs.js';
 import { codexKeys } from './state.js';
+import { GEAR_TIERS } from '../data/gear.js';
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 /** A count, reading a number stored as text too ("12" -> 12). */
@@ -24,7 +25,7 @@ export function reconcileProfile(doc, data) {
   if (!isObj(out.profile)) out.profile = {};
   if (!isObj(out.stats)) out.stats = {};
   const P = out.profile;
-  for (const k of ['materials', 'buildings', 'upgrades', 'bestiary', 'orphans']) if (!isObj(P[k])) P[k] = {};
+  for (const k of ['materials', 'buildings', 'upgrades', 'bestiary', 'orphans', 'consumables', 'bestiaryClaimed']) if (!isObj(P[k])) P[k] = {};
   if (!isObj(P.research)) P.research = {};
   const O = P.orphans;
   const moved = [], restored = [];
@@ -139,8 +140,102 @@ export function reconcileProfile(doc, data) {
   for (const [id, v] of Object.entries(P.bestiary)) {
     if (!data.enemies.some((e) => e.id === id)) { setAside('bestiary', id, v, add); delete P.bestiary[id]; } else P.bestiary[id] = countIn(v);
   }
+  // ---------------------------------------------------------------- Phase 7's parts (v3)
+
+  // Lists of ids (feats done and found, challenge runs won): known ones kept, the rest set aside,
+  // and set-aside ones this build knows again brought back.
+  for (const [key, list] of [['feats', data.feats || []], ['featsFound', data.feats || []], ['challenges', data.challenges || []]]) {
+    const ids = new Set(list.map((x) => x.id));
+    const have = Array.isArray(P[key]) ? P[key].filter((x) => typeof x === 'string') : [];
+    const aside = Array.isArray(O[key]) ? O[key].filter((x) => typeof x === 'string') : [];
+    const back = aside.filter((x) => ids.has(x));
+    const keep = [...new Set([...have.filter((x) => ids.has(x)), ...back])];
+    const away = [...new Set([...aside.filter((x) => !ids.has(x)), ...have.filter((x) => !ids.has(x))])];
+    for (const x of back) restored.push(`${key}:${x}`);
+    for (const x of have) if (!ids.has(x)) moved.push(`${key}:${x}`);
+    P[key] = keep;
+    if (away.length) O[key] = away; else delete O[key];
+  }
+  // Consumables and rune stones held: counts, set aside when this build doesn't know them.
+  if (!isObj(P.consumables)) P.consumables = {};
+  const heldKnown = (k) => (k.startsWith('rune:') ? data.runes.some((r) => `rune:${r.id}` === k) : (data.consumables || []).some((c) => c.id === k));
+  for (const [k, v] of Object.entries(bucket('consumables'))) {
+    if (!heldKnown(k)) continue;
+    P.consumables[k] = countIn(P.consumables[k]) + countIn(v);
+    delete O.consumables[k];
+    restored.push(`consumables:${k}`);
+  }
+  for (const [k, v] of Object.entries(P.consumables)) {
+    if (!heldKnown(k)) { setAside('consumables', k, v, add); delete P.consumables[k]; continue; }
+    P.consumables[k] = countIn(v);
+    if (P.consumables[k] === 0) delete P.consumables[k];
+  }
+  // Bestiary rewards claimed: per known enemy, at most one per milestone; claims set aside for an
+  // enemy this build knows again come back (the most of the two), so nothing is paid twice.
+  if (!isObj(P.bestiaryClaimed)) P.bestiaryClaimed = {};
+  for (const [id, v] of Object.entries(bucket('bestiaryClaimed'))) {
+    if (!data.enemies.some((e) => e.id === id)) continue;
+    P.bestiaryClaimed[id] = Math.max(countIn(P.bestiaryClaimed[id]), countIn(v));
+    delete O.bestiaryClaimed[id];
+    restored.push(`bestiaryClaimed:${id}`);
+  }
+  for (const [id, v] of Object.entries(P.bestiaryClaimed)) {
+    if (!data.enemies.some((e) => e.id === id)) { setAside('bestiaryClaimed', id, v, most); delete P.bestiaryClaimed[id]; continue; }
+    P.bestiaryClaimed[id] = Math.min(countIn(v), data.meta.bestiaryMilestones.length);
+  }
+  // Gear: every item that names a recipe this build has is kept (its tier held to 1..5, its
+  // affixes this build doesn't know left on it but ignored); an item of an unknown recipe is set
+  // aside whole, and comes back when the recipe does. What's equipped must be held, in a slot.
+  const G = isObj(P.gear) ? P.gear : (P.gear = {});
+  const recipes = new Set((data.recipes || []).map((r) => r.id));
+  const items = Array.isArray(G.inventory) ? G.inventory.filter(isObj) : [];
+  const asideItems = Array.isArray(O.gear) ? O.gear.filter(isObj) : [];
+  const keepItems = [], awayItems = [];
+  for (const it of [...items, ...asideItems.filter((x) => recipes.has(x.id))]) {
+    if (!recipes.has(it.id)) { awayItems.push(it); moved.push(`gear:${it.id}`); continue; }
+    keepItems.push({ ...it, uid: Number.isInteger(it.uid) && it.uid > 0 ? it.uid : 0, tier: Math.min(GEAR_TIERS, Math.max(1, countIn(it.tier) || 1)), affixes: Array.isArray(it.affixes) ? it.affixes.filter((x) => typeof x === 'string') : [] });
+  }
+  for (const it of asideItems) if (recipes.has(it.id)) restored.push(`gear:${it.id}`); else awayItems.push(it);
+  // Every item has a distinct uid; ones without get new ones past the highest.
+  let next = Math.max(countIn(G.next), 1, ...keepItems.map((it) => it.uid + 1));
+  const uids = new Set();
+  for (const it of keepItems) { if (!it.uid || uids.has(it.uid)) it.uid = next++; uids.add(it.uid); }
+  G.inventory = keepItems;
+  G.next = next;
+  G.rolls = countIn(G.rolls);
+  if (awayItems.length) O.gear = awayItems; else delete O.gear;
+  const eq = isObj(G.equipped) ? G.equipped : {};
+  G.equipped = {};
+  for (const [slot, uid] of Object.entries(eq)) {
+    const it = keepItems.find((x) => x.uid === uid);
+    const r = it && (data.recipes || []).find((x) => x.id === it.id);
+    if (r && r.slot === slot) G.equipped[slot] = uid;
+  }
+  // The Tide: what's opened, held to this build's Tides (the rest set aside for a build with more,
+  // as a level above the top is), and the last chosen, a whole number from 0 to what's opened.
+  const tides = (data.tides || []).length;
+  const T = isObj(P.tide) ? P.tide : {};
+  const hadAside = isObj(O.tide);
+  const total = Math.max(countIn(T.unlocked), hadAside ? countIn(O.tide.unlocked) : 0);
+  if (total > tides) { if (!hadAside || countIn(O.tide.unlocked) < total) moved.push('tide:unlocked'); O.tide = { unlocked: total }; }
+  else if (hadAside) { delete O.tide; restored.push('tide:unlocked'); }
+  const unlocked = Math.min(total, tides);
+  P.tide = { ...T, unlocked, selected: Math.min(countIn(T.selected), unlocked) };
+  // The gate's last choices are preferences, not progress: anything this build can't use is reset
+  // (meta/runconfig.js checks them again against what the profile has opened).
+  const S = isObj(P.setup) ? P.setup : {};
+  const str = (v) => (typeof v === 'string' ? v : '');
+  P.setup = {
+    character: str(S.character), kit: str(S.kit), mode: ['standard', 'short', 'challenge'].includes(S.mode) ? S.mode : 'standard',
+    curses: Array.isArray(S.curses) ? S.curses.filter((c) => (data.curses || []).some((x) => x.id === c)) : [],
+    arcana: (data.arcana || []).some((x) => x.id === S.arcana) ? S.arcana : '',
+    consumables: Array.isArray(S.consumables) ? S.consumables.filter((c) => (data.consumables || []).some((x) => x.id === c)) : [],
+    rune: data.runes.some((x) => x.id === S.rune) ? S.rune : '',
+    challenge: (data.challenges || []).some((x) => x.id === S.challenge) ? S.challenge : '',
+  };
+
   // Lifetime numbers.
-  for (const k of ['runs', 'playtimeSec', 'kills', 'deaths', 'bestTimeSec']) out.stats[k] = countIn(out.stats[k]);
+  for (const k of ['runs', 'playtimeSec', 'kills', 'deaths', 'bestTimeSec', 'bossKills', 'clears', 'lampsLit', 'bellsRung']) out.stats[k] = countIn(out.stats[k]);
   // Empty buckets go.
   for (const [k, v] of Object.entries(O)) if (isObj(v) && !Object.keys(v).length) delete O[k];
 

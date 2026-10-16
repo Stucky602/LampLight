@@ -110,6 +110,25 @@ Phase 6 result: all four above 90 after two rounds (judged by Opus 5.5). Whether
 
 0.6.1 result: all three above 90 after four rounds (judged by Opus 5.5). Whether the guide, the minimap, and the ascensions feel right is Kevin's, at the MVP gate.
 
+## 0.6.2: Kevin's notes on 0.6.1
+
+| ID | Component | Files | Tests | Baseline | Current | Status |
+|---|---|---|---|---|---|---|
+| G1 | Forms: three a weapon line, one of each kind, kept through the evolution | src/data/ascensions.js, src/sim/forms.js, weapons.js, enemies.js, world.js, ascend.js | forms, ascend, content, determinism | first review (defects only) | 91 | PASS |
+| G2 | The two-step Ascend screen, Stats with DPS and Total Damage, materials off the HUD | src/ui/menus.js, src/app/runlogic.js, src/ui/ui.css, src/render/hud.js | ascend, hubscene, voice, view | first review (defects only) | 94 | PASS |
+
+0.6.2 result: both above 90 (judged by Opus 5.5 as F1 and F2). How the Forms feel is Kevin's.
+
+## Phase 7: Every building's system
+
+| ID | Component | Files | Tests | Baseline | Current | Status |
+|---|---|---|---|---|---|---|
+| P7-A | Run tasks, relics, Sea Glass, the Ferryman | src/sim/tasks.js, relics.js, places.js, hooks.js, pickups.js, terrain.js, world.js, player.js, enemies.js, run-result.js, bot.js, src/data/relics.js, maps.js, tuning.js, src/app/runlogic.js, src/ui/menus.js, src/render/runview.js, minimap*.js, hud*.js | tasks, draft, minimap, view, content, determinism, run | 83 | 95 | PASS |
+| P7-B | The meta systems: gear, rune stones, the Market, consumables, Tides and curses, arcana, bestiary rewards, mastery and kits, feats, challenge runs, short runs, the v3 save | src/meta/workshop.js, feats.js, apply.js, runconfig.js, state.js, reconcile.js, next.js, src/save/schema.js, migrations.js, src/data/gear.js, consumables.js, tide.js, arcana.js, challenges.js, feats.js, mastery.js, market.js, buildings.js, research.js, src/app/setup.js | workshop, meta, save, content, pacing | 78 | 95 | PASS |
+| P7-C | The harbor's Phase 7 screens, words, and art | src/ui/hubscreens.js, hubtext.js, menus.js, ui.css, src/app/scenes/hub.js, setup.js, src/data/hub.js, npcs.js, art/draw/hub.js, sprites.js, art/manifest.js, tools/atlas/atlas.mjs | hubscene, harbor, voice, hub, art, atlas | 62 | 91 | PASS |
+
+Phase 7 result: all three above 90 after two rounds (judged by Opus 5.5). What only Kevin can judge: whether the first-guess numbers feel right (the Reliquary's rate, the tier weights, the Ferryman's prices, Tides, curses, gear), whether the six new buildings read as different places at play size, and how the panels and the gate feel on the DualSense.
+
 ## Score history
 
 (newest last: date, component, score, what changed)
@@ -143,3 +162,7 @@ Phase 6 result: all four above 90 after two rounds (judged by Opus 5.5). Whether
 - 2026-10-14, round 2: J1 89, J2 85, J3 92. Major: the minimap could hide a player cornered under it. J3 passed; after its score, a second Ember on the same tick with nothing left to take is kept rather than opening an empty screen, and three cards were reworded to match what they do.
 - 2026-10-14, round 3: J1 89, J2 88, no blocker or major. The guide's arrow now follows the walk around the fog, and a short haul sends you back to the gate; the minimap and the materials fade while you're under them.
 - 2026-10-14, round 4: J1 92, J2 93, no blocker or major. After the scores: an on-screen target under a corner panel gets an arrow just past the panel, the How to play card fades while you stand under it, the guide's short-haul line is pinned by a test, the minimap's mark shapes are data (`MARK_SHAPES`) with a test that no two look alike, the fade's edges are pinned a pixel either side, and the guide's and the minimap's tests have files of their own.
+- 2026-10-16, 0.6.2: F1 91, F2 94 after the first review's defects were fixed (Tether with Orbiting, Great Toll's floor, Burning Glass, self-feeding hangs and wards, Mortar's burst, Salvo's count, Pyre's cap, the hash, Stats overflowing, sentences on screens).
+- 2026-10-16, Phase 7 baselines (Opus 5.5 judges): P7-A 83, P7-B 78, P7-C 62. Majors: the Phase 7 relics' and arcana's rules had no behavior tests; the next-3 list ignored every Phase 7 purchase; a rune stone the run's first weapon couldn't take was offered and used up for nothing; bestiary claims set aside never came back; static rows in three panels (the Chapel, the Tavern's feats, the Cartographer's challenges) couldn't be reached by pad; arcana, curses, and challenges were picked at the gate by name only; the gate offered challenges whose character hadn't arrived, which landed on the error screen.
+- 2026-10-16, fixes: behavior tests for every new relic and arcana, tier shares by minute, the Ferryman's stocks; onDash hooks run after the tick's enemy grid; a shielded hit counts as a hit; an empty Reliquary gives Sea Glass; no stronger tier early when the weak run out; waiting pickups moved off solid ground; Phase 7 goals in the next-3; stones filtered by fit and checked before they're used; claims restored; the Tide record fitted on load; one Tide at a time; unknown bosses count for nothing; per-item re-roll offers; every panel row focusable; a detail line for the gate's focused value; challenges filtered, the kit row hidden, Start checked on the screen; the gear header, row layout, and the Chapel's labels; the Docks' lines from tuning; DOM tests for every Phase 7 panel, the gear screen, and the gate; Phase 7 text pinned word for word.
+- 2026-10-16, Phase 7 rescored: P7-A 95, P7-B 95, P7-C 91, no blocker or major. After the scores: a pickup's snap off solid ground and the true nearest open tile tested, the real minimap's lamp reveal tested, Phase 7 notices in the HUD overlap test, Brine's test read from its params, the place helpers in their own module (no import cycle), a purchase keeps an item it can't read, per-item re-rolls documented, a fixed row presses silently, the gate's rows scroll at 720p, and a d-pad walk down the Chapel's whole list.

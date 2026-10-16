@@ -15,6 +15,9 @@
 // is recorded in the codex as 'secret:<id>', which unlocks content keyed to it (the relic).
 // commonDrops apply to every regular enemy; eliteDrops to elites. Coin and oil drop everywhere.
 // overtime: after the 20:00 boss the player can stay; every minute these multiply.
+// tasks: { kind: 'lamp' | 'bell', at: [col, row] } the run's tasks (sim/tasks.js), each moved to the
+// nearest open tile; lighting every lamp brings Lantern Night. ferry: { at } where the Ferryman's
+// skiff ties up (with the Docks restored).
 
 const T = (m, s = 0) => m * 60 + s;
 
@@ -74,7 +77,19 @@ export const MAPS = [
     },
     overtime: { densityPerMin: 1.12, hpPerMin: 1.15, materialsPerMin: 1.10 },
     secrets: [
-      { id: 'wreck_cache', name: 'Wreck Cache', at: [212, 40], radius: 10, relic: 'wreck_lantern' },
+      { id: 'wreck_cache', name: 'Wreck Cache', at: [212, 40], radius: 10, relic: 'wreck_lantern', hint: 'Something glints aboard the wreck in the far northeast.' },
     ],
+    // Five lamps in a loose ring a minute or two's walk out, the bells farther, the skiff close by.
+    tasks: [
+      { kind: 'lamp', at: [128, 100] },
+      { kind: 'lamp', at: [156, 120] },
+      { kind: 'lamp', at: [146, 154] },
+      { kind: 'lamp', at: [108, 156] },
+      { kind: 'lamp', at: [100, 118] },
+      { kind: 'bell', at: [176, 84] },
+      { kind: 'bell', at: [80, 176] },
+      { kind: 'bell', at: [182, 170] },
+    ],
+    ferry: { at: [120, 136] },
   },
 ];

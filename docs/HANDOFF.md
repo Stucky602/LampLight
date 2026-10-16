@@ -1,58 +1,55 @@
 # Lamplight: Handoff
 
-Updated Oct 14 2026. Version 0.6.1: Kevin's notes on 0.6.0. The fog is back in the harbor, first-timers get a guide, walking off the quay starts a run, the Lodestone is a U, runs have a minimap and a stats screen, and weapons can ascend with Embers. Next is still the **MVP gate**: Kevin plays it and says whether it's fun.
+Updated Oct 16 2026. Version 0.7.0: 0.6.2 (Kevin's notes on 0.6.1: Forms) and Phase 7 (every building's system). The six Phase 7 buildings come out of the fog as the Lamp Post rises. Runs have Wayside Lamps, Fog Bells, Sea Glass, the Ferryman, and relics in three tiers that come from Reliquaries instead of level-ups and chests. Next is the **gate on all of it**: Kevin plays it and says what's fun and what isn't.
 
 ## Where things stand
-- **Phases 1 to 6 are done** (see `SCORECARD.md`).
-- **0.6.1, Kevin's notes:**
-  - **The fog is back**, as it was in 0.5.1: the Lamp Post peels it back level by level, you can't walk into it, and the boat comes in through it. The night is a little lighter than 0.5.1's (a blue dusk; every cleared street reads).
-  - **A guide for first-timers.** Until the first run, a line at the top says "Go to the gate at the bottom left of town to start a run", and when the gate is off screen an arrow at the screen's edge points to it. Off screen the arrow follows the streets to it, not a straight line through the fog. After the first run the line says to restore the Lamp Post and points at its door (or, if you came home with too little, to go back out); once it's restored the guide is gone. The first run shows a "How to play" card for 40 seconds (move, dash, your weapons fire on their own, blue gems level you up, survive until 20:00).
-  - **Walking off the quay starts a run.** Push left against the town's west edge on the gate's row (or the row below) for 0.15 seconds and it's the same as using the gate.
-  - **The Lodestone is a U**: straight arms, a round bend, steel tips.
-  - **A minimap in runs**, top right, with the materials moved below it. It shows the ground you've seen, you, elites, bosses, and every drop except XP gems: materials, food, magnets, chests, and Embers. Plain enemies aren't on it. It fades while you stand under it. Settings has Minimap (Nearby, Whole map, Off) and Minimap size (Small, Large).
-  - **A stats screen**: pause, then Stats. Your character's numbers (health, regen, armor, speed, pickup range, luck, XP, materials, the dash, revivals, rerolls, and the bonuses every weapon gets), then each weapon's damage, cooldown, projectiles, area, pierce, duration, crit chance, and what it has dealt this run.
-  - **Embers and ascensions**, after Nordic Ashes' ascension crystals. An Ember is a rare drop: every boss drops one, the Bosun at the muster always does, and an elite now and then (15%). Pick one up and a screen opens: choose one of three ascensions for any weapon you carry, or keep the Ember for later (pause then shows "Ascend (1)"). Each of the 8 weapons has its own three, and they change how it works, not just its numbers: the Flare Gun's flares can burst, fire backward too, or set enemies burning; the Harpoon can jump between enemies, drag them in, or hit far harder. With more Embers you take more, and they stack: a weapon can take all three of its line (each once), or spread them across weapons. An evolved weapon keeps its ascensions. An ascension is never offered where a rune would cancel part of it, and a rune isn't offered where it would cancel an ascension (no Backfire on Signal Pair). Ascended weapons show violet pips on the HUD.
-  - **Costs went up again**, to 1.5 times Phase 5's after each building's first level (0.6.0 had 1.15): with ascensions the bots kill and bring home more late in a run, and this puts the MVP harbor back at about 8 hours.
-- **Judged:** the guide and walk-off 92, the minimap 93, Embers and Stats 92 (four rounds; see `SCORECARD.md`).
-- Gate: 587 tests in about 56 s. Web build and `wrangler deploy --dry-run` pass; the whole loop plays through the real screens and saves in the browser; the harbor probe passes; the desktop smoke test passes on the packaged build, and Electron reproduced the golden run hash (ff4638b7, unchanged).
-- **The soaks: this machine is slower than Phase 6's.** 0.6.0's own code, run here, now measures 5.5 ms p99 with 2,001 or more enemies (3.2 ms in Phase 6's session). On it, the Lamplighter's 30-minute soak passes (p99 1.6, 3.4, and 5.9 ms by crowd size, against 2, 4, and 6). The Harpooner's measured 5.3 to 6.9 ms in the biggest crowds across six runs, over the 6 ms line in most. The two versions' CPU profiles are the same within 3% per tick, the runs are tick-for-tick the same with Embers off, and the same code swung from 5.3 to 6.0 between two runs, so this is the tail of a slow, noisy machine rather than new work in the sim. Your frame rate in a busy run (F3) is the real check; it's in the questions below.
-- **Pacing** (`node tools/pacing/pacing.mjs`): the bots' runs average 20 minutes (5 of 12 died, 2 cleared the map, 5 lasted to 25:00); the MVP harbor in 8.3 hours (6.6 to 9.9). The shortest third of their runs (11 to 13 minutes) all died to the Harbor Maw, bringing home no Rum or Iron, so a player who never gets past the Maw never restores the Tavern; whether the Maw is too hard is a gate question. A fresh profile's pools hold 10 of the 29 weapons, passives, relics, and runes (34%).
+- **Phases 1 to 7 are done** (see `SCORECARD.md`).
+- **0.6.2, Kevin's notes on 0.6.1:**
+  - **Forms replace ascensions.** Each weapon has three Forms, one for each part of how it works: how it fires, how its shots fly, and what a hit leaves. All three stack on one weapon, and the evolution keeps them.
+  - **An Ember is two steps:** pick a weapon, then its Form.
+  - **Stats shows each weapon's DPS and Total Damage** (no more "dealt this run").
+  - **Materials are off the run HUD.** They're in the pause menu and Stats.
+- **Phase 7, in a run (Kevin's design):**
+  - **Wayside Lamps** (5 on the Docks). Stand by one until it's lit. There's no timer: it waits when you walk off, and costs more and pays more the later you start it. Each lit lamp gives Kindled (+6% XP and Area for the run), uncovers the minimap around it, and gives Sea Glass.
+  - **Lantern Night.** Light all five and it falls for 40 s: the fog lifts, your light burns everything in it, and a vault opens with a pick of 3 relics, a tier better.
+  - **Fog Bells** (3). Walk into the ring to wake one. Every kill inside the ring counts from then on, wherever you are: 20 kills plus 4 a minute. It pays Sea Glass and a chest.
+  - **Sea Glass** is the run's own money. It comes from tasks, elites, and bosses, and is spent with the **Ferryman**. Stand still by his skiff near the start to trade. He sells relics, food, a reroll, and a pricey Ember, and his stock gets better every 5 minutes. What's left at the end is lost, unless the Market buys it.
+  - **Relics** come in three tiers: Trinket, Charm, and Relic. You carry every one you find, and they never come from level-ups or chests. They come from Reliquaries (a rare drop, at least 2.5 minutes apart, certain after 1,800 kills), the vault, and the Ferryman. Early offers are Trinkets; Relics come late. 12 relics in all, with actives on a dash (Spark Flint), a hit taken (Barnacle Shell), a kill streak (Bloodied Hook), and every 30th kill (Drowned Bell).
+- **Phase 7, in the harbor:**
+  - **Docks** (from the start): the Ferryman, better each level.
+  - **Smithy:** gear in six slots, the brief's Lantern, Coat, Boots, and Charm, plus a Ring and a Pendant. Every piece's own affix changes the build: +1 Projectile on Fire weapons, dash leaves burning oil, level-ups offer 4 cards, and so on. You raise an item's tier, and re-roll an affix by choosing one of three. Rune stones put a rune of your choice in your first weapon at 0:00.
+  - **Chapel:** Tides 1 to 10 (clear the map at your highest to open the next) and 5 curses, each paying more materials.
+  - **Market:** trades at a poor rate and buys leftover Sea Glass.
+  - **Apothecary:** consumables you take into a run (a revival, XP, rerolls, banishes, skips, starting Sea Glass).
+  - **Cartographer:** tasks on the minimap from the start, bestiary rewards, challenge runs, short runs, and the secrets on the minimap.
+  - **Tavern:** the feat list (9 feats, some hidden until found), and mastery. A character's runs rank them up; perks are trained here, and rank 4 opens a second starting kit.
+  - **The gate:** once any of this is open, picking a character leads to a second step that lists only what's open. A line under it says what the focused choice does.
+- **Judged:** 0.6.2 Forms 91 and its screens 94; Phase 7's run side 95, meta side 95, and harbor screens 91 (two rounds; see `SCORECARD.md`).
+- **Gate:** 645 tests in about 73 s. The web build and `wrangler deploy --dry-run` pass. The whole loop plays through the real screens and saves in the browser. The desktop smoke test passes on the packaged build, and Electron reproduced the golden run hash (db237aa0, new in 0.7.0: the sim changed).
+- **Soaks:** the Harpooner's 30-minute soak passes (p99 1.9, 3.6, and 6.0 ms by crowd size, against 2, 4, and 6). The Lamplighter's sits just over the lines (2.0 to 2.1 ms and 7.1 to 7.2 ms). This machine is slower again: the 0.6.1 code you already have, run here back to back, fails the same lines (2.05, 4.1, and 7.2 to 7.4 ms), so the new code isn't the cause. Your frame rate in a busy run (F3) is the real check.
+- **Pacing** (`node tools/pacing/pacing.mjs`): the MVP harbor in 9.4 hours (6.8 to 10.8), now that the simulated player also spends on the six new buildings. The whole harbor of nine takes about 13.5 hours, with the Chapel last. A fresh profile's pools hold 12 of the 35 weapons, passives, relics, and runes (34%).
 
 ## What Kevin needs to do
-1. **Upload to GitHub, then let Cloudflare build.** Upload the repo parts in the order the delivery message gives, into the same `lamplight` repo (each part adds and replaces files). The build after an early part may fail; the build after the last part is the one that counts. If GitHub's upload page dropped `.node-version` before, that no longer matters.
-2. If the Cloudflare Worker isn't set up yet: create it from the repo with deploy command `npm run build && npx wrangler deploy`. On the first deploy, check in DevTools (Network tab) that `/` and `/version.json` show `cache-control: no-store`.
-3. **The MVP gate: play it and say whether it's fun.** The web build with the DualSense, then the .exe. The .exe comes as split pieces (`Lamplight-win-x64-v0.6.1.zip` plus `.z01`, `.z02`, ...). Put all the pieces in one folder, right-click the `.zip`, choose 7-Zip, then "Extract Here" (on Windows 11 the 7-Zip entry may be under "Show more options"). Then run `Lamplight-win32-x64\Lamplight.exe`. SmartScreen says "More info", then "Run anyway".
-   - Tell Claude what feels or looks wrong in plain words, with the time in the run or the place in the harbor.
-   - For numbers you want changed, open the tuning panel (hold Create for 1 second, or F1), change them live, then press "Copy tuning" and paste the text into the chat.
-   - If something breaks, open pause and choose "Save bug report", then attach the file (web: your Downloads folder; the .exe: `%APPDATA%\Lamplight\reports\`).
-4. Read ARCHITECTURE.md §20 (calls 69 to 72 are new in 0.6.1; 54 and 57 are back with the fog) and DECISIONS.md, and overturn anything you don't like.
+1. **Upload to GitHub, then let Cloudflare build.** Upload the zip parts in the order the delivery message gives, into the same `lamplight` repo. Each part only adds and replaces files. The build after an early part may fail; the build after the last part is the one that counts.
+2. **Play it.** Use the web build with the DualSense, then the .exe. The .exe comes as split pieces (`Lamplight-win-x64-v0.7.0.zip` plus `.z01`, `.z02`, ...).
+   - Put all the pieces in one folder, right-click the `.zip`, choose 7-Zip, then "Extract Here". On Windows 11 the 7-Zip entry may be under "Show more options".
+   - Then run `Lamplight-win32-x64\Lamplight.exe`. If SmartScreen appears, choose "More info", then "Run anyway".
+   - Your save carries over: it moves to the new version on its own, and nothing is lost.
+3. Tell Claude what feels or looks wrong, in plain words, with the time in the run or the place in the harbor.
+   - For numbers: open the tuning panel (hold Create for 1 second, or F1), change them live, press "Copy tuning", and paste the text into the chat.
+   - If something breaks: pause, choose "Save bug report", and attach the file.
+4. Read ARCHITECTURE.md §10.6 and §10.8 (Phase 7 as built), §20 calls 74 to 88, and DECISIONS.md, and overturn anything you don't like.
 
-## Questions for the MVP gate
-1. Is it fun for 20 minutes? Where does it drag, and where is it too much?
-2. The map: do the slips, sheds, and crates make the wharf more interesting, or just get in the way? (The layout is data: `layout` in `src/data/maps.js`.)
-3. The secret: is the wreck too far, too hidden, or too easy? Does the faint violet glow give it away too much or too little?
-4. The Bosun's Muster at 15:00: does it read as an event? Is a boss chest the right reward?
-5. The Maw's lure: is the pull clear while you're in it? Can you see why you're sliding? The Tidecaller's tide lanes: readable while half-watching?
-6. The new weapons: does each feel like its own thing? (Lightning Rod's bolts are drawn as lines from above; Corpse Candles' flames drift slowly.)
-7. Light and fog in a run, shake, hit-stop, damage numbers, movement, dash, the XP vacuum, and the Harpooner's daze: all still open from the feel gate (tuning names in the panel).
-8. From Phase 2: should a boss chest be able to evolve several weapons at once? Should orbiting weapons hit enemies pressed right against you?
-
-## Questions about the harbor
-1. Walking and the dash on the pad, and moving through the panels with the d-pad: anything awkward?
-2. The ceremonies' pace (0.7 s to the building, 1.4 s for the stage to rise, half a second to look, 0.7 s back): too slow once you've seen a few? Their numbers are on the harbor's tuning panel under `timing`.
-3. The night with the fog back: dark enough to feel dingy, light enough to see? (`look.ambient` on the harbor's tuning panel.)
-4. The guide: is the line at the top and the arrow at the edge enough to find the gate? Walking off the quay: does it start too easily when you only meant to walk along the edge?
-5. The pacing against the brief (§20 calls 59, 60, 67, 68):
-   - A fresh profile's pools hold 34% of the run content; the brief wants 30% or less. It falls as content passes put more behind research.
-   - Past run 10, something new comes every 2 runs, sooner than the brief's 3 to 4, because the MVP harbor has only so much to give.
-   - The costs: tune them to your first runs, or keep the bots' 8 hours as the target?
-6. The frame rate on your monitor in the harbor and in a busy run (F3 shows it).
-
-## Questions about 0.6.1
-1. Embers: too rare or too common? (One per boss, the muster's Bosun, and 15% of elites: the bots picked up 1 or 2 a run, and they don't go out of their way for drops. `embers.eliteChance` on the run's tuning panel.)
-2. The ascensions: do they feel like variants of the weapon, not just bigger numbers? Any you'd never take, or always take? They're data: `src/data/ascensions.js`.
-3. The minimap: the right size and place? Should it show something it doesn't, or less?
-4. The stats screen: anything you looked for and didn't find?
+## Questions for this gate
+1. The tasks: are the lamps worth walking to, and the bells worth fighting in? Does "no timer, but later costs more" read, or does it feel like nothing happens?
+2. Lantern Night: does it feel like a payoff?
+3. The Ferryman: is standing still by the skiff a natural way to open his trade? Are his prices right? (Ember 70, a Relic 50, a Charm 28, a Trinket 14; `ferry` on the run's tuning panel.)
+4. Relics: too rare, or too common? (A Reliquary is a 0.06% chance a kill, at least 150 s apart, certain after 1,800 kills: `relics` on the run's tuning panel.) Do the late Relics feel overpowered in the good way?
+5. Gear: do the affixes change how you build? Any you'd never take?
+6. The six new buildings use the pack's house with their own sign and keeper. Do they read as different places, or do you want them drawn apart?
+7. Tides and curses: is each Tide a fair step up for its materials?
+8. The gate's second step: too many rows once everything's open?
+9. Still open from the MVP gate: is a 20-minute run fun, where does it drag, and are the Forms right?
 
 ## Kevin's Harpooner idea: what was tried, and what shipped
 Kevin suggested buffs for standing still, to offset her pulling enemies onto herself, and said to drop it if it didn't work in practice or fought the reasons to move. It was built and tested with bots: 12 runs of up to 24 minutes for each version of her kit, on the same seeds. "Holding her ground" means she stands in the crowd she reels in, takes its bites, and steps only for a warned attack, a shot, a pool, or when her health drops below 40%. "Standing still only when nothing is near" means she stops whenever no enemy is within 36 px and nothing is warning. `node tools/bots/harpooner-trials.mjs` plays all of it again and prints this table.
@@ -80,11 +77,12 @@ No standing-still version beat plain kiting, so it was scrapped. What shipped an
 - Replays are about 100 KB for a 20-minute run. Harmless.
 - The minimap and the materials fade by your position on the tick, not the drawn position between ticks, so for a frame at the edge they can stay solid over the top pixel of your head.
 - The Stats screen's weapon list scrolls (the d-pad moves through it) but nothing shows there's more below; with three or more weapons the Items are below the fold.
-- Words: the enemy, material, and research descriptions (the flavor lines) show nowhere yet; a bestiary or codex screen (Phase 7) is where they'll appear. A cost in the harbor names its materials only on a mouse hover over the icon, so a controller player learns them from the "Need 10 Drowned Pages" line.
+- Words: the enemy, material, and research descriptions (the flavor lines) show nowhere yet; a codex screen is where they'll appear. A cost in the harbor names its materials only on a mouse hover over the icon, so a controller player learns them from the "Need 10 Drowned Pages" line.
+- Phase 7: the guide's goal box and the materials bar can touch when counts reach four digits (the guide shows only before the Lamp Post is restored, when counts are small). The Docks' "sells 2 relics" is written in, not read from the sim's stock rule. The pacing model doesn't spend on gear, perks, or consumables. The Cartographer's hints are on the minimap until there's a map select.
 - The harbor: the pacing model replays a measured run's haul times its greed, so a percent of greed from the upgrades slightly overstates what the game gives (it multiplies the greed the bot found in the run too). The Lighthouse's plot is 3 tiles wide and the scaffold is drawn for 5 x 4 plots; Phase 10 draws its own.
 
 ## Next
-- **The MVP gate**, Kevin's. Then **Phase 7 (Systems)** on Opus 5.5 high, with whatever the gate changes.
+- **Kevin's gate on 0.7.0.** Then **Phase 8a** (ARCHITECTURE §18): the design list for map 2, the Salt Marsh (its roster, materials, boss, and new weapons, relics, and runes), for Kevin to approve before it's built. With map 2, the Docks get their first boat, and the Phase 7 buildings' costs move onto the Marsh's materials (§20 calls 79 and 80).
 - The atlas is rebuilt with `node tools/atlas/build.mjs` (needs the packs); `--check` says whether the committed one is current. `node tools/atlas/hub-preview.mjs` draws the harbor at any building levels, by day or night, with `--boat` for an arrival.
 - `node tools/pacing/pacing.mjs` prints the pacing report from the committed yields in a few seconds; `--remeasure` plays the bots again (minutes).
 

@@ -4,7 +4,7 @@
 
 import { SPRITES, RAMPS, PACKS, TOWN_COLORS } from '../../art/manifest.js';
 import { DRAW, HOLD } from '../../art/draw/index.js';
-import { ruin, openings, boardWindows, lightWindows, flowerBox, wallLantern, tavernSign, librarySign, fillDoorways } from '../../art/draw/hub.js';
+import { ruin, openings, boardWindows, lightWindows, flowerBox, wallLantern, tavernSign, librarySign, docksSign, smithySign, chapelSign, marketSign, apothecarySign, cartographerSign, fillDoorways } from '../../art/draw/hub.js';
 import { RIGS, restPose, rigPlace } from '../../src/render/rigs.js';
 import { TAG_COLORS } from '../../src/data/palette.js';
 import { blank, stamp, outlined } from '../../src/render/pixels.js';
@@ -18,7 +18,7 @@ export const ELITE_SCALE = 2;
 export const PLAYER_SIZE = TILE + 2 * PLAYER_FEET_ROOM;
 
 /** Icon border colors: weapons and passives by their first tag, relics and runes by kind. */
-export const ICON_BORDER = Object.freeze({ ...TAG_COLORS, relic: 'violet-3', rune: 'violet-4', none: 'fog-2' });
+export const ICON_BORDER = Object.freeze({ ...TAG_COLORS, relic: 'violet-3', rune: 'violet-4', gear: 'fog-4', item: 'moss-3', arcana: 'lamp-5', none: 'fog-2' });
 
 /** Each icon the data names, with the key that picks its border and default ramp. */
 export function iconKeysFor(data) {
@@ -27,6 +27,9 @@ export function iconKeysFor(data) {
   for (const p of data.passives) out[p.icon] = p.tags?.[0] || 'none';
   for (const r of data.relics) out[r.icon] = 'relic';
   for (const r of data.runes) out[r.icon] = 'rune';
+  for (const r of data.recipes || []) out[r.icon] = 'gear';
+  for (const c of data.consumables || []) out[c.icon] = 'item';
+  for (const a of data.arcana || []) out[a.icon] = 'arcana';
   return out;
 }
 
@@ -121,7 +124,7 @@ export function townFrame(e, packs) {
 }
 
 /** The signs a building can hang over its door (the manifest's `sign`). */
-const SIGNS = Object.freeze({ library: librarySign, tavern: tavernSign });
+const SIGNS = Object.freeze({ library: librarySign, tavern: tavernSign, docks: docksSign, smithy: smithySign, chapel: chapelSign, market: marketSign, apothecary: apothecarySign, cartographer: cartographerSign });
 
 /** The places on a building's frame for its sign, its door lantern, and its window boxes. */
 function dressBuilding(f, e, { windows, doors }, { sign, lantern, boxes }) {

@@ -2,7 +2,7 @@
 //
 //   1  read this tick's InputFrame         8  contact damage to the player
 //   2  player movement and dash            9  deaths resolve (drops, hooks, kill counts)
-//   3  weapons fire                        10 gems and pickups
+//   3  weapons fire                        10 gems and pickups, then the run's tasks and the Ferryman
 //   4  projectiles move                    11 level-up check (queues drafts)
 //   5  projectile hits                     12 director spawns
 //   6  zones tick                          13 events are in the buffer for render and audio
@@ -21,7 +21,7 @@ import { createFlowField } from './flowfield.js';
 import { createEventBuffer } from './events.js';
 import { createRng } from '../lib/rng.js';
 import { createStateHash, fnv1a } from '../lib/hash.js';
-import { createPlayer, playerStep, levelCheck, xpToNext } from './player.js';
+import { createPlayer, playerStep, levelCheck, xpToNext, heal } from './player.js';
 import { ENEMY_FIELDS, enemiesAct, contactStep, resolveDeaths, removeDead, impulse, impulseR, midAttack } from './enemies.js';
 import { PROJ_FIELDS, ZONE_FIELDS, weaponsFire, moveProjectiles, projectileHits, zonesTick, explodeAt, groundAt, compileList } from './weapons.js';
 import { GEM_FIELDS, PICKUP_FIELDS, pickupsStep } from './pickups.js';
@@ -35,6 +35,9 @@ import { checkBossDef } from './bosses.js';
 import { ascensionLines, ascendDecide, emberDecide, canAscend } from './ascend.js';
 import { createResultState, buildRunResult, leaveRun } from './run-result.js';
 import { tuneDecide, devDecide } from './dev.js';
+import { createTasks, tasksStep } from './tasks.js';
+import { createFerry, ferryStep, ferryDecide, prepareRelicPick, relicDecide, addGlass } from './relics.js';
+import { addHook } from './hooks.js';
 
 export const DEFAULT_CONFIG = Object.freeze({
   seed: 1,
@@ -53,6 +56,7 @@ hookApi.impulse = impulse;
 hookApi.impulseR = impulseR;
 hookApi.queryEnemies = (world, x, y, r, out) => world.enemyHash.query(x, y, r, out, -1);
 hookApi.midAttack = midAttack;
+hookApi.heal = heal;
 
 function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
 
@@ -114,11 +118,36 @@ function checkConfig(cfg) {
     const missing = POOL_KINDS.filter((k) => !(k in cfg.pools));
     if (missing.length) throw new Error(`RunConfig pools: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing (give all four lists, or no pools for everything)`);
   }
-  for (const k of ['hpMul', 'densityMul', 'rewardMul']) {
+  for (const k of ['hpMul', 'densityMul', 'rewardMul', 'enemyDamageMul', 'enemySpeedMul']) {
     if (cfg[k] !== undefined && !(Number.isFinite(cfg[k]) && cfg[k] > 0)) throw new Error(`RunConfig: ${k} must be a number above 0`);
   }
+  if (cfg.startGlass !== undefined && !(Number.isInteger(cfg.startGlass) && cfg.startGlass >= 0)) throw new Error('RunConfig: startGlass must be a whole number, 0 or more');
+  if (cfg.harbor !== undefined) {
+    if (!isObj(cfg.harbor)) throw new Error('RunConfig: harbor must be { ferry, lampSpeed, bellRing, tasksOnMap, secretsOnMap }');
+    for (const [k, v] of Object.entries(cfg.harbor)) {
+      if (!['ferry', 'lampSpeed', 'bellRing', 'tasksOnMap', 'secretsOnMap'].includes(k)) throw new Error(`RunConfig harbor: there is no "${k}" (ferry, lampSpeed, bellRing, tasksOnMap, secretsOnMap)`);
+      if (!(Number.isFinite(v) && v >= 0)) throw new Error(`RunConfig harbor.${k} must be a number, 0 or more`);
+    }
+  }
+  for (const k of ['arcana', 'startRune', 'startWeapon', 'challenge']) {
+    if (cfg[k] !== undefined && cfg[k] !== null && typeof cfg[k] !== 'string') throw new Error(`RunConfig: ${k} must be an id`);
+  }
+  if (cfg.bestiaryBonus !== undefined) {
+    if (!isObj(cfg.bestiaryBonus)) throw new Error('RunConfig: bestiaryBonus must be { enemyId: share }');
+    for (const [k, v] of Object.entries(cfg.bestiaryBonus)) if (!(Number.isFinite(v) && v >= 0 && v <= 1)) throw new Error(`RunConfig bestiaryBonus.${k} must be a share from 0 to 1`);
+  }
+  if (cfg.tide !== undefined && !(Number.isInteger(cfg.tide) && cfg.tide >= 0)) throw new Error('RunConfig: tide must be a whole number, 0 or more');
+  if (cfg.curses !== undefined && !(Array.isArray(cfg.curses) && cfg.curses.every((c) => typeof c === 'string'))) throw new Error('RunConfig: curses must be a list of ids');
+  if (cfg.noFood !== undefined && typeof cfg.noFood !== 'boolean') throw new Error('RunConfig: noFood must be true or false');
   if (cfg.densityCap !== undefined && !(Number.isFinite(cfg.densityCap) && cfg.densityCap >= 0)) throw new Error('RunConfig: densityCap must be a number, 0 or more');
   if (cfg.draftCards !== undefined && !(Number.isInteger(cfg.draftCards) && cfg.draftCards >= 1 && cfg.draftCards <= 6)) throw new Error('RunConfig: draftCards must be a whole number from 1 to 6');
+  if (cfg.gearHooks !== undefined) {
+    if (!Array.isArray(cfg.gearHooks)) throw new Error('RunConfig: gearHooks must be a list of { hook, params, affix }');
+    for (const g of cfg.gearHooks) {
+      if (!isObj(g) || typeof g.hook !== 'string' || !isObj(g.params)) throw new Error('RunConfig gearHooks: each is { hook, params, affix }');
+      for (const [k, v] of Object.entries(g.params)) if (!Number.isFinite(v)) throw new Error(`RunConfig gearHooks ${g.hook}.${k} must be a number`);
+    }
+  }
   if (cfg.evolutionPassiveReduction !== undefined && !(Number.isInteger(cfg.evolutionPassiveReduction) && cfg.evolutionPassiveReduction >= 0)) throw new Error('RunConfig: evolutionPassiveReduction must be a whole number, 0 or more');
 }
 
@@ -134,8 +163,13 @@ function fullPool(list) { return list.filter((x) => x.unlock !== 'evolution' && 
  * @param {object} config RunConfig: seed, map, mode, character, and optionally pools (resolved
  *   content ids from meta), mods (hub, gear, Tide), relics (starting), charges, draftCards,
  *   weaponSlots, evolutionPassiveReduction (gear: evolutions need that many fewer partner
- *   levels), tuning (overrides), densityMul, densityCap, hpMul, rewardMul, invulnerable (tests
- *   and the soak only).
+ *   levels), gearHooks ([{ hook, params, affix }]: worn gear's rules with their own code),
+ *   tuning (overrides), densityMul, densityCap, hpMul, rewardMul, enemyDamageMul,
+ *   enemySpeedMul, noFood (Tide and curses), harbor ({ ferry, lampSpeed, bellRing }: what the
+ *   harbor's buildings add to a run's tasks and the Ferryman), startGlass, arcana, startRune (a
+ *   rune stone: placed at 0:00), startWeapon (a character's other kit), bestiaryBonus
+ *   ({ enemyId: share more damage }), tide, curses, challenge (recorded for the result),
+ *   invulnerable (tests and the soak only).
  * @param {object} data the content bundle from src/data/index.js
  */
 export function createWorld(config, data) {
@@ -226,6 +260,20 @@ export function createWorld(config, data) {
     knockbackPulls: false, // the Harpooner's weapons pull instead of push (set by her hook)
     god: false,            // dev god mode (a logged dev decision; tests and the soak use config.invulnerable)
     magnetAll: 0,
+    glass: 0,              // Sea Glass held (sim/relics.js; spent with the Ferryman)
+    tasks: null,           // the map's tasks (sim/tasks.js)
+    dashedNow: false,      // a dash began this tick (its onDash hooks run after the grid is built)
+    kindled: 0,            // Wayside Lamps lit this run
+    night: { until: -1, next: 0 }, // Lantern Night (until: the tick it ends, -1 when it isn't on)
+    ferry: null,           // the Ferryman, with the Docks (sim/relics.js)
+    reliquary: { last: -1e9, kills: 0 }, // the last Reliquary's tick, and ordinary kills since
+    relicTierBonus: 0,     // relics offered this many tiers better (the Glassblower arcana)
+    emberEliteMul: 1, emberBossExtra: 0, // the Kindling arcana
+    enemyDamageMul: cfg.enemyDamageMul ?? 1,
+    // The Cartographer's bestiary bonus: 1 + share, per enemy type (null without one).
+    bestiaryMul: cfg.bestiaryBonus ? Float64Array.from(data.enemies, (e) => 1 + (cfg.bestiaryBonus[e.id] ?? 0)) : null,
+    enemySpeedMul: cfg.enemySpeedMul ?? 1,
+    zonePulse: 0,          // 1 while a ground zone's pulse is hitting (a kill it makes says so: enemies.js killedByZone)
     mergeGem: NO_HANDLE,
     pull: { x: 0, y: 0, speed: 0, ticks: 0, boss: -1 }, // a boss's lure drawing the player in (bosses.js; boss = its handle)
     result: createResultState(data.enemies.length, data.materials.length),
@@ -241,13 +289,25 @@ export function createWorld(config, data) {
     scratch: {
       v2: new Float64Array(2), sc: new Float64Array(2), dir: new Float64Array(3),
       reg: new Float64Array(4), qreg: new Float64Array(4), hit: new Float64Array(8),
-      num: new Float64Array(4), xreg: new Float64Array(8), shot: new Float64Array(5),
+      num: new Float64Array(4), xreg: new Float64Array(8), shot: new Float64Array(5), open: new Float64Array(2),
       near: new Int32Array(CAP.enemies), push: new Int32Array(CAP.enemies), blast: new Int32Array(CAP.enemies),
       hits: new Int32Array(1024), sep: new Int32Array(16),
+      crowd: new Int32Array(24), lure: new Int32Array(512), link: new Int32Array(64), // Forms: Mortar's candidates, a wisp's lure, a Fuel Line
     },
   };
   world.director = createDirector(world);
-  setupCharacter(world);
+  world.tasks = createTasks(world);
+  world.ferry = createFerry(world);
+  if (cfg.startWeapon !== undefined && cfg.startWeapon !== null && !world.weaponIndex.has(cfg.startWeapon)) throw new Error(`RunConfig: unknown weapon "${cfg.startWeapon}"`);
+  setupCharacter(world, cfg.startWeapon ?? null);
+  // Gear's hooks (meta/workshop.js gearForRun), after the character's, before any arcana's.
+  for (const g of cfg.gearHooks || []) addHook(world, g.hook, g.params, `gear:${g.affix ?? g.hook}`);
+  if (cfg.arcana) {
+    const a = (data.arcana || []).find((x) => x.id === cfg.arcana);
+    if (!a) throw new Error(`RunConfig: unknown arcana "${cfg.arcana}"`);
+    if (a.hook) addHook(world, a.hook, a.params || {}, `arcana:${a.id}`);
+    world.arcanaDef = a;
+  }
   rebuildStats(world);
   const p = world.player;
   p.hp = world.stats.maxHp;
@@ -265,6 +325,11 @@ export function createWorld(config, data) {
     addRelic(world, r);
   }
   rebuildStats(world);
+  if (cfg.startGlass) addGlass(world, cfg.startGlass, p.x, p.y);
+  if (cfg.startRune) {
+    if (!data.runes.some((r) => r.id === cfg.startRune)) throw new Error(`RunConfig: unknown rune "${cfg.startRune}"`);
+    world.halts.push({ kind: 'rune', rune: cfg.startRune }); // a rune stone: placed before the run begins
+  }
   // Start on open ground: the nearest open tile to the middle of the map.
   if (terrain.blockedAt(p.x, p.y)) {
     const t0x = Math.floor(p.x / TILE), t0y = Math.floor(p.y / TILE);
@@ -300,6 +365,8 @@ function prepareHalt(world) {
   // An Ember's choice queued behind another (two picked up on one tick) with nothing left to
   // take: the Ember stays kept, and no empty screen opens.
   while (world.halts[0]?.kind === 'ascend' && !canAscend(world)) world.halts.shift();
+  // A relic pick with nothing left to find becomes Sea Glass, with no screen.
+  while (world.halts[0]?.kind === 'relic' && !prepareRelicPick(world, world.halts[0])) world.halts.shift();
   const h = world.halts[0];
   if (h && h.kind === 'draft' && h.offer === null) h.offer = makeOffer(world);
 }
@@ -317,6 +384,9 @@ export function stepWorld(world, frame) {
   world.flow.update(world.player.x, world.player.y);
   world.bigFlow.update(world.player.x, world.player.y);
   buildHash(world);
+  // A dash's hooks query the enemy grid, so they wait for this tick's (last tick's still holds
+  // the enemies removed since).
+  if (world.dashedNow) { world.dashedNow = false; runHooks(world, 'onDash'); }
   runHooks(world, 'onTick');
   weaponsFire(world);                             // 3
   moveProjectiles(world);                         // 4
@@ -327,7 +397,9 @@ export function stepWorld(world, frame) {
   contactStep(world);                             // 8
   resolveDeaths(world);                           // 9
   pickupsStep(world);                             // 10
-  resolveDeaths(world);                           // 9 again: kills made in step 10 (a relic's gem blast)
+  tasksStep(world);                               // 10: lamps, bells, Lantern Night's burn
+  ferryStep(world);                               // 10: the Ferryman's stock, and his trade
+  resolveDeaths(world);                           // 9 again: kills made in step 10 (a relic's gem blast, Lantern Night)
   levelCheck(world, queueDraft);                  // 11
   if (!world.over) directorStep(world);           // 12
   removeDead(world);
@@ -348,6 +420,8 @@ export function currentHalt(world) {
  *   rune:     { kind: 'place', slot } | { kind: 'discard' }
  *   overtime: { kind: 'stay' } | { kind: 'leave' }
  *   ascend:   { kind: 'ascend', slot, id } | { kind: 'keep' } (an Ember: sim/ascend.js)
+ *   relic:    { kind: 'pick', index } (a Reliquary or the vault: sim/relics.js)
+ *   ferry:    { kind: 'buy', index } (stays open) | { kind: 'done' } (the Ferryman: sim/relics.js)
  * With nothing waiting: { kind: 'ember' } spends a kept Ember (the pause menu's Ascend: the run
  * stops for the choice).
  * At any time: { kind: 'leave' } (the pause menu), { kind: 'tune', path, value } (the tuning
@@ -390,6 +464,8 @@ export function decide(world, d) {
     case 'rune': done = runeDecide(world, h, d); break;
     case 'overtime': done = overtimeDecide(world, d); break;
     case 'ascend': done = ascendDecide(world, d); break;
+    case 'relic': done = relicDecide(world, h, d); break;
+    case 'ferry': done = ferryDecide(world, d); break;
     default: throw new Error(`Unknown halt "${h.kind}"`);
   }
   world.decisions.push(entry);
@@ -445,7 +521,19 @@ export function hashWorld(world) {
   h.float64(world.magnetAll).int(world.mergeGem).int(world.halts.length).int(world.god ? 1 : 0);
   for (const s of world.secrets) h.int(s.open ? 1 : 0); // nothing on a map without secrets
   if (world.build.embers > 0) h.int(-3).int(world.build.embers);
-  for (let s = 0; s < world.slots.length; s++) { const sl = world.slots[s]; if (sl && sl.ascensions && sl.ascensions.length) { h.int(-4).int(s); for (const a of sl.ascensions) h.int(fnv1a(a.id)); } }
+  for (let s = 0; s < world.slots.length; s++) {
+    const sl = world.slots[s];
+    if (!sl || !sl.ascensions || !sl.ascensions.length) continue;
+    h.int(-4).int(s);
+    for (const a of sl.ascensions) h.int(fnv1a(a.id));
+    // The Forms' running state (sim/forms.js createFormState): every number in it, in key order.
+    for (const v of Object.values(sl.fs)) h.float64(v);
+  }
+  // Phase 7: Sea Glass, the tasks, Lantern Night, the Reliquary's count, the Ferryman.
+  h.int(-5).int(world.glass).int(world.kindled).int(world.night.until).int(world.night.next).int(world.reliquary.kills).float64(world.reliquary.last);
+  for (const t of world.tasks) h.int(t.state).float64(t.progress).float64(t.need).int(t.glass);
+  if (world.ferry) { const F = world.ferry; h.int(F.stock).int(F.armed ? 1 : 0).float64(F.stand); for (const o of F.offers) h.int(fnv1a(o.id)).int(o.price).int(o.sold ? 1 : 0); }
+  for (const hl of world.halts) if (hl.offer && hl.kind === 'relic') for (const id of hl.offer) h.int(fnv1a(id));
   if (world.pull.ticks > 0) h.int(world.pull.ticks).int(world.pull.boss).float64(world.pull.x).float64(world.pull.y).float64(world.pull.speed);
   return h.hex();
 }

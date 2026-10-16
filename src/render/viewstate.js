@@ -18,6 +18,7 @@ export const MAX_TELEGRAPHS = 96;
 export const MAX_DYING = 512;
 export const MAX_BOLTS = 48;
 export const BOLT_MS = 140; // how long a bolt shows
+export const MAX_ZAPS = 64; // Static's zaps from a charged enemy to its neighbor (they show as long as a bolt)
 export const MAX_DECALS = 192;
 export const MAX_LIGHTS = 96;
 export const NUMBERS_CAP = 400;   // the most tuning.feel.numbers.max can ask for
@@ -43,6 +44,7 @@ export function createViewState({ slots = 4096, rand = Math.random } = {}) {
     numbers: createNumbers(NUMBERS_CAP, slots),
     shake: createShake(),
     bolts: { n: 0, next: 0, x: new Float32Array(MAX_BOLTS), y: new Float32Array(MAX_BOLTS), t: new Float64Array(MAX_BOLTS) },
+    zaps: { n: 0, next: 0, x: new Float32Array(MAX_ZAPS), y: new Float32Array(MAX_ZAPS), x2: new Float32Array(MAX_ZAPS), y2: new Float32Array(MAX_ZAPS), t: new Float64Array(MAX_ZAPS) },
     dying: { n: 0, x: new Float32Array(MAX_DYING), y: new Float32Array(MAX_DYING), t: new Float64Array(MAX_DYING), type: new Uint16Array(MAX_DYING), big: new Uint8Array(MAX_DYING), face: new Int8Array(MAX_DYING) },
     decals: { n: 0, next: 0, x: new Float32Array(MAX_DECALS), y: new Float32Array(MAX_DECALS), t: new Float64Array(MAX_DECALS), size: new Uint8Array(MAX_DECALS) },
     tele: { n: 0, shape: new Uint8Array(MAX_TELEGRAPHS), x: new Float32Array(MAX_TELEGRAPHS), y: new Float32Array(MAX_TELEGRAPHS), size: new Float32Array(MAX_TELEGRAPHS), ang: new Float32Array(MAX_TELEGRAPHS), end: new Int32Array(MAX_TELEGRAPHS), total: new Int32Array(MAX_TELEGRAPHS) },
@@ -59,7 +61,7 @@ export function createViewState({ slots = 4096, rand = Math.random } = {}) {
 export function resetViewState(st) {
   st.slotHandle.fill(-2); st.facing.fill(1); st.hitAt.fill(-1e9); st.bornAt.fill(-1e9);
   st.sparks.clear(); st.numbers.clear(); st.shake.reset();
-  st.bolts.n = 0; st.bolts.next = 0; st.dying.n = 0; st.decals.n = 0; st.decals.next = 0; st.tele.n = 0; st.lights.n = 0; st.lights.next = 0; st.marks.n = 0;
+  st.bolts.n = 0; st.bolts.next = 0; st.zaps.n = 0; st.zaps.next = 0; st.dying.n = 0; st.decals.n = 0; st.decals.next = 0; st.tele.n = 0; st.lights.n = 0; st.lights.next = 0; st.marks.n = 0;
   st.hurtAt = -1e9; st.levelAt = -1e9;
 }
 
@@ -150,6 +152,13 @@ export function consumeEvents(st, ev, ctx) {
         if (ctx.numbersOn && ev.a[i] >= F.numbers.minShown) st.numbers.hit(s, h, x, y, ev.a[i], bits & 1, now, F.numbers.groupMs);
         if (!busy && F.particles.hit > 0) burst(st, x, y, F.particles.hit, C.spark, 60, 160, PF_FRAME.DOT);
         if ((bits & 2) !== 0) addBolt(st, x, y, now); // a strike's own hit: its bolt
+        break;
+      }
+      case EV.ZAP: {
+        const Z = st.zaps, k = Z.next;
+        Z.x[k] = x; Z.y[k] = y; Z.x2[k] = ev.a[i]; Z.y2[k] = ev.b[i]; Z.t[k] = now;
+        Z.next = (k + 1) % MAX_ZAPS;
+        if (Z.n < MAX_ZAPS) Z.n++;
         break;
       }
       case EV.KILL: {

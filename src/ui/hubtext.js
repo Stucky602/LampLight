@@ -32,8 +32,35 @@ export function costText(data, cost) {
 export function joinsTexts(items) {
   const kinds = [];
   for (const x of items) { const k = kinds.find((g) => g.what === x.what); if (k) k.names.push(x.name); else kinds.push({ what: x.what, names: [x.name] }); }
-  return kinds.map((k) => (k.what ? `New ${k.what}: ${k.names.join(', ')}` : `Unlocked: ${k.names.join(', ')}`));
+  return kinds.map((k) => (k.what ? `New ${KIND_WORD[k.what] ?? k.what}: ${k.names.join(', ')}` : `Unlocked: ${k.names.join(', ')}`));
 }
+
+/**
+ * A feat's or a challenge run's reward as labels (`kind`: 'feat' or 'challenge'): what it opens,
+ * by kind ("New arcana: Glassblower"), then its materials ("6 Map Scraps, 8 Iron").
+ */
+export function rewardText(data, kind, item) {
+  const parts = joinsTexts(contentFrom(data, `${kind}:${item.id}`));
+  const mats = Object.entries(item.reward?.materials || {});
+  if (mats.length) parts.push(mats.map(([id, n]) => `${n} ${matName(data, id)}`).join(', '));
+  return parts.join('. ');
+}
+
+/** A bestiary milestone and what claiming it pays: "1,000 kills: 150 Coin, 2 Iron, +3% Damage against it". */
+export function claimText(data, next) {
+  const mats = Object.entries(next.reward.materials || {}).map(([id, n]) => `${n} ${matName(data, id)}`);
+  if (next.reward.damageMul) mats.push(`+${Math.round(next.reward.damageMul * 100)}% Damage against it`);
+  return `${next.kills.toLocaleString('en-US')} kills: ${mats.join(', ')}`;
+}
+
+/** What a Tide does, as stat labels: "+60% Enemy HP, +32% Enemy Damage, +20% Enemies, +6% Enemy Speed, +48% Materials". */
+export function tideText(t) {
+  const pct = (m) => Math.round((m - 1) * 100);
+  return `+${pct(t.hpMul)}% Enemy HP, +${pct(t.damageMul)}% Enemy Damage, +${pct(t.densityMul)}% Enemies, +${Math.round((t.speedMul - 1) * 1000) / 10}% Enemy Speed, +${Math.round(t.rewardMul * 100)}% Materials`;
+}
+
+/** How each kind of content is named after "New": gear recipes are gear, consumables items. */
+const KIND_WORD = Object.freeze({ recipe: 'gear', consumable: 'item' });
 
 /**
  * What a building's level brings: [{ kind, text }], in this order. The kinds:
@@ -42,6 +69,7 @@ export function joinsTexts(items) {
  *   'arrival'   a character who comes by boat
  *   'fog'       the fog clearing from its streets
  *   'joins'     what it adds to runs
+ *   'rule'      a Phase 7 building's number or rule it opens (a Ferryman level, gear slots, Tides)
  *   'keeper'    its keeper at the door (level 4), then walking the streets (level 5)
  *   'more'      only when it brings none of those
  * The panels pick by kind (the Tavern lists who and what comes back), never by the wording.
@@ -60,12 +88,49 @@ export function levelEffects(data, buildingId, level) {
   const brings = contentFrom(data, `building:${buildingId}:${level}`);
   for (const c of brings.filter((x) => x.what === 'character')) add('arrival', `New character: ${c.name}`);
   for (const line of joinsTexts(brings.filter((x) => x.what !== 'character'))) add('joins', line);
+  // Phase 7's buildings (data/buildings.js): each number they open, as a label.
+  if (lv.lampSpeed) add('rule', `Wayside Lamps light ${Math.round(lv.lampSpeed * 100)}% faster`);
+  if (lv.feats) add('rule', 'Unlocks feats');
+  if (lv.mastery) add('rule', 'Unlocks mastery training and kits');
+  if (lv.ferry === 1) add('rule', 'Ferryman sails into runs');
+  else if (lv.ferry) add('rule', ferryLine(data, lv.ferry));
+  if (lv.gearTier === 1) add('rule', 'Unlocks gear crafting');
+  else if (lv.gearTier) add('rule', `Gear tier up to ${lv.gearTier}`);
+  if (lv.gearSlots) add('rule', `Gear slots: ${lv.gearSlots}`);
+  if (lv.reroll) add('rule', 'Unlocks affix re-rolls');
+  if (lv.runeCrafting) add('rule', 'Unlocks rune stones');
+  if (lv.tideMax) add('rule', `Tides up to ${lv.tideMax}`);
+  if (lv.curses) add('rule', `Curses: ${lv.curses}`);
+  if (lv.bellRing) add('rule', `Fog Bell rings ${Math.round(lv.bellRing * 100)}% wider`);
+  if (lv.market === 1) add('rule', 'Unlocks trading');
+  else if (lv.market) add('rule', 'Better trades');
+  if (lv.glassToCoin) add('rule', `Sea Glass left over: ${lv.glassToCoin} Coin each`);
+  if (lv.consumableSlots === 1) add('rule', 'Unlocks consumables');
+  else if (lv.consumableSlots) add('rule', `Consumable slots: ${lv.consumableSlots}`);
+  if (lv.tasksOnMap) add('rule', 'Tasks on the minimap from 0:00');
+  if (lv.bestiary) add('rule', 'Unlocks bestiary rewards');
+  if (lv.challenges) add('rule', 'Unlocks challenge runs');
+  if (lv.shortRuns) add('rule', 'Unlocks short runs');
+  if (lv.secretsOnMap) add('rule', 'Secrets on the minimap, with hints');
   if (data.hub.fog.some((f) => f.revealedBy === `${buildingId}:${level}`)) add('fog', 'Clears the fog nearby');
+  for (const p of data.hub.plots) if (p.openAt === `${buildingId}:${level}`) add('fog', `Clears the way to ${buildingName(data, p.building)}`);
   const keeper = data.npcs.find((n) => n.home === buildingId);
   if (keeper && level === 4) add('keeper', `${keeper.name} returns`);
   if (keeper && level === 5) add('keeper', `${keeper.name} walks the harbor`);
   if (!out.length) add('more', 'No new unlocks');
   return out;
+}
+
+/** The Ferryman's level, as the Docks' panel says it (its numbers from tuning.ferry, sim/relics.js). */
+function ferryLine(data, level) {
+  const F = data.tuning.ferry;
+  switch (level) {
+    case 2: return 'Ferryman sells 2 relics';
+    case 3: return `Ferryman prices -${Math.round(F.discount * 100)}%`;
+    case 4: return `Ferryman restocks every ${clockText(F.fastRestockSec)}`;
+    case 5: return 'Ferryman sells better relics';
+    default: return `Ferryman Lv ${level}`;
+  }
 }
 
 /**
@@ -158,6 +223,28 @@ export function changeLines(data, changes) {
       case 'research_started':
         out.push({ kind: 'research', text: `Research started: ${nameOf(data.research, c.id)} (${runsText(c.runs)})` });
         break;
+      // Phase 7.
+      case 'glass_coin':
+        out.push({ kind: 'material', text: `${c.count} Coin (${c.glass} Sea Glass sold)`, icon: data.materials.find((m) => m.id === 'coin')?.icon ?? null });
+        break;
+      case 'mastery':
+        out.push({ kind: 'mastery', text: `${nameOf(data.characters, c.character)}: mastery rank ${c.rank}` });
+        break;
+      case 'tide':
+        out.push({ kind: 'tide', text: `Tide ${c.level} open at the gate` });
+        break;
+      case 'challenge':
+      case 'feat': {
+        const list = c.kind === 'feat' ? data.feats : data.challenges;
+        out.push({ kind: c.kind, text: `${c.kind === 'feat' ? 'Feat' : 'Challenge'} done: ${nameOf(list, c.id)}` });
+        const items = (c.unlocks || []).map((u) => contentFrom(data, `${c.kind}:${c.id}`).find((x) => x.id === u.id) || { name: u.id });
+        for (const line of joinsTexts(items)) out.push({ kind: 'unlock', text: line });
+        for (const [id, n] of Object.entries(c.materials || {})) out.push({ kind: 'material', text: `${n} ${matName(data, id)}`, icon: data.materials.find((m) => m.id === id)?.icon ?? null });
+        break;
+      }
+      case 'feat_found':
+        out.push({ kind: 'feat', text: `New feat at the Tavern: ${nameOf(data.feats, c.id)}` });
+        break;
       default: break;
     }
   }
@@ -174,7 +261,29 @@ export function optionText(data, o) {
   let title, at;
   if (o.kind === 'building') { title = `${buildingName(data, o.id)} Lv ${o.level}`; at = o.id; }
   else if (o.kind === 'upgrade') { title = rankText(data, o.id, o.rank); at = 'lamp_post'; }
+  else if (o.kind === 'craft') { title = nameOf(data.recipes, o.id); at = 'smithy'; }
+  else if (o.kind === 'gear_tier') { title = `${nameOf(data.recipes, o.id)} T${o.tier}`; at = 'smithy'; }
+  else if (o.kind === 'perk') { title = nameOf(data.perks, o.id); at = 'tavern'; }
+  else if (o.kind === 'consumable') { title = nameOf(data.consumables, o.id); at = 'apothecary'; }
   else { title = nameOf(data.research, o.id); at = 'library'; }
   const need = o.missing.length ? `Need ${o.missing.map((m) => `${m.need} ${matName(data, m.id)}`).join(', ')}` : null;
   return { title, where: buildingName(data, at), readyAt: o.kind === 'building' ? 'Ready' : `Ready at ${buildingName(data, at)}`, progress: o.progress, need };
+}
+
+/** The line a Phase 7 purchase leaves on its panel (meta/workshop.js's change). */
+export function actionLine(data, c) {
+  const recipe = (id) => nameOf(data.recipes, id);
+  switch (c?.kind) {
+    case 'gear_made': return `Made: ${recipe(c.id)}${c.worn ? ' (worn)' : ''}`;
+    case 'gear_tier': return `${recipe(c.id)}: tier ${c.tier}`;
+    case 'gear_reroll': return `${recipe(c.id)}: ${nameOf(data.affixes, c.now)} (was ${nameOf(data.affixes, c.was)})`;
+    case 'gear_worn': return 'Worn';
+    case 'gear_off': return 'Taken off';
+    case 'rune_stone': return `Rune stone: ${nameOf(data.runes, c.id)}`;
+    case 'consumable': return `Bought: ${nameOf(data.consumables, c.id)} (${c.held} held)`;
+    case 'trade': return `Traded ${c.gave} ${matName(data, c.give)} for ${c.got} ${matName(data, c.get)}`;
+    case 'bestiary_claim': return `${nameOf(data.enemies, c.id)}: ${c.kills.toLocaleString('en-US')} kills claimed`;
+    case 'perk': return `Trained: ${nameOf(data.perks, c.id)}`;
+    default: return '';
+  }
 }

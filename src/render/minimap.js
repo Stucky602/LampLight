@@ -9,7 +9,8 @@ import { canvasFrom, textureFrom } from './atlas.js';
 import { color as pal, PALETTE } from '../data/palette.js';
 import { GROUND } from '../sim/terrain.js';
 import { VIEW_W, VIEW_H } from './layout.js';
-import { MARK, MARK_SHAPES, createMarks, minimapWindow, minimapMarks, revealView, minimapFade } from './minimapmodel.js';
+import { MARK, MARK_SHAPES, createMarks, minimapWindow, minimapMarks, revealView, revealDisc, minimapFade } from './minimapmodel.js';
+import { TASK, TASK_STATE } from '../sim/constants.js';
 
 const rgb = (name) => { const n = parseInt(PALETTE[name].slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 // The ground's colors: open ground dark, obstacles a step lighter, water darkest and blue.
@@ -22,6 +23,7 @@ const KIND_RGB = {
 const MARK_COL = {
   [MARK.MATERIAL]: pal('fog-3'), [MARK.HEAL]: pal('moss-4'), [MARK.MAGNET]: pal('sea-5'), [MARK.EMBER]: pal('violet-4'),
   [MARK.CHEST]: pal('lamp-5'), [MARK.ELITE]: pal('rot-3'), [MARK.BOSS]: pal('rot-3'), [MARK.PLAYER]: pal('lamp-6'),
+  [MARK.LAMP]: pal('lamp-4'), [MARK.LAMP_LIT]: pal('lamp-6'), [MARK.BELL]: pal('sea-5'), [MARK.FERRY]: pal('wood-4'), [MARK.RELIQUARY]: pal('violet-4'), [MARK.SECRET]: pal('violet-4'),
 };
 const RARE_COL = pal('sea-6');
 const FRAME = pal('night-0'), BACK = pal('night-1'), EDGE = pal('night-5');
@@ -44,7 +46,7 @@ export function createMinimap() {
   const feet = { x: 0, y: 0 };
   const marks = createMarks();
   const win = { s: 1, ox: 0, oy: 0 };
-  let world = null, canvas = null, tex = null, rgba = null, img = null, seen = null, cols = 0, rows = 0, rare = null;
+  let world = null, canvas = null, tex = null, rgba = null, img = null, seen = null, cols = 0, rows = 0, rare = null, litSeen = null;
   let lastKey = NaN, lastKey2 = NaN, dirty = false, flushedAt = -Infinity, lastBox = null, lastMode = '';
 
   const paint = (i) => {
@@ -64,6 +66,7 @@ export function createMinimap() {
       rgba = new Uint8ClampedArray(cols * rows * 4);
       img = new ImageData(rgba, cols, rows);   // shares rgba: a flush puts whatever it holds now
       seen = new Uint8Array(cols * rows);
+      litSeen = new Uint8Array((w.tasks || []).length);
       rare = Uint8Array.from(w.materialDefs ?? [], (m) => (m.rare ? 1 : 0));
       lastKey = lastKey2 = NaN; dirty = true; flushedAt = -Infinity; lastBox = null;
       canvas = canvasFrom(cols, rows, rgba);
@@ -88,6 +91,15 @@ export function createMinimap() {
           lastKey = key; lastKey2 = key2;
           if (revealView(seen, cols, rows, t, camera.x, camera.y, VIEW_W, VIEW_H, paint) > 0) dirty = true;
         }
+      }
+      // A lit Wayside Lamp uncovers the map around it (tuning.tasks.lamp.reveal tiles), once.
+      const tasks = world.tasks || [];
+      for (let k = 0; k < tasks.length; k++) {
+        const tk = tasks[k];
+        if (tk.kind !== TASK.LAMP || tk.state !== TASK_STATE.DONE || litSeen[k]) continue;
+        litSeen[k] = 1;
+        const t = world.terrain.tile;
+        if (revealDisc(seen, cols, rows, Math.floor(tk.x / t), Math.floor(tk.y / t), world.tuning.tasks.lamp.reveal, paint) > 0) dirty = true;
       }
       root.visible = !!box;
       if (!box) return;

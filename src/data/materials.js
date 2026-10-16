@@ -6,11 +6,11 @@
 
 export const MATERIALS = [
   { id: 'coin', name: 'Coin', desc: 'Tarnished coins from the tide line.', icon: 'mat_coin', maps: ['*'] },
-  { id: 'oil', name: 'Oil', desc: 'Lamp oil. The Lamp Post burns it.', icon: 'mat_oil', maps: ['*'] },
+  { id: 'oil', name: 'Oil', desc: 'Lamp oil. Lamp Post burns it.', icon: 'mat_oil', maps: ['*'] },
   { id: 'timber', name: 'Timber', desc: 'Waterlogged planks, still good.', icon: 'mat_timber', maps: ['drowned_docks'] },
   { id: 'rope', name: 'Rope', desc: 'Salt-stiff rope.', icon: 'mat_rope', maps: ['drowned_docks'] },
   { id: 'drowned_pages', name: 'Drowned Pages', desc: 'Ledger pages the sea gave back.', icon: 'mat_pages', maps: ['drowned_docks'] },
-  { id: 'rum', name: 'Rum', desc: 'Sealed bottles. The Tavern wants them.', icon: 'mat_rum', maps: ['drowned_docks'] },
+  { id: 'rum', name: 'Rum', desc: 'Sealed bottles. Tavern wants them.', icon: 'mat_rum', maps: ['drowned_docks'] },
   { id: 'iron', name: 'Iron', desc: 'Salvage from wrecks.', icon: 'mat_iron', maps: ['drowned_docks'], rare: true },
   { id: 'map_scraps', name: 'Map Scraps', desc: 'Torn corners of old charts.', icon: 'mat_scraps', maps: ['*'], rare: true },
   { id: 'marsh_herbs', name: 'Marsh Herbs', desc: 'Bitter leaves from the Salt Marsh.', icon: 'mat_herbs', maps: ['salt_marsh'] },
