@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-desktop/
+desktop/node_modules/
+tools/node_modules/
+tools/out/
+*.log
+.wrangler/
