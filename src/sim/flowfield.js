@@ -14,6 +14,10 @@
 // `dilate` grows every wall by that many tiles before the search, so the field keeps big bodies
 // (elites, bosses: wider than a tile) a clear corridor from walls instead of leading them along
 // a wall's edge into its corner. The player's own tile always counts as open.
+//
+// `swim` reads the swimmers' walls (terrain.swimWall: water is open to a leech, stumps and pillars
+// aren't). On changing ground (the Salt Marsh) the field also rebuilds when terrain.version moves,
+// which the water does at most 4 times a second.
 
 import { TILE } from './terrain.js';
 
@@ -22,7 +26,7 @@ const NX = [1, -1, 0, 0, 1, 1, -1, -1];
 const NY = [0, 0, 1, -1, 1, -1, 1, -1];
 const INV_SQRT2 = 0.7071067811865476;
 
-export function createFlowField(terrain, { radius = 48, dilate = 0 } = {}) {
+export function createFlowField(terrain, { radius = 48, dilate = 0, swim = false } = {}) {
   const size = radius * 2 + 1;
   const n = size * size;
   const dist = new Uint16Array(n);
@@ -37,17 +41,20 @@ export function createFlowField(terrain, { radius = 48, dilate = 0 } = {}) {
   let ptx = -1e9, pty = -1e9;       // player's tile at the last rebuild
   let active = false;
   let rebuilds = 0;
+  let ver = terrain.version ?? 0;    // the ground's version at the last rebuild
 
   function recompute(tx, ty) {
     ptx = tx; pty = ty;
     ox = tx - radius; oy = ty - radius;
     rebuilds++;
+    ver = terrain.version ?? 0;
+    const wallsIn = swim ? terrain.swimWallIn : terrain.solidIn;
     // Worth it only when an obstacle is inside the window. (The map edge alone never needs
     // it: the map is a rectangle, so a straight chase between two points on it stays on it.)
-    active = terrain.solidIn(ox, oy, ox + size - 1, oy + size - 1) > 0;
+    active = wallsIn(ox, oy, ox + size - 1, oy + size - 1) > 0;
     if (!active) return;
     // Copy the window's walls (outside the map counts as wall).
-    const cols = terrain.cols, rows = terrain.rows, solid = terrain.solid;
+    const cols = terrain.cols, rows = terrain.rows, solid = swim ? terrain.swimWall : terrain.solid;
     for (let wy = 0; wy < size; wy++) {
       const ty2 = oy + wy;
       const rowOut = ty2 < 0 || ty2 >= rows;
@@ -62,7 +69,7 @@ export function createFlowField(terrain, { radius = 48, dilate = 0 } = {}) {
         for (let wx = 0; wx < size; wx++) {
           const c = wy * size + wx;
           if (wall[c]) continue;
-          if (terrain.solidIn(ox + wx - dilate, oy + wy - dilate, ox + wx + dilate, oy + wy + dilate) > 0 ||
+          if (wallsIn(ox + wx - dilate, oy + wy - dilate, ox + wx + dilate, oy + wy + dilate) > 0 ||
             ox + wx - dilate < 0 || oy + wy - dilate < 0 || ox + wx + dilate >= cols || oy + wy + dilate >= rows) wall[c] = 2;
         }
       }
@@ -91,10 +98,10 @@ export function createFlowField(terrain, { radius = 48, dilate = 0 } = {}) {
     radius,
     get active() { return active; },
     get rebuilds() { return rebuilds; },
-    /** Call every tick with the player's position; recomputes only on a new tile. Returns true if it did. */
+    /** Call every tick with the player's position; recomputes only on a new tile or new ground. Returns true if it did. */
     update(px, py) {
       const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
-      if (tx === ptx && ty === pty) return false;
+      if (tx === ptx && ty === pty && ver === (terrain.version ?? 0)) return false;
       recompute(tx, ty);
       return true;
     },

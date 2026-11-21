@@ -10,7 +10,8 @@
 
 import { h, fill } from './dom.js';
 import { createFocusScope } from './focus.js';
-import { flattenTuning, stepFor, tidy, START_ONLY } from './tuningmodel.js';
+import { flattenTuning, stepFor, tidy, START_ONLY, plainName, plainGroup, valueText } from './tuningmodel.js';
+import { hintRow, bandList } from './hints.js';
 
 function row(key, label, cls = '') {
   return h('div', { class: `set-row ${cls}`, data: { focus: key } });
@@ -27,7 +28,8 @@ function row(key, label, cls = '') {
  */
 export function tuningScreen(ctx, { defaults, current, commands = [], intro, onTune, onCopy, onReset, onClose }) {
   const note = h('div', { class: 'tuning-note' });
-  const list = h('div', { class: 'settings-list' });
+  const banded = bandList({ class: 'settings-list' });
+  const list = banded.bands.list;
   const rows = [];   // { key, kind, draw(), step(dir), press() }
   const defs = new Map(flattenTuning(defaults).map((r) => [r.path, r.value]));
   const live = current;
@@ -61,10 +63,13 @@ export function tuningScreen(ctx, { defaults, current, commands = [], intro, onT
     const el = row(`t:${r.path}`, r.path);
     const def = defs.get(r.path);
     const step = typeof def === 'number' ? stepFor(def) : null;
+    // Plain words and the unit (0.7.3); the code's name ("run.materialMul") is what Copy tuning
+    // writes, and what the line under the panel says on a change.
+    const name = plainName(r.path);
     const draw = () => {
       const v = r.value;
       el.classList.toggle('changed', v !== def);
-      fill(el, h('span', { class: 'set-label' }, START_ONLY.has(r.path) ? `${r.key} (next run)` : r.key), h('span', { class: 'set-value' }, typeof v === 'boolean' ? (v ? '< On >' : '< Off >') : `< ${v} >`));
+      fill(el, h('span', { class: 'set-label' }, START_ONLY.has(r.path) ? `${name.label} (next run)` : name.label), h('span', { class: 'set-value' }, `< ${valueText(v, name.unit)} >`));
     };
     draw();
     const change = (d) => {
@@ -72,7 +77,7 @@ export function tuningScreen(ctx, { defaults, current, commands = [], intro, onT
       const err = onTune(r.path, v);
       if (err) { say(err); return; }
       r.value = v;
-      say(`${r.path}: ${v}${v !== def ? `   (default ${def})` : ''}`);
+      say(`${name.label}: ${valueText(v, name.unit)}${v !== def ? ` (default ${valueText(def, name.unit)})` : ''}. In Copy tuning as ${r.path}`);
       draw();
     };
     el.addEventListener('click', (e) => change(e.offsetX < el.clientWidth * 0.55 ? -1 : 1));
@@ -98,10 +103,11 @@ export function tuningScreen(ctx, { defaults, current, commands = [], intro, onT
   }
   let group = null;
   for (const r of flattenTuning(live)) {
-    if (r.group !== group) { group = r.group; list.append(h('div', { class: 'tuning-group' }, group)); }
+    if (r.group !== group) { group = r.group; list.append(h('div', { class: 'tuning-group' }, plainGroup(group))); }
     list.append(valueRow(r));
   }
-  const el = h('div', { class: 'screen tuning-screen' }, h('div', { class: 'panel' }, h('h1', null, 'Tuning'), note, list));
+  const el = h('div', { class: 'screen tuning-screen' }, h('div', { class: 'panel' }, h('h1', null, 'Tuning'), note, banded,
+    hintRow(ctx, ['sides', 'Change'], ['confirm', 'Select'], ['back', 'Close'])));
   const scope = createFocusScope(el, { initial: 'copy' });
   const find = () => rows.find((x) => x.el === scope.current);
   say(intro ?? 'Left and right change a value.');

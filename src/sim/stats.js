@@ -5,18 +5,24 @@
 //     final = (base + Σadd) × (1 + Σpct) × Π(1 + more)
 // then the caps in data/tuning.js apply.
 //
-// Weapon stats come from a weapon's own numbers (its base plus what each level adds) and from
+// Weapon stats come from a weapon's own numbers (its base plus its rolled upgrades: ruling 10,
+// weaponOwnNumbers; a synthetic test weapon's level table, weaponLevelBase) and from
 // every modifier whose stat maps to a weapon stat: `might` is damage, `area` is area, and so
 // on (WEAPON_STAT_OF). A modifier with tags applies to a weapon that shares at least one of
 // them; one without tags applies to every weapon; one with `weapon` applies to that weapon id
 // only (character mechanics use it). Player stats (move speed, max HP, ...) take untagged
 // modifiers only.
 //
-// Stats are recomputed when the build changes (a level-up pick, a relic, a rune), never per tick.
+// Stats are recomputed when the build changes (a level-up pick, a relic, a Form), never per tick.
+
+import { WEAPON_UPS, RETIRED_UPS } from '../data/weaponups.js';
+
+const UP_BY_ID = new Map(WEAPON_UPS.map((t) => [t.id, t]));
 
 export const WEAPON_STAT_OF = Object.freeze({
   might: 'damage', area: 'area', speed: 'speed', duration: 'duration', amount: 'amount',
   cooldown: 'cooldown', pierce: 'pierce', knockback: 'knockback', crit: 'crit', critMult: 'critMult',
+  hops: 'hops',   // Copper Wire (0.8.0): more hops for anything that chains
 });
 
 export const PLAYER_STAT_IDS = Object.freeze([
@@ -29,7 +35,7 @@ export const STAT_IDS = Object.freeze([...Object.keys(WEAPON_STAT_OF), ...PLAYER
 /** Base values of the weapon stats every weapon has (a weapon's `base` overrides these). */
 export const WEAPON_DEFAULTS = Object.freeze({
   damage: 0, cooldown: 1, amount: 1, area: 1, speed: 1, duration: 1, pierce: 1, knockback: 0,
-  hitCooldown: 0, radius: 4, interval: 0.08, crit: 0, critMult: 2,
+  hitCooldown: 0, radius: 4, interval: 0.08, crit: 0, critMult: 2, hops: 0,
 });
 
 const OPS = new Set(['add', 'pct', 'more']);
@@ -100,7 +106,41 @@ export function computePlayerStats(tuning, characterBase, mods) {
 
 function noScope(m) { return !(m.tags && m.tags.length) && m.weapon === undefined; }
 
-/** A weapon's own numbers at a level: base plus what levels 2..level add (levels[L - 1]). */
+/**
+ * A weapon's own numbers after its rolled upgrades (ruling 14, C1; data/weaponups.js): its base,
+ * then each number upgrade taken ({ up, value }). 'mul' types multiply what it has now (damage x
+ * (1 + value), cooldown x (1 - value)), so +20% Damage is +20% of what the weapon does; 'add' types
+ * add. A line or a special changes no number here (sim/forms.js applies its boost). `caps`
+ * (tuning.weaponUps.caps, with maxPierce) holds each where it leaves the pool.
+ */
+export function weaponOwnNumbers(def, ups, caps = null, maxPierce = Infinity) {
+  const base = { ...WEAPON_DEFAULTS, ...def.base };
+  const b = { ...base };
+  for (const u of ups) {
+    const t = UP_BY_ID.get(RETIRED_UPS[u.up] ?? u.up);
+    if (!t || !t.stat) continue;
+    if (t.stat === 'pierce' && base.pierce < 0) continue;
+    if (t.how === 'mul') b[t.stat] *= 1 + t.sign * u.value;
+    else b[t.stat] += t.sign * u.value;
+  }
+  if (caps) {
+    b.cooldown = Math.max(b.cooldown, base.cooldown * caps.cooldown);
+    b.area = Math.min(b.area, caps.area);
+    b.duration = Math.min(b.duration, base.duration * caps.duration);
+    b.amount = Math.min(b.amount, base.amount + (def.caps?.amountExtra ?? caps.amountExtra));
+    if (base.pierce >= 0) b.pierce = Math.min(b.pierce, maxPierce);
+    b.crit = Math.min(b.crit, Math.max(base.crit, caps.crit));
+    b.hitCooldown = Math.max(b.hitCooldown, base.hitCooldown * caps.hitCooldown);
+  }
+  return b;
+}
+
+/** The upgrade caps (tuning.weaponUps.caps); a weapon's data may lower its count's (`caps.amountExtra`). */
+export function upCapsOf(tuning, def) {
+  return def.caps ? { ...tuning.weaponUps.caps, ...def.caps } : tuning.weaponUps.caps;
+}
+
+/** A level-table weapon's own numbers at a level (synthetic weapons in tests and probes: levels[L - 1]). */
 export function weaponLevelBase(def, level) {
   const b = { ...WEAPON_DEFAULTS, ...def.base };
   const lv = Math.max(1, Math.min(level, def.maxLevel || 1));
@@ -118,7 +158,12 @@ export function weaponLevelBase(def, level) {
  * The cooldown cap is relative to the weapon's own cooldown at that level.
  */
 export function computeWeaponStats(tuning, def, level, mods) {
-  const base = weaponLevelBase(def, level);
+  // `level` is the upgrades taken (a drawable weapon, ruling 10) or a number (a level-table weapon).
+  const base = Array.isArray(level)
+    ? weaponOwnNumbers(def, level, tuning.weaponUps ? upCapsOf(tuning, def) : null, tuning.caps.weapon.maxPierce)
+    : weaponLevelBase(def, level);
+  // The calibration's one knob for the whole pool (tuning.weaponUps.baseDamage).
+  if (Array.isArray(level) && tuning.weaponUps && tuning.weaponUps.baseDamage) base.damage *= tuning.weaponUps.baseDamage;
   const caps = tuning.caps.weapon;
   const tags = def.tags || [];
   const applies = (m) => modAppliesToWeapon(m, tags, def.id);
@@ -137,6 +182,7 @@ export function computeWeaponStats(tuning, def, level, mods) {
   out.knockback = Math.max(0, out.knockback);
   out.crit = clamp(out.crit, 0, 1);
   out.critMult = Math.max(1, out.critMult);
-  out.hitCooldown = Math.max(0, base.hitCooldown);
+  out.hitCooldown = Math.max(0, base.hitCooldown);   // (its own, after its Hit Delay upgrades)
+  out.hops = Math.max(0, Math.floor(out.hops));
   return out;
 }

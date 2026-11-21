@@ -5,20 +5,69 @@
 // map's layout in data. Enemies path around obstacles with the flow field (flowfield.js).
 
 import { createRng } from '../lib/rng.js';
+import { buildMarsh } from './marsh.js';
 
 export const TILE = 16;
 
 /**
  * What each tile is, for the run view (terrain.kinds). The sim only knows solid or open; these
- * say how a tile looks. Solid: CRATE, WATER, SHED_ROOF, SHED_WALL, WRECK. Open: the rest.
+ * say how a tile looks. Solid: CRATE, WATER, SHED_ROOF, SHED_WALL, WRECK, and the Salt Marsh's
+ * STUMP and DEEP. Open: the rest. The Marsh's kinds (9 to 17, sim/marsh.js): SALT the pale flats,
+ * MUD a creek bed (open at low water, slow for enemies; water at high water), REEDS low reeds on
+ * the flats, PEAT an island, STUMP a dead stump (solid), DEEP water that never drains (solid, open
+ * to swimmers), CAUSEWAY the stone causeway to the secret's island (floods partway up the water),
+ * BOARDWALK planks across a creek (never floods), LANDING the planks where a run starts.
  */
-export const GROUND = Object.freeze({ FLOOR: 0, CRATE: 1, WATER: 2, SHED_ROOF: 3, SHED_WALL: 4, WRECK: 5, BRIDGE: 6, DECK: 7, SHED_DOOR: 8 });
+export const GROUND = Object.freeze({
+  FLOOR: 0, CRATE: 1, WATER: 2, SHED_ROOF: 3, SHED_WALL: 4, WRECK: 5, BRIDGE: 6, DECK: 7, SHED_DOOR: 8,
+  SALT: 9, MUD: 10, REEDS: 11, PEAT: 12, STUMP: 13, DEEP: 14, CAUSEWAY: 15, BOARDWALK: 16, LANDING: 17,
+});
 /** Which kinds block, by name (every kind must say; a new kind left out fails at load). */
-const SOLID_BY_NAME = Object.freeze({ FLOOR: 0, CRATE: 1, WATER: 1, SHED_ROOF: 1, SHED_WALL: 1, WRECK: 1, BRIDGE: 0, DECK: 0, SHED_DOOR: 1 });
+const SOLID_BY_NAME = Object.freeze({
+  FLOOR: 0, CRATE: 1, WATER: 1, SHED_ROOF: 1, SHED_WALL: 1, WRECK: 1, BRIDGE: 0, DECK: 0, SHED_DOOR: 1,
+  SALT: 0, MUD: 0, REEDS: 0, PEAT: 0, STUMP: 1, DEEP: 1, CAUSEWAY: 0, BOARDWALK: 0, LANDING: 0,
+});
 const SOLID_KIND = new Uint8Array(Object.keys(GROUND).length);
 for (const [name, k] of Object.entries(GROUND)) {
   if (SOLID_BY_NAME[name] === undefined) throw new Error(`terrain: GROUND.${name} doesn't say whether it blocks`);
   SOLID_KIND[k] = SOLID_BY_NAME[name];
+}
+/** Does a kind block walkers? (sim/marsh.js builds its solid grid from it.) */
+export function kindSolid(k) { return SOLID_KIND[k] === 1; }
+
+/** Fills a summed-area table of a 0/1 grid (cols + 1 by rows + 1). */
+/**
+ * refresh()'s tile pass: solid is base | wet | pillar; a swimmer's wall is a pillar, else the base
+ * where there's no water; an eel's is anything but water without a pillar. The counts go to
+ * out[0] (solid) and out[1] (swim walls). (0.9.0 release: its own function, so V8 optimizes it as
+ * a whole; inside refresh() the loop was compiled on the stack each time and thrown away at the
+ * call after it, 80 times in 12 minutes of the Marsh soak.)
+ */
+function rebuildGrids(n, base, wet, pillar, kinds, grid, swimWall, dryWall, out) {
+  const DEEP = GROUND.DEEP;
+  out[0] = 0; out[1] = 0;
+  for (let i = 0; i < n; i++) {
+    const p = pillar[i];
+    const s = base[i] | wet[i] | p;
+    grid[i] = s; out[0] += s;
+    const water = kinds !== null && (kinds[i] === DEEP || wet[i] === 1);
+    const sw = p === 1 ? 1 : water ? 0 : base[i];
+    swimWall[i] = sw; out[1] += sw;
+    dryWall[i] = water && p === 0 ? 0 : 1;
+  }
+  // (Nothing after the loop: V8 compiles the loop on the stack, and gave up at the first thing
+  // after it, which that copy had never seen run, every call.)
+}
+
+function fillSat(sat, grid, cols, rows) {
+  const W = cols + 1;
+  for (let y = 0; y < rows; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < cols; x++) {
+      rowSum += grid[y * cols + x];
+      sat[(y + 1) * W + (x + 1)] = sat[y * W + (x + 1)] + rowSum;
+    }
+  }
 }
 
 /**
@@ -33,24 +82,64 @@ export function createTerrain({ cols, rows, solid = null, kinds = null }) {
   const grid = solid || new Uint8Array(cols * rows);
   if (grid.length !== cols * rows) throw new Error('createTerrain: solid grid size does not match cols x rows');
   const width = cols * TILE, height = rows * TILE;
+  const n = cols * rows;
   const tmp = new Float64Array(3);
   let solidCount = 0;
   for (let i = 0; i < grid.length; i++) if (grid[i]) solidCount++;
   // Summed-area table of solid tiles: "any obstacle in this rectangle?" in constant time.
   const sat = new Int32Array((cols + 1) * (rows + 1));
-  for (let y = 0; y < rows; y++) {
-    let rowSum = 0;
-    for (let x = 0; x < cols; x++) {
-      rowSum += grid[y * cols + x];
-      sat[(y + 1) * (cols + 1) + (x + 1)] = sat[y * (cols + 1) + (x + 1)] + rowSum;
-    }
+  fillSat(sat, grid, cols, rows);
+  // Changing ground (the Salt Marsh, ARCHITECTURE §5.17): what blocks is base | wet | pillar, kept
+  // in `solid` by refresh(). `base` never changes (stumps, deep water, the map's own walls); `wet`
+  // is a tile under the water now; `pillar` a glass pillar standing. Swimmers go by their own
+  // grids: `swimWall` (what stops a leech: stumps, pillars, never water) and `dryWall` (what stops
+  // an eel: anything that isn't water). Every refresh bumps `version`, and the flow fields rebuild
+  // on a new version. A map without water never refreshes: version stays 0.
+  const base = grid.slice(), wet = new Uint8Array(n), pillar = new Uint8Array(n);
+  const swimWall = grid.slice(), dryWall = new Uint8Array(n).fill(1);
+  const swimSat = new Int32Array((cols + 1) * (rows + 1));
+  let swimCount = solidCount;
+  const DEEP = GROUND.DEEP;
+  const counts = new Int32Array(2);   // (refresh: the solid and swim-wall counts rebuildGrids found)
+  if (kinds !== null) {
+    for (let i = 0; i < n; i++) if (kinds[i] === DEEP) { swimWall[i] = 0; dryWall[i] = 0; }
+    swimCount = 0;
+    for (let i = 0; i < n; i++) swimCount += swimWall[i];
   }
+  fillSat(swimSat, swimWall, cols, rows);
 
   const t = {
     cols, rows, width, height, tile: TILE,
     solid: grid,
     kinds,
+    base, wet, pillar, swimWall, dryWall,
+    version: 0,
     get solidCount() { return solidCount; },
+
+    /** Rebuild solid, the swimmers' grids, and both summed-area tables from base, wet, and pillar; bump the version. */
+    refresh() {
+      rebuildGrids(n, base, wet, pillar, kinds, grid, swimWall, dryWall, counts);
+      solidCount = counts[0]; swimCount = counts[1];
+      fillSat(sat, grid, cols, rows);
+      fillSat(swimSat, swimWall, cols, rows);
+      t.version++;
+    },
+
+    /** Water a swimmer can be in (deep water, or a tile under the water now, with no pillar). */
+    waterAt(tx, ty) {
+      if (tx < 0 || ty < 0 || tx >= cols || ty >= rows) return false;
+      return dryWall[ty * cols + tx] === 0;
+    },
+
+    /** Swimmers' walls in a tile rectangle (the swim flow field's summed-area table). */
+    swimWallIn(tx0, ty0, tx1, ty1) {
+      const x0 = tx0 < 0 ? 0 : tx0, y0 = ty0 < 0 ? 0 : ty0;
+      const x1 = tx1 >= cols ? cols - 1 : tx1, y1 = ty1 >= rows ? rows - 1 : ty1;
+      if (x1 < x0 || y1 < y0) return 0;
+      const W = cols + 1;
+      return swimSat[(y1 + 1) * W + (x1 + 1)] - swimSat[y0 * W + (x1 + 1)] - swimSat[(y1 + 1) * W + x0] + swimSat[y0 * W + x0];
+    },
+    get swimCount() { return swimCount; },
 
     /** Solid tile, or outside the map (the fog wall). */
     blocked(tx, ty) {
@@ -110,28 +199,41 @@ export function createTerrain({ cols, rows, solid = null, kinds = null }) {
     /** collide() in place on a register: reg[0], reg[1] = center (updated), reg[2] = radius. */
     collideR(reg) {
       const x = reg[0], y = reg[1];
-      pushOut(reg);
+      pushOut(reg, grid, solidCount);
       // A push out of one tile can land the circle in another it already checked (a narrow
       // gap between blocks): one more pass settles it.
-      if ((reg[0] !== x || reg[1] !== y) && solidCount > 0) pushOut(reg);
+      if ((reg[0] !== x || reg[1] !== y) && solidCount > 0) pushOut(reg, grid, solidCount);
+      return reg[0] !== x || reg[1] !== y;
+    },
+
+    /**
+     * collideR() against a swimmer's grid: `swimWall` (a leech: water is open) or `dryWall` (an
+     * eel: only water is open). Same rules, another grid.
+     */
+    collideGridR(reg, g) {
+      const x = reg[0], y = reg[1];
+      pushOut(reg, g, 1);
+      if (reg[0] !== x || reg[1] !== y) pushOut(reg, g, 1);
       return reg[0] !== x || reg[1] !== y;
     },
   };
 
-  /** One pass of collideR: out of every solid tile it overlaps, and inside the map. */
-  function pushOut(reg) {
+  const blockedIn = (g, tx, ty) => tx < 0 || ty < 0 || tx >= cols || ty >= rows || g[ty * cols + tx] === 1;
+
+  /** One pass of collideR: out of every tile of grid `g` it overlaps, and inside the map. */
+  function pushOut(reg, g, any) {
       const x = reg[0], y = reg[1], r = reg[2];
       let nx = x, ny = y;
       // The fog wall at the map edge.
       if (nx < r) nx = r; else if (nx > width - r) nx = width - r;
       if (ny < r) ny = r; else if (ny > height - r) ny = height - r;
-      if (solidCount > 0) {
+      if (any > 0) {
         const tx0 = Math.floor((nx - r) / TILE), tx1 = Math.floor((nx + r) / TILE);
         const ty0 = Math.floor((ny - r) / TILE), ty1 = Math.floor((ny + r) / TILE);
         for (let ty = ty0; ty <= ty1; ty++) {
           if (ty < 0 || ty >= rows) continue;
           for (let tx = tx0; tx <= tx1; tx++) {
-            if (tx < 0 || tx >= cols || grid[ty * cols + tx] !== 1) continue;
+            if (tx < 0 || tx >= cols || g[ty * cols + tx] !== 1) continue;
             const left = tx * TILE, top = ty * TILE, right = left + TILE, bottom = top + TILE;
             // Closest point on the tile to the circle's center.
             const qx = nx < left ? left : nx > right ? right : nx;
@@ -140,8 +242,8 @@ export function createTerrain({ cols, rows, solid = null, kinds = null }) {
             // A corner shared with a solid neighbor is inside a flat wall, not a real corner:
             // push straight off the face instead, so things slide along walls without drifting.
             if (dx !== 0 && dy !== 0) {
-              if (t.blocked(tx + (dx > 0 ? 1 : -1), ty)) dx = 0;
-              else if (t.blocked(tx, ty + (dy > 0 ? 1 : -1))) dy = 0;
+              if (blockedIn(g, tx + (dx > 0 ? 1 : -1), ty)) dx = 0;
+              else if (blockedIn(g, tx, ty + (dy > 0 ? 1 : -1))) dy = 0;
             }
             const d2 = dx * dx + dy * dy;
             if (d2 >= r * r) continue;
@@ -153,9 +255,9 @@ export function createTerrain({ cols, rows, solid = null, kinds = null }) {
               // Center inside the tile: leave by the nearest open side.
               const outL = nx - left + r, outR = right - nx + r, outT = ny - top + r, outB = bottom - ny + r;
               let best = outL, dir = 0;
-              if (outR < best && !t.blocked(tx + 1, ty)) { best = outR; dir = 1; }
-              if (outT < best && !t.blocked(tx, ty - 1)) { best = outT; dir = 2; }
-              if (outB < best && !t.blocked(tx, ty + 1)) { best = outB; dir = 3; }
+              if (outR < best && !blockedIn(g, tx + 1, ty)) { best = outR; dir = 1; }
+              if (outT < best && !blockedIn(g, tx, ty - 1)) { best = outT; dir = 2; }
+              if (outB < best && !blockedIn(g, tx, ty + 1)) { best = outB; dir = 3; }
               if (dir === 0) nx -= outL; else if (dir === 1) nx += outR; else if (dir === 2) ny -= outT; else ny += outB;
             }
           }
@@ -177,8 +279,14 @@ export function createTerrain({ cols, rows, solid = null, kinds = null }) {
  *   scatter: rectangular clusters (crates, rubble) placed at random, kept clear of the start
  *            area; { seed, clusters, size: [min, max] tiles, clearRadius: tiles }
  *   docks:   a harbor front (buildDocks below)
+ *   marsh:   the Salt Marsh (sim/marsh.js buildMarsh)
  */
 export function buildMap(layout, cols, rows) {
+  if (layout && layout.kind === 'marsh') {
+    // The Salt Marsh (sim/marsh.js): cached per seed inside its builder; copies handed out.
+    const g = buildMarsh(layout, cols, rows);
+    return { solid: g.solid.slice(), kinds: g.kinds.slice() };
+  }
   if (layout && layout.kind === 'docks') {
     // The docks take tens of milliseconds to build, and the same layout always builds the same
     // ground, so the last few are kept (copies handed out: a world owns its arrays).
@@ -199,7 +307,7 @@ export function clearGroundCache() { DOCKS_CACHE.clear(); }
 
 /** A layout's solid grid alone (1 = blocked). */
 export function buildLayout(layout, cols, rows) {
-  if (layout && layout.kind === 'docks') return buildMap(layout, cols, rows).solid;
+  if (layout && (layout.kind === 'docks' || layout.kind === 'marsh')) return buildMap(layout, cols, rows).solid;
   const solid = new Uint8Array(cols * rows);
   if (!layout || layout.kind === 'open') return solid;
   if (layout.kind === 'rects') {
@@ -245,7 +353,80 @@ export function checkDocks(L, cols, rows) {
   if (!H || !whole(H.count) || !dims(H.size) || H.size[0] < 3 || H.size[1] < 2) return 'sheds need a whole count and a size [w, h] of at least 3 x 2';
   if (!C || !whole(C.count) || !pair(C.size)) return 'crates need a whole count and a size [min, max]';
   if (W !== undefined && !(W && Array.isArray(W.at) && W.at.length === 2 && W.at.every(Number.isInteger) && dims(W.size) && W.size[0] >= 8 && W.size[1] >= 5)) return 'the wreck needs a tile `at` and a size [w, h] of at least 8 x 5';
+  if (L.districts !== undefined) {
+    if (!Array.isArray(L.districts)) return 'districts must be a list';
+    for (const d of L.districts) {
+      if (!DISTRICT_KINDS.includes(d?.kind)) return `a district's kind must be one of ${DISTRICT_KINDS.join(', ')}`;
+      const r = d.rect;
+      if (!(Array.isArray(r) && r.length === 4 && r.every(Number.isInteger) && r[0] >= 2 && r[1] >= 2 && r[2] >= 8 && r[3] >= 3 && r[0] + r[2] <= cols - 2 && r[1] + r[3] <= rows - 2)) return `the ${d.kind}'s rect [x, y, w, h] must be whole tiles at least 8 x 3, 2 tiles inside the map`;
+    }
+  }
   return null;
+}
+
+/**
+ * The Drowned Docks' districts (0.9.0, W4: the outer map has places to find your way by), each a
+ * rect [x, y, w, h] in tiles that the slips, sheds, and crates keep out of, built from the ground
+ * kinds there are:
+ *   crane_yard   open hardstanding with container stacks in rows and wide aisles (the cranes
+ *                stand on its open north strip: data/maps.js cranes)
+ *   fish_market  a square of stalls in rows under two long halls on its north side
+ *   breakwater   the harbor mouth: water across the rect, a stone arm (planks) out from its north
+ *                edge and along it to a point at its west end
+ *   ropewalk     one very long shed with a door every 20 tiles
+ *   dry_dock     a basin of water open to the south, a ship's frame standing in it
+ */
+export const DISTRICT_KINDS = Object.freeze(['crane_yard', 'fish_market', 'breakwater', 'ropewalk', 'dry_dock']);
+
+function buildDistrict(d, kinds, cols, rows) {
+  const K = GROUND, [x0, y0, w, h] = d.rect;
+  const set = (x, y, k) => { if (x >= 0 && y >= 0 && x < cols && y < rows) kinds[y * cols + x] = k; };
+  const fill = (ax, ay, aw, ah, k) => { for (let y = ay; y < ay + ah; y++) for (let x = ax; x < ax + aw; x++) set(x, y, k); };
+  switch (d.kind) {
+    case 'crane_yard': {
+      // The north strip (8 rows) stays open for the cranes; below it, stacks of containers 4 x 2
+      // in rows with 3-tile aisles, every other row shifted half a stack.
+      for (let y = y0 + 9, row = 0; y + 2 <= y0 + h - 1; y += 5, row++) {
+        for (let x = x0 + 2 + (row % 2) * 3; x + 4 <= x0 + w - 2; x += 7) fill(x, y, 4, 2, K.CRATE);
+      }
+      break;
+    }
+    case 'fish_market': {
+      // Two halls along the north side (roof, then a wall with doors), the stalls below them.
+      const hw = (w - 6) >> 1;
+      for (const hx of [x0 + 2, x0 + 4 + hw]) {
+        fill(hx, y0 + 1, hw, 3, K.SHED_ROOF);
+        for (let x = hx; x < hx + hw; x++) set(x, y0 + 4, (x - hx) % 6 === 3 ? K.SHED_DOOR : K.SHED_WALL);
+      }
+      for (let y = y0 + 8; y + 1 <= y0 + h - 2; y += 4) for (let x = x0 + 3; x + 2 <= x0 + w - 2; x += 5) fill(x, y, 2, 1, K.CRATE);
+      break;
+    }
+    case 'breakwater': {
+      fill(x0, y0, w, h, K.WATER);
+      // The arm: 3 wide, south from the quay at 3/5 of the way across, then west to near the end.
+      const ax = x0 + Math.floor((w * 3) / 5), ay = y0 + h - 7;
+      fill(ax, y0, 3, ay - y0 + 3, K.BRIDGE);
+      fill(x0 + 6, ay, ax - x0 - 6, 3, K.BRIDGE);
+      // The point: a wider head at its west end (where the beacon stood).
+      fill(x0 + 3, ay - 1, 5, 5, K.BRIDGE);
+      break;
+    }
+    case 'ropewalk': {
+      fill(x0, y0, w, h - 1, K.SHED_ROOF);
+      for (let x = x0; x < x0 + w; x++) set(x, y0 + h - 1, (x - x0) % 20 === 10 ? K.SHED_DOOR : K.SHED_WALL);
+      break;
+    }
+    case 'dry_dock': {
+      // A basin open to the south (the sea runs in), a ship's frame in it: its keel down the middle
+      // and ribs across every third row, standing clear of the walls.
+      fill(x0, y0, w, h, K.WATER);
+      const kx = x0 + (w >> 1);
+      for (let y = y0 + 3; y < y0 + h - 4; y++) set(kx, y, K.WRECK);
+      for (let y = y0 + 4; y < y0 + h - 5; y += 3) for (let x = x0 + 3; x < x0 + w - 3; x++) set(x, y, K.WRECK);
+      break;
+    }
+    default: break;
+  }
 }
 
 /**
@@ -288,12 +469,19 @@ function buildDocks(L, cols, rows) {
   const nearWreck = (x, y) => W && x >= wx0 - M && x <= wx1 + M && y >= wy0 - M && y <= wy1 + M;
 
   const nearStart = (x, y, r) => (x - midX) * (x - midX) + (y - midY) * (y - midY) < r * r;
-  // Is the rectangle (plus a margin) all plain wharf, away from the start and the wreck?
+  // The districts (0.9.0, W4) first: their ground (and a margin of 2) is theirs alone.
+  const reserved = new Uint8Array(cols * rows);
+  for (const d of L.districts || []) {
+    buildDistrict(d, kinds, cols, rows);
+    const [dx, dy, dw, dh] = d.rect;
+    for (let y = dy - 2; y < dy + dh + 2; y++) for (let x = dx - 2; x < dx + dw + 2; x++) if (inside(x, y)) reserved[at(x, y)] = 1;
+  }
+  // Is the rectangle (plus a margin) all plain wharf, away from the start, the wreck, and the districts?
   const freeRect = (x0, y0, w, h, m, r) => {
     for (let y = y0 - m; y < y0 + h + m; y++) {
       for (let x = x0 - m; x < x0 + w + m; x++) {
         if (!inside(x, y) || x < 2 || y < 2 || x >= cols - 2 || y >= rows - 2) return false;
-        if (kinds[at(x, y)] !== K.FLOOR || nearWreck(x, y)) return false;
+        if (kinds[at(x, y)] !== K.FLOOR || nearWreck(x, y) || reserved[at(x, y)]) return false;
       }
     }
     const cx = x0 + w / 2, cy = y0 + h / 2;

@@ -56,3 +56,78 @@ export function tuningCopyText(diff, { build = '', when = '' } = {}) {
   const lines = diff.map((d) => `${d.path}: ${d.to}   (was ${d.from})`);
   return [`Lamplight tuning changes (build ${build}${when ? `, ${when}` : ''}):`, ...lines].join('\n');
 }
+
+// ---------------------------------------------------------------- plain names (0.7.3)
+
+/** Words a tuning name is made of that read better another way, and the unit some words carry. */
+const WORDS = Object.freeze({ hp: 'HP', xp: 'XP', dps: 'DPS', fps: 'FPS', ui: 'UI', id: 'ID', mul: 'multiplier', pct: 'share', max: 'max', min: 'min', num: 'number', cfg: 'setting' });
+/** A last word that is only a unit (dropped from the name), and one that names the thing and has a unit. */
+const UNIT_ONLY = Object.freeze({ sec: 's', secs: 's', seconds: 's', ms: 'ms', px: 'px', ticks: 'ticks', deg: 'degrees' });
+const UNIT_KEEP = Object.freeze({ mul: 'x', radius: 'px', distance: 'px', range: 'px', time: 's', cooldown: 's', iframes: 's', gap: 's' });
+/** Groups whose numbers all share a unit (the code's comments say so). */
+const GROUP_UNITS = Object.freeze([['feel.hitStop.', 'ms'], ['hub.timing.', 's']]);
+
+/** A name's words: "shortTimeScale" -> ['short', 'time', 'scale'], "hit_stop" -> ['hit', 'stop']. */
+function words(key) {
+  return String(key).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * A tuning value's name as the panel shows it (0.7.3: plain words with the unit, not the code's
+ * name): "materialMul" -> { label: 'Material multiplier', unit: 'x' }, "warnSec" -> { label:
+ * 'Warn', unit: 's' }. The unit is the last word's when it has one (a word that is only a unit, like
+ * "Sec", drops out of the label), or the group's (feel.hitStop's are ms).
+ */
+/** Names worded by hand where the code's words don't say it plainly ({ label, unit }). */
+const NAMED = Object.freeze({
+  'xp.growthFrom': { label: 'Costlier levels from level', unit: null },
+  'xp.growth': { label: 'Each level past that costs', unit: 'x' },
+  'draft.autoFallback': { label: 'Pay a gift on a level with nothing to pick', unit: null },
+  'draft.autoHealBelow': { label: 'Gift food below health share', unit: null },
+  'draft.autoGlass': { label: 'Gift Pearls', unit: null },
+  'draft.autoEmberEvery': { label: 'Gift an Ember every Nth gift', unit: null },
+  'director.musterWarn': { label: 'Overtime muster warning', unit: 's' },
+  'tasks.night.burnPerMin': { label: 'Burn grows per minute', unit: null },
+  'ferry.emberPerForm': { label: 'Ember price per Form held', unit: null },
+  'bosses.hpPerLevel': { label: 'Boss HP per player level', unit: null },
+  'bosses.hpLevelMin': { label: 'Boss HP at least', unit: 'x' },
+  'bosses.hpLevelMax': { label: 'Boss HP at most', unit: 'x' },
+  // The combat's pace (0.8.1): the dials Kevin turns for fewer, slower, stronger enemies.
+  'pace.density': { label: 'Enemy count', unit: 'x' },
+  'pace.maxAlive': { label: 'Enemies alive at most', unit: null },
+  'pace.speed': { label: 'Enemy speed', unit: 'x' },
+  'pace.hp': { label: 'Enemy HP', unit: 'x' },
+  'pace.contact': { label: 'Enemy touch damage', unit: 'x' },
+  'pace.xp': { label: 'XP per kill', unit: 'x' },
+  'pace.drops': { label: 'Drops per kill', unit: 'x' },
+  'pace.events': { label: 'Set piece size', unit: 'x' },
+});
+
+export function plainName(path) {
+  if (NAMED[path]) return { ...NAMED[path] };
+  const key = String(path).split('.').at(-1);
+  const w = words(key);
+  const last = w.at(-1);
+  const only = UNIT_ONLY[last] && w.length > 1;
+  const unit = (only ? UNIT_ONLY[last] : UNIT_KEEP[last]) ?? GROUP_UNITS.find(([g]) => String(path).startsWith(g))?.[1] ?? null;
+  const shown = (only ? w.slice(0, -1) : w).map((x) => WORDS[x] ?? x);
+  const text = shown.join(' ');
+  return { label: text.charAt(0).toUpperCase() + text.slice(1), unit };
+}
+
+/** A group's path as a heading: "player.stats" -> "Player, stats"; "hub.look.fog" -> "Harbor look, fog". */
+export function plainGroup(group) {
+  const parts = String(group).split('.').filter(Boolean).map((p) => words(p).map((x) => WORDS[x] ?? x).join(' '));
+  if (parts[0] === 'hub') parts[0] = 'harbor';
+  const [first = '', ...rest] = parts;
+  const head = first.charAt(0).toUpperCase() + first.slice(1);
+  return rest.length ? `${head}${rest[0] ? ` ${rest.join(', ')}` : ''}` : head;
+}
+
+/** A value with its unit, as the panel shows it: "1.2x", "45s", "84 px", "On". */
+export function valueText(value, unit) {
+  if (typeof value === 'boolean') return value ? 'On' : 'Off';
+  if (!unit) return String(value);
+  if (unit === 'x' || unit === 's' || unit === 'ms' || unit === '%') return `${value}${unit}`;
+  return `${value} ${unit}`;
+}

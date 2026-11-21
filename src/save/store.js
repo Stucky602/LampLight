@@ -151,6 +151,26 @@ export function createStore({ backend, build = 'dev', clock = () => new Date().t
       });
     },
 
+    /**
+     * The run under way (0.9.0, app/resume.js): { replay (save/replay.js encodeReplay's bytes, as
+     * base64), runs (the profile's runs when it started), map, character, tick }. One slot, written
+     * whole every minute of a run; cleared (null) when the run's end is saved.
+     */
+    saveCheckpoint(cp) {
+      return enqueue(async () => {
+        if (loadedFrom === 'too-new') return;
+        await backend.write('checkpoint', wrap('checkpoint', cp ?? null, { build, savedAt: clock() }), { rotate: false });
+      });
+    },
+    /** The checkpoint, or null (none, or one that can't be read). */
+    async loadCheckpoint() {
+      let candidates = [];
+      try { candidates = await backend.readCandidates('checkpoint'); } catch { return null; }
+      const main = candidates.find((c) => c.source === 'main' && !c.error);
+      if (!main) return null;
+      try { const { doc } = unwrap(main.text, 'checkpoint'); return doc && typeof doc === 'object' ? doc : null; } catch { return null; }
+    },
+    clearCheckpoint() { return this.saveCheckpoint(null); },
     writeReplay(name, bytes) { return backend.writeBlob('replays', name, bytes); },
     writeReport(name, text) { return backend.writeBlob('reports', name, text); },
     /** Resolves when every queued write has finished (tests, and before quitting). */

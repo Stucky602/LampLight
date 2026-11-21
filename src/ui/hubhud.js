@@ -9,9 +9,16 @@
 // menu layer's --u is one of them in screen pixels.
 
 import { h, fill } from './dom.js';
-import { optionText } from './hubtext.js';
+import { optionText, countText } from './hubtext.js';
 
 const GOAL_ROOM = 16;   // view px under the top margin the goal line takes
+/** A material's picture this small or smaller (px) shows at twice its size in the bar. */
+const SMALL_ICON = 9;
+/** An atlas icon element's larger side in view px (app/icons.js sizes it in --u). */
+function iconSize(el) {
+  const n = (s) => Number(/\*\s*([\d.]+)/.exec(s || '')?.[1] ?? 0);
+  return Math.max(n(el?.style?.width), n(el?.style?.height));
+}
 const ARROW_PAD = 7;    // the edge arrow's half-size, and a little air
 
 /** Is a point (view px) far enough inside the view for a marker over it (below the goal line)? */
@@ -110,19 +117,52 @@ export function createHubHud({ root, icon, glyph, data, viewW, viewH }) {
   const wanted = data.materials.filter((m) => [
     ...data.buildings.flatMap((b) => b.levels.map((l) => l.cost)), ...data.research.map((r) => r.cost), ...data.upgrades.map((u) => u.cost),
   ].some((c) => c[m.id] > 0));
+  // Where a material comes from, for one you have none of yet (RULING-L1; round 2, L3 4: "For the
+  // Lamp Post" on five of them misled): every map, elites and bosses, or its map, and whether that
+  // map is open yet (`open`: the open maps' ids, from the scene; null: don't say).
+  const whereFrom = (m, open) => {
+    const maps = m.maps ?? [];
+    if (m.rare && maps.includes('*')) return 'From elites and bosses';
+    if (maps.includes('*')) return 'Drops on every map';
+    const map = data.maps.find((x) => maps.includes(x.id));
+    if (!map) return 'Not found yet';
+    if (open && !open.includes(map.id)) return `${map.name}: not open yet`;
+    return m.rare ? `From ${map.name} elites and bosses` : `From the ${map.name}`;   // (round 3, L3 5: one shape)
+  };
   let bannerUntil = 0, bubbleFor = null, promptKey = '', goalText = '';
   let guideShown = null;   // what setGuide last placed: { target, marker } (for tests and tools)
   const at = (node, x, y) => { node.style.left = `calc(var(--u) * ${Math.round(x)})`; node.style.top = `calc(var(--u) * ${Math.round(y)})`; };
   const unit = () => parseFloat(root.style.getPropertyValue('--u')) || 1;
+  /**
+   * The goal line sits at the top right, clear of the materials (V5: it covered the 5th column's
+   * count); if the materials still reach under it (a narrow window, a long goal), it drops below them.
+   */
+  function placeGoal() {
+    if (goal.hidden) return;
+    goal.style.top = '';
+    const a = mats.getBoundingClientRect(), b = goal.getBoundingClientRect();
+    if (a.width > 0 && b.width > 0 && b.left < a.right && b.top < a.bottom) goal.style.top = `calc(var(--u) * ${Math.ceil((a.bottom - el.getBoundingClientRect().top) / unit()) + 4})`;
+  }
 
   return {
     el,
-    /** Material counts, in the data's order (the ones you have none of, dimmed). */
-    setMaterials(have) {
+    /**
+     * Material counts, in the data's order (the ones you have none of, dimmed), in a grid that keeps
+     * its columns however big a count gets: 9,999 in full, then 12.3k (0.7.3).
+     */
+    setMaterials(have, open = null) {
+      // 0.9.0 (V5: Coin half the size of the rest; names only on a mouse hover): each icon sits in
+      // a box of one size, a small picture drawn at twice its size; the name shows under the count,
+      // so a controller player reads it too.
       fill(mats, ...wanted.map((m) => {
         const n = have?.[m.id] ?? 0;
-        return h('span', { class: `hud-mat${n > 0 ? '' : ' none'}`, title: m.name }, icon(m.icon, 1), ` ${n}`);
+        let pic = icon(m.icon, 1);
+        if (iconSize(pic) <= SMALL_ICON) pic = icon(m.icon, 2);
+        return h('span', { class: `hud-mat${n > 0 ? '' : ' none'}`, title: m.name },
+          h('span', { class: 'hud-mat-pic' }, pic),
+          h('span', { class: 'hud-mat-text' }, h('span', { class: 'hud-mat-count' }, countText(n)), h('span', { class: 'hud-mat-name' }, m.name), n > 0 ? null : h('span', { class: 'hud-mat-for' }, whereFrom(m, open))));
       }));
+      placeGoal();
     },
     /** The next three (meta/next.js nextAffordable). */
     setNext(options) {
@@ -132,6 +172,9 @@ export function createHubHud({ root, icon, glyph, data, viewW, viewH }) {
         const t = optionText(data, o);
         return h('div', { class: 'hud-next-row' },
           h('div', { class: 'hud-next-name' }, t.title),
+          t.opens ? h('div', { class: 'hud-next-opens' }, t.opens) : null,
+          t.runs ? h('div', { class: 'hud-next-opens' }, t.runs) : null,
+          t.waits ? h('div', { class: 'hud-next-opens' }, t.waits) : null,
           h('span', { class: 'meter' }, h('span', { class: 'meter-fill', style: { width: `${Math.round(t.progress * 100)}%` } })),
           h('div', { class: t.need ? 'hud-next-need' : 'hud-next-ready' }, t.need ?? t.readyAt));
       }));
@@ -190,8 +233,9 @@ export function createHubHud({ root, icon, glyph, data, viewW, viewH }) {
     setGuide(text, target) {
       guideShown = text && target ? { target: { x: target.x, y: target.y }, marker: null } : null;
       if (!text) { goal.hidden = true; arrow.hidden = true; goalText = ''; return; }
-      if (text !== goalText) { fill(goal, text); goalText = text; }
+      const was = goal.hidden;
       goal.hidden = !banner.hidden;   // a banner has the top for a moment
+      if (text !== goalText) { fill(goal, text); goalText = text; placeGoal(); } else if (was && !goal.hidden) placeGoal();
       arrow.hidden = !target;
       if (!target) return;
       let marker = guideMarker(target, viewW, viewH);

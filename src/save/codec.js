@@ -7,6 +7,18 @@ import { deflateSync, inflateSync, strToU8, strFromU8 } from 'fflate';
 import { crc32Hex } from '../lib/hash.js';
 
 export const CODE_PREFIX = 'LAMP1';
+/**
+ * The most a code may hold (0.9.0, V5: a crafted 267 KB code ran for 10 s and reached 2.3 GB
+ * before failing): 4 MB of code text, and 4 MB of save once unpacked. A real save is a few KB.
+ */
+export const MAX_CODE_CHARS = 4 * 1024 * 1024;
+export const MAX_SAVE_BYTES = 4 * 1024 * 1024;
+/**
+ * The most entries any one list or table of a save may hold in a code (the sweep, S4 A3: a 709 KB
+ * code with 300,000 made-up codex keys held the page for minutes). A real save's longest list is a
+ * few hundred; the game's whole content is a few thousand ids.
+ */
+export const MAX_SAVE_ENTRIES = 50000;
 
 export class CodeError extends Error {
   constructor(msg) { super(msg); this.name = 'CodeError'; }
@@ -59,6 +71,7 @@ export function encodeExportCode(doc) {
 /** Export code -> profile doc (not yet migrated). Throws CodeError with a plain-language message. */
 export function decodeExportCode(code) {
   if (typeof code !== 'string') throw new CodeError('That is not a save code.');
+  if (code.length > MAX_CODE_CHARS) throw new CodeError('That is far too long to be a save code.');
   // Spaces and line breaks are ignored, and so are quotes or a sentence's closing punctuation
   // pasted along with the code (the code itself never ends in them).
   const clean = code.replace(/\s+/g, '').replace(/^[`'"\u2018\u2019\u201c\u201d(]+/, '').replace(/[`'"\u2018\u2019\u201c\u201d.,;:!?)]+$/, '');
@@ -74,12 +87,28 @@ export function decodeExportCode(code) {
   parts[2] = parts[2].toLowerCase();
   const bytes = b64urlDecode(parts[1]);
   let json;
-  try { json = strFromU8(inflateSync(bytes)); } catch { throw new CodeError('The code is damaged and cannot be unpacked.'); }
-  if (crc32Hex(json) !== parts[2]) throw new CodeError('The code is damaged (checksum mismatch). Copy it again.');
+  // The player's words, not the format's (0.7.3): a code that was cut or changed is "damaged".
+  let raw;
+  // Unpacked into a buffer of the cap's size plus one: a code that would unpack past it stops there.
+  try { raw = inflateSync(bytes, { out: new Uint8Array(MAX_SAVE_BYTES + 1) }); } catch { throw new CodeError('The code is damaged. Copy the whole code again, or export it again.'); }
+  if (raw.length > MAX_SAVE_BYTES) throw new CodeError('That code unpacks to far more than a save. It isn\'t a Lamplight save code.');
+  try { json = strFromU8(raw); } catch { throw new CodeError('The code is damaged. Copy the whole code again, or export it again.'); }
+  if (crc32Hex(json) !== parts[2]) throw new CodeError('The code is damaged. Copy the whole code again, or export it again.');
   let doc;
-  try { doc = JSON.parse(json); } catch { throw new CodeError('The code is damaged (bad data).'); }
-  if (!doc || typeof doc !== 'object' || typeof doc.v !== 'number' || !doc.profile) throw new CodeError('The code does not contain a Lamplight profile.');
+  try { doc = JSON.parse(json); } catch { throw new CodeError('The code is damaged. Copy the whole code again, or export it again.'); }
+  if (!doc || typeof doc !== 'object' || typeof doc.v !== 'number' || !doc.profile) throw new CodeError('The code has no Lamplight progress in it.');
+  if (tooManyEntries(doc)) throw new CodeError('That code holds far more than a save does. It isn\'t a Lamplight save code.');
   return doc;
+}
+
+/** Does any list or table in the doc (three levels down: profile.gear.inventory) pass MAX_SAVE_ENTRIES? */
+function tooManyEntries(x, depth = 0) {
+  if (x === null || typeof x !== 'object') return false;
+  const vals = Array.isArray(x) ? x : Object.values(x);
+  if (vals.length > MAX_SAVE_ENTRIES) return true;
+  if (depth >= 3) return false;
+  for (const v of vals) if (tooManyEntries(v, depth + 1)) return true;
+  return false;
 }
 
 /** Short facts about a profile, shown before an import overwrites anything. */

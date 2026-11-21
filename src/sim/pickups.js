@@ -15,6 +15,8 @@ import { runHooks } from './hooks.js';
 import { openChest, openCache } from './chests.js';
 import { collectEmber } from './ascend.js';
 import { openRelicPick, addGlass } from './relics.js';
+import { wardAt } from './tasks.js';
+import { openFind, findOut } from './acts.js';
 import { sincosInto, TAU } from '../lib/fmath.js';
 
 export const GEM_FIELDS = {
@@ -58,9 +60,12 @@ export const PICKUP_RESERVE = 32;
  * once, and a heal or magnet takes the place of the heal
  * or magnet lying farthest from you. (Only if all 256 slots held chests and materials would a
  * heal be dropped; the pool counts it in `refused`.)
+ * A chest, an Ember, a Reliquary, or the vault that lands says so (EV.DROP: the arrows, the
+ * sounds, and a lit lamp watching the ground it lands on); `pulled` marks a Reliquary brought in
+ * toward you from a far kill.
  * Returns the pickup's index, or -1 if it was applied at once or dropped.
  */
-export function spawnPickup(world, kind, x, y, a = 0, b = 0) {
+export function spawnPickup(world, kind, x, y, a = 0, b = 0, pulled = 0) {
   const P = world.pickups;
   // What waits where it fell (a chest, a Reliquary, the vault) must be somewhere you can stand:
   // one dropped over water or on a crate moves to the nearest open tile.
@@ -85,6 +90,7 @@ export function spawnPickup(world, kind, x, y, a = 0, b = 0) {
   const i = P.alloc();
   P.x[i] = x; P.y[i] = y; P.px[i] = x; P.py[i] = y;
   P.kind[i] = kind; P.a[i] = a; P.b[i] = b;
+  if (kind === PK.CHEST || kind === PK.EMBER || kind === PK.RELIQUARY || kind === PK.VAULT) world.events.push(EV.DROP, x, y, kind, wardAt(world, x, y), pulled);
   return i;
 }
 
@@ -100,19 +106,29 @@ function farthestLoose(world) {
   return best;
 }
 
-/** Material drops from a kill: the enemy's own table, then the map's common drops (regular enemies) or elite drops. */
+/**
+ * Material drops from a kill: the enemy's own table, then the map's common drops (regular
+ * enemies) or elite drops. An ordinary enemy's chances (not an elite's or a boss's) are times the
+ * pace dial tuning.pace.drops: fewer, tougher enemies each drop more often.
+ */
 export function rollDrops(world, e, def, flags) {
   const E = world.enemies;
   const rng = world.rng.loot;
   const luck = world.stats.luck;
   const x = E.x[e], y = E.y[e];
+  // (X3: in overtime an ordinary enemy's materials drop at the map's overtime `dropMul` of their chance.)
+  const more = (flags & (EF.ELITE | EF.BOSS)) === 0 ? world.tuning.pace.drops * (world.director.overtime ? (world.map.overtime.dropMul ?? 1) : 1) : 1;
   if ((flags & EF.SWARM) === 0 || (flags & EF.ELITE) !== 0) {
-    dropTable(world, def.drops, x, y, rng, luck);
+    dropTable(world, def.drops, x, y, rng, luck, more);
     const map = world.map;
-    if ((flags & EF.ELITE) !== 0) dropTable(world, map.eliteDrops, x, y, rng, luck);
-    else if ((flags & (EF.BOSS | EF.MINION)) === 0) dropTable(world, map.commonDrops, x, y, rng, luck);
+    // The sweep, X3 (E1): in overtime an elite's rare materials drop at the map's `eliteRare` share
+    // of their chance (an elite pair a minute made staying pay 5 to 6 runs of Iron).
+    if ((flags & EF.ELITE) !== 0) dropTable(world, map.eliteDrops, x, y, rng, luck, 1, world.director.overtime ? (map.overtime.eliteRare ?? 1) : 1);
+    else if ((flags & (EF.BOSS | EF.MINION)) === 0) dropTable(world, map.commonDrops, x, y, rng, luck, more);
   }
-  // Healing and the magnet: rare, from regular enemies only (no food under the Hunger curse).
+  // Healing and the magnet: rare, from regular enemies only (no food under the Hunger curse), at
+  // their own rates a kill: the pace dial's drops reach materials only (0.8.2: with it, food and
+  // magnets fell 3.5 times as often and became background noise).
   if ((flags & (EF.BOSS | EF.MINION | EF.SWARM)) === 0) {
     const pk = world.map.pickups;
     if (pk) {
@@ -122,12 +138,14 @@ export function rollDrops(world, e, def, flags) {
   }
 }
 
-function dropTable(world, table, x, y, rng, luck) {
+function dropTable(world, table, x, y, rng, luck, more, rare = 1) {
   if (!table) return;
   const sc = world.scratch.sc;
   for (let k = 0; k < table.length; k++) {
     const d = table[k];
-    const chance = d.chance >= 1 ? 1 : d.chance * luck;
+    // `rare` (X3): the share of a rare material's chance left (overtime's elites); a certain drop becomes that chance.
+    const base = rare !== 1 && world.materialDefs[world.materialIndex.get(d.material)]?.rare ? d.chance * rare : d.chance;
+    const chance = base >= 1 ? 1 : base * luck * more;
     if (!rng.chance(chance)) continue;
     const lo = d.amount ? d.amount[0] : 1, hi = d.amount ? d.amount[1] : 1;
     const amount = lo + rng.int(hi - lo + 1);
@@ -143,7 +161,7 @@ function dropTable(world, table, x, y, rng, luck) {
  * multiplier as they are when you pick them up (greed taken at 19:59 doesn't grow the whole run).
  */
 export function addMaterial(world, materialIndex, amount) {
-  world.result.materialsRaw[materialIndex] += amount * world.stats.greed * world.director.materialMul;
+  world.result.materialsRaw[materialIndex] += amount * world.stats.greed * world.director.otMaterialMul;
 }
 
 /** Step 10: gems and pickups: the magnet pulls, touching collects. */
@@ -181,9 +199,9 @@ export function pickupsStep(world) {
   const S = world.secrets;
   for (let i = 0; i < S.length; i++) {
     const s = S[i];
-    if (s.open) continue;
+    if (s.open || !findOut(world, s)) continue;   // a small find from a later act isn't there yet (W4)
     const dx = p.x - s.x, dy = p.y - s.y, r = s.radius + T.radius;
-    if (dx * dx + dy * dy <= r * r) openCache(world, i);
+    if (dx * dx + dy * dy <= r * r) { if (s.gift) openFind(world, i); else openCache(world, i); }
   }
 
   const P = world.pickups;
@@ -223,7 +241,8 @@ function collectGem(world, i) {
   if (world.hooks.onGemCollect.length > 0) runHooks(world, 'onGemCollect');
 }
 
-function collectPickup(world, i) {
+/** Collect pickup i where it lies, as walking onto it would (W4: the dawn brings the spoils to you). */
+export function collectPickup(world, i) {
   const P = world.pickups;
   const kind = P.kind[i], x = P.x[i], y = P.y[i], a = P.a[i], b = P.b[i];
   P.remove(i);
@@ -231,7 +250,8 @@ function collectPickup(world, i) {
     addMaterial(world, a, b);
     world.events.push(EV.PICKUP, x, y, PICK.MATERIAL, a);
   } else if (kind === PK.HEAL) {
-    heal(world, a);
+    // (The Apothecary's healing side: food heals a share more, RunConfig.harbor.foodHeal.)
+    heal(world, a * (1 + (world.config.harbor?.foodHeal ?? 0)));
     world.events.push(EV.PICKUP, x, y, PICK.HEAL, a);
   } else if (kind === PK.MAGNET) {
     world.magnetAll = world.tuning.xp.magnetItemPull;

@@ -6,7 +6,7 @@
 // small file (and back) is save/replay.js's job (compression lives outside the sim).
 
 import { createWorld, stepWorld, decide, hashWorld } from './world.js';
-import { createFrameRecorder, readFrame, frameCount } from '../lib/inputframe.js';
+import { createFrameRecorder, readFrame, frameCount, FRAME_BYTES } from '../lib/inputframe.js';
 
 export const REPLAY_VERSION = 1;
 
@@ -29,6 +29,22 @@ export function createRecordedRun(config, data, buildId) {
       return stepWorld(world, frame);
     },
     decide(d) { return decide(world, d); },
+    /**
+     * The run so far for a checkpoint (app/resume.js): as toReplay, but only the frames from byte
+     * `fromByte` on (the rest is already saved) and no hash, so a minute's checkpoint costs a
+     * minute's frames, however long the run.
+     */
+    sinceByte(fromByte = 0) {
+      return {
+        v: REPLAY_VERSION,
+        build: buildId,
+        config: structuredClone(startConfig),
+        frames: frames.bytesFrom(fromByte),
+        frameBytes: frames.length * FRAME_BYTES,
+        decisions: world.decisions.map((e) => ({ ...e })),
+        endTick: world.tick,
+      };
+    },
     /** The replay as plain data (frames as bytes). */
     toReplay() {
       return {

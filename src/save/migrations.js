@@ -40,6 +40,39 @@ export const PROFILE_MIGRATIONS = [
     for (const k of ['bossKills', 'clears', 'lampsLit', 'bellsRung']) if (!Number.isFinite(st[k])) st[k] = 0;
     return out;
   },
+  // v3 -> v4 (0.8.0, the Salt Marsh): Tides are opened per map. Every Tide a v3 save opened was
+  // opened on the Drowned Docks (the only map there was), so they move to `tides.drowned_docks`,
+  // and `tide` keeps only the last one chosen. New parts: the relics given to the Salt Well
+  // (`well`), what each map has shown (`seen`: every enemy the bestiary has counted was met on the
+  // Docks, so the field guide and the first-sighting notices start from there), and the gate's
+  // map. Nothing the player earned is lost.
+  (doc) => {
+    const out = structuredClone(doc);
+    out.v = 4;
+    const p = out.profile && typeof out.profile === 'object' ? out.profile : (out.profile = {});
+    const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+    const T = obj(p.tide) ? p.tide : {};
+    const opened = Number.isFinite(Number(T.unlocked)) ? Math.max(0, Math.floor(Number(T.unlocked))) : 0;
+    const selected = Number.isFinite(Number(T.selected)) ? Math.max(0, Math.floor(Number(T.selected))) : 0;
+    p.tides = obj(p.tides) ? p.tides : {};
+    if (opened > 0) p.tides.drowned_docks = Math.max(opened, Number(p.tides.drowned_docks) || 0);
+    p.tide = { selected };
+    // Tides above an older build's top, set aside by reconcile, were the Docks' too.
+    const O = obj(p.orphans) ? p.orphans : null;
+    if (O && obj(O.tide)) {
+      const n = Number(O.tide.unlocked);
+      if (Number.isFinite(n) && n > 0) O.tides = { ...(obj(O.tides) ? O.tides : {}), drowned_docks: Math.floor(n) };
+      delete O.tide;
+    }
+    if (!Array.isArray(p.well)) p.well = [];
+    if (!obj(p.seen)) p.seen = {};
+    if (!Array.isArray(p.seen.drowned_docks)) {
+      const met = obj(p.bestiary) ? Object.keys(p.bestiary).filter((id) => Number(p.bestiary[id]) > 0).map((id) => `enemy:${id}`) : [];
+      if (met.length) p.seen.drowned_docks = met;
+    }
+    if (obj(p.setup) && typeof p.setup.map !== 'string') p.setup.map = '';
+    return out;
+  },
 ];
 
 export class SaveTooNewError extends Error {

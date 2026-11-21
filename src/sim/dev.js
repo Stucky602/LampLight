@@ -8,8 +8,8 @@
 //   { kind: 'tune', path: 'enemies.separation', value: 0.4 }
 //   { kind: 'tune', path: 'character.harpooner.daze', value: 0.3 }   the run's character's own numbers
 //   { kind: 'dev', cmd: 'spawn', count: 2000, enemy?: 'drowned_sailor' }
-//   { kind: 'dev', cmd: 'jump', to: 590 }            seconds; forward only; skips the events between
-//   { kind: 'dev', cmd: 'give', what: 'weapon' | 'passive' | 'relic' | 'rune', id }
+//   { kind: 'dev', cmd: 'jump', to: 590 }            seconds; forward only; skips the events between (a boss passed still arrives)
+//   { kind: 'dev', cmd: 'give', what: 'weapon' | 'passive' | 'relic', id }
 //   { kind: 'dev', cmd: 'level', count?: 1 }
 //   { kind: 'dev', cmd: 'god', on: true | false }
 //   { kind: 'dev', cmd: 'heal' }
@@ -17,18 +17,20 @@
 //   { kind: 'dev', cmd: 'chest', boss?: true }        opens a chest where you stand (the reel)
 //   { kind: 'dev', cmd: 'warp', secret: 0 }          to open ground just south of a map secret
 //   { kind: 'dev', cmd: 'warp', task: 0 }            to a run task (sim/tasks.js), inside its ring
-//   { kind: 'dev', cmd: 'warp', ferry: true }        beside the Ferryman's skiff
-//   { kind: 'dev', cmd: 'glass', count }             Sea Glass
+//   { kind: 'dev', cmd: 'warp', ferry: true }        beside the Ferryman's skiff (he calls at once if he hasn't)
+//   { kind: 'dev', cmd: 'glass', count }             Pearls (with the Ferryman in the run)
 //   { kind: 'dev', cmd: 'reliquary' }                a Reliquary's pick, now
 //   { kind: 'dev', cmd: 'ember' }                    an Ember, as if picked up (the choice opens if a weapon can take it)
 
 import { HIT_RING, TPS, EF } from './constants.js';
 import { spawnEnemy } from './enemies.js';
+import { skipEventsTo } from './director.js';
 import { applyCard } from './draft.js';
-import { openSocketsFor, openChest, CHEST_BOSS, CHEST_ELITE } from './chests.js';
-import { addRelic, markStatsDirty } from './build.js';
-import { collectEmber } from './ascend.js';
-import { addGlass, openRelicPick } from './relics.js';
+import { openChest, CHEST_BOSS, CHEST_ELITE } from './chests.js';
+import { addRelic, markStatsDirty, rebuildStats } from './build.js';
+import { collectEmber, takeForm } from './ascend.js';
+import { rollUpgrade } from './weaponups.js';
+import { addGlass, openRelicPick, ferryCall } from './relics.js';
 import { xpToNext } from './player.js';
 import { TAU, sincosInto } from '../lib/fmath.js';
 
@@ -134,7 +136,25 @@ function checkId(list, id, what) {
   return def;
 }
 
-/** Run one dev command. Throws a plain message for one that can't run. */
+/** One rolled level-up for the weapon in slot s (ruling 10: on the draft stream, a logged decision like any). */
+function levelOnce(world, s) {
+  const slot = world.slots[s];
+  const u = rollUpgrade(world, s, world.rng.draft);
+  if (!u) throw new Error(`dev give: ${slot.def.name} has nothing left to roll`);
+  applyCard(world, { kind: 'weapon', id: slot.def.id, slot: s, level: slot.level + 1, isNew: false, ...u });
+}
+
+function giveRetired(world, old) {
+  let s = world.slots.findIndex((x) => x && x.def && x.def.id === old.weapon);
+  if (s < 0) { applyCard(world, { kind: 'weapon', id: old.weapon, isNew: true }); s = world.slots.findIndex((x) => x && x.def && x.def.id === old.weapon); }
+  if (s < 0) throw new Error('dev give: no free weapon slot');
+  // Seven rolled upgrades (the level 8 an evolution was made at), then its capstone.
+  for (let k = 0; k < 7; k++) levelOnce(world, s);
+  const form = world.ascensionLines.get(old.weapon)?.options.find((o) => o.id === old.form);
+  if (form && !world.slots[s].ascensions.includes(form)) { rebuildStats(world); takeForm(world, s, form); }
+  return 1;
+}
+
 export function devDecide(world, d) {
   switch (d.cmd) {
     case 'spawn': {
@@ -169,19 +189,24 @@ export function devDecide(world, d) {
       if (!(Number.isFinite(d.to) && to > world.tick)) throw new Error('dev jump: the time must be later than now (seconds into the run)');
       world.tick = to;
       // Events between then and now are skipped (a dev jump is for looking at a moment, not for
-      // playing through what was skipped).
-      const dir = world.director, t = to / TPS;
-      while (dir.eventIdx < dir.events.length && dir.events[dir.eventIdx].at < t) dir.eventIdx++;
+      // playing through what was skipped), but not a boss: one it passes begins its act, and the
+      // last one passed arrives now (sim/director.js skipEventsTo).
+      skipEventsTo(world, to / TPS);
       return to;
     }
     case 'give': {
       switch (d.what) {
         case 'weapon': {
+          // An evolved weapon (retired in 0.9.0: a replay or a report that names one) is its base
+          // weapon at level 8 with its capstone.
+          const old = world.data.retiredWeapons?.[d.id];
+          if (old) return giveRetired(world, old);
           const def = checkId(world.weaponDefs, d.id, 'weapon');
-          if (def.innate) throw new Error(`dev give: ${d.id} is a character's own weapon`);
-          const owned = world.slots.find((s) => s && s.def && s.def.id === d.id);
-          if (owned && owned.level >= owned.def.maxLevel) throw new Error(`dev give: ${def.name} is already at its highest level`);
-          applyCard(world, { kind: 'weapon', id: d.id, isNew: !owned });
+          if (def.innate || def.signature) throw new Error(`dev give: ${d.id} is a character's own weapon`);
+          // One you carry: a rolled upgrade (ruling 10: weapons have no highest level).
+          const s = world.slots.findIndex((x) => x && x.def && x.def.id === d.id);
+          if (s >= 0) levelOnce(world, s);
+          else applyCard(world, { kind: 'weapon', id: d.id, isNew: true });
           return 1;
         }
         case 'passive': {
@@ -197,13 +222,7 @@ export function devDecide(world, d) {
           addRelic(world, def);
           return 1;
         }
-        case 'rune': {
-          const rune = checkId(world.runeDefs, d.id, 'rune');
-          if (!openSocketsFor(world, rune).length) throw new Error(`dev give: no open socket fits ${d.id}`);
-          world.halts.push({ kind: 'rune', rune: rune.id });
-          return 1;
-        }
-        default: throw new Error(`dev give: "${d.what}" is not weapon, passive, relic, or rune`);
+        default: throw new Error(`dev give: "${d.what}" is not weapon, passive, or relic`);
       }
     }
     case 'level': {
@@ -215,6 +234,7 @@ export function devDecide(world, d) {
       let need = p.xpNext - p.xp;
       for (let L = p.level + 1; L < p.level + n; L++) need += xpToNext(world.tuning, L);
       p.xp += need + 1e-6;
+      world.levelNow += n;   // (a dev level comes at once: the gap between drafts doesn't hold it)
       return n;
     }
     case 'god':
@@ -251,6 +271,8 @@ export function devDecide(world, d) {
       if (d.task !== undefined || d.ferry) {
         const at = d.ferry ? world.ferry : world.tasks[d.task];
         if (!at) throw new Error(d.ferry ? 'dev warp: no Ferryman in this run' : `dev warp: this map has no task ${d.task}`);
+        // The Ferryman not tied up yet: he calls now, tied up at once.
+        if (d.ferry && !at.moored) { ferryCall(world); at.tiedTick = world.tick; }
         const p = world.player;
         // Beside a task (on it, for the Ferryman), on open ground.
         const to = [at.x, at.y + (d.ferry ? 0 : 12)];

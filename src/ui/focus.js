@@ -53,6 +53,12 @@ export function createFocusScope(root, { initial = null, onFocus = null } = {}) 
     current?.classList.remove('focused');
     current = el;
     el.classList.add('focused');
+    // A list with "N more" bands (ui/hints.js bandList) snaps to whole rows; anything else scrolls
+    // the plain way.
+    const banded = el.closest?.('[data-bands]');
+    // (X6: then the plain way too, for a list that is itself inside a part that scrolls; a row the
+    // list already shows whole moves nothing there.)
+    if (banded?.bands) banded.bands.update(el);
     el.scrollIntoView?.({ block: 'nearest' });
     onFocus?.(el);
   }
@@ -71,6 +77,7 @@ export function createFocusScope(root, { initial = null, onFocus = null } = {}) 
      */
     refresh() {
       const els = list();
+      for (const b of root.querySelectorAll('[data-bands]')) b.bands?.update(current && b.contains(current) ? current : null);
       if (current && els.includes(current)) return;
       const key = current?.dataset.focus;
       current = null;

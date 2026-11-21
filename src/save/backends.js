@@ -10,7 +10,8 @@
 //   label                                               'desktop' | 'web' | 'web-local' | 'memory'
 
 export const BACKUPS = 5;
-const KINDS = new Set(['profile', 'settings']);
+// checkpoint (0.9.0): the run under way, every minute (app/resume.js), so a crash can resume it.
+const KINDS = new Set(['profile', 'settings', 'checkpoint']);
 const NAME_RE = /^[A-Za-z0-9._-]{1,80}$/;
 
 function checkKind(kind) {

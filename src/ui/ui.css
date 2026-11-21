@@ -5,7 +5,8 @@
    caps, no pill buttons, no gradient buttons.
 
    Sizes are in game pixels: --u is one pixel of the 640 x 360 view in CSS pixels (3 at 1080p),
-   set by ui/screens.js, so menus scale with the game. */
+   set by ui/screens.js, so menus scale with the game. Type is sized in --uf, which is --u times
+   the Text size setting (0.9.0): boxes keep their size, the words inside them grow. */
 
 @font-face {
   font-family: 'Jersey 10';
@@ -30,6 +31,7 @@
   --lamp-4: #f3b049;
   --lamp-5: #ffd98a;
   --lamp-6: #fff4d2;
+  --sea-4: #2f8a86;
   --sea-5: #58b8a8;
   --rot-2: #a8322a;
   --rot-3: #dc5638;
@@ -112,7 +114,7 @@ html, body {
   position: absolute;
   overflow: hidden;
   font-family: 'Jersey 10', ui-monospace, Consolas, monospace;
-  font-size: calc(var(--u) * 9);
+  font-size: calc(var(--uf, var(--u)) * 9);
   line-height: 1.15;
   color: var(--fog-4);
 }
@@ -137,11 +139,15 @@ html, body {
   max-width: calc(var(--u) * 600);
   max-height: calc(var(--u) * 340);
   overflow: auto;
+  /* A column (the sweep, X6; S3b F13): the title and the hint row never shrink; a banded list, or
+     a part marked .give, takes the room that is left and scrolls inside itself (the rules at the end
+     of this file). */
+  display: flex; flex-direction: column;
 }
 
 h1 {
   margin: 0 0 calc(var(--u) * 8);
-  font-size: calc(var(--u) * 18);
+  font-size: calc(var(--uf, var(--u)) * 18);
   font-weight: 400;
   color: var(--lamp-5);
   text-align: center;
@@ -149,7 +155,7 @@ h1 {
 }
 h2 {
   margin: calc(var(--u) * 6) 0 calc(var(--u) * 3);
-  font-size: calc(var(--u) * 9);
+  font-size: calc(var(--uf, var(--u)) * 9);
   font-weight: 400;
   color: var(--fog-3);
 }
@@ -168,7 +174,7 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
   position: relative;
   overflow: hidden;
 }
-.btn.small { font-size: calc(var(--u) * 8); padding: calc(var(--u) * 2) calc(var(--u) * 5); }
+.btn.small { font-size: calc(var(--uf, var(--u)) * 8); padding: calc(var(--u) * 2) calc(var(--u) * 5); }
 .btn.wide { text-align: center; }
 .btn.quiet { color: var(--fog-2); }
 .btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
@@ -194,7 +200,7 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
   line-height: 1.15;
 }
 
-.hint { margin-top: calc(var(--u) * 6); font-size: calc(var(--u) * 8); color: var(--fog-2); text-align: center; white-space: pre; }
+.hint { margin-top: calc(var(--u) * 6); font-size: calc(var(--uf, var(--u)) * 8); color: var(--fog-2); text-align: center; white-space: pre; }
 
 /* ------------------------------------------------------------ cards */
 
@@ -212,19 +218,19 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .card-head { display: flex; gap: calc(var(--u) * 5); align-items: center; }
 .card-title { font-weight: 400; color: var(--fog-5); }
 .card.focused .card-title { color: var(--lamp-6); }
-.card-sub { font-size: calc(var(--u) * 8); color: var(--lamp-4); }
+.card-sub { font-size: calc(var(--uf, var(--u)) * 8); color: var(--lamp-4); }
 .card-desc { color: var(--fog-4); }
 .card-desc.center { text-align: center; margin: 0 auto calc(var(--u) * 6); }
-.card-note { font-size: calc(var(--u) * 8); color: var(--sea-5); }
+.card-note { font-size: calc(var(--uf, var(--u)) * 8); color: var(--sea-5); }
 .card-art { display: flex; justify-content: center; padding: calc(var(--u) * 4) 0; }
 .kind-relic .card-sub, .kind-rune .card-sub { color: var(--violet-4); }
 .kind-evolution .card-sub { color: var(--lamp-5); }
 
 .tags { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); }
-.tag { font-size: calc(var(--u) * 7); padding: 0 calc(var(--u) * 2); border: var(--u) solid var(--fog-2); color: var(--fog-3); }
+.tag { font-size: calc(var(--uf, var(--u)) * 7); padding: 0 calc(var(--u) * 2); border: var(--u) solid var(--fog-2); color: var(--fog-3); }
 .tag-fire { border-color: var(--lamp-3); color: var(--lamp-4); }
 .tag-light { border-color: var(--lamp-5); color: var(--lamp-5); }
-.tag-tide { border-color: var(--sea-5); color: var(--sea-5); }
+.tag-sea { border-color: var(--sea-5); color: var(--sea-5); }
 .tag-steel { border-color: var(--fog-3); color: var(--fog-4); }
 .tag-echo { border-color: var(--violet-3); color: var(--violet-4); }
 .tag-frost { border-color: var(--gem-3); color: var(--gem-3); }
@@ -259,7 +265,7 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .reel.landed { border-color: var(--lamp-5); background: var(--night-3); }
 .reel.landed.kind-evolution, .reel.landed.kind-relic { border-color: var(--violet-4); }
 .reel-label { min-height: calc(var(--u) * 20); }
-.reel-desc { font-size: calc(var(--u) * 8); }
+.reel-desc { font-size: calc(var(--uf, var(--u)) * 8); }
 .build-detail { margin-top: calc(var(--u) * 6); min-height: calc(var(--u) * 30); max-width: calc(var(--u) * 170); }
 .icon-cell { cursor: pointer; border: var(--u) solid transparent; }
 
@@ -269,8 +275,11 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .build-col { min-width: calc(var(--u) * 150); }
 .icon-row { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); }
 .icon-cell { position: relative; }
-.icon-cell .lv { position: absolute; right: calc(var(--u) * -1); bottom: calc(var(--u) * -2); font-size: calc(var(--u) * 8); color: var(--fog-5); text-shadow: 0 0 calc(var(--u) * 1) var(--night-0); }
+.icon-cell .lv { position: absolute; right: calc(var(--u) * -1); bottom: calc(var(--u) * -2); font-size: calc(var(--uf, var(--u)) * 8); color: var(--fog-5); text-shadow: 0 0 calc(var(--u) * 1) var(--night-0); }
 .icon-cell .lv.max { color: var(--lamp-5); }
+/* Ready to evolve (0.7.2): the HUD's gold corner mark, the same in the pause menu. */
+.icon-cell .ready-mark { position: absolute; right: 0; top: 0; width: calc(var(--u) * 4); height: calc(var(--u) * 4); background: var(--lamp-5); outline: var(--u) solid var(--night-0); }
+.card-note.ready { color: var(--lamp-5); }
 .stats { display: grid; grid-template-columns: auto auto; gap: calc(var(--u) * 2) calc(var(--u) * 10); margin: 0; }
 .stats dt { color: var(--fog-2); }
 .stats dd { margin: 0; color: var(--fog-5); text-align: right; }
@@ -281,7 +290,7 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .set-row { display: flex; align-items: center; gap: calc(var(--u) * 6); padding: calc(var(--u) * 2) calc(var(--u) * 5); border: var(--u) solid transparent; cursor: pointer; }
 .set-label { flex: 1; }
 .set-value { color: var(--fog-5); display: flex; align-items: center; gap: calc(var(--u) * 3); white-space: pre; }
-.set-why { font-size: calc(var(--u) * 7); color: var(--fog-2); }
+.set-why { font-size: calc(var(--uf, var(--u)) * 7); color: var(--fog-2); }
 .set-row[aria-disabled="true"] .set-value { color: var(--fog-2); }
 .slider { display: inline-block; width: calc(var(--u) * 40); height: calc(var(--u) * 3); background: var(--night-0); border: var(--u) solid var(--fog-1); }
 .slider-fill { display: block; height: 100%; background: var(--lamp-4); }
@@ -290,39 +299,47 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 
 .title-screen { flex-direction: column; background: rgba(7, 8, 13, 0.45); gap: calc(var(--u) * 10); }
 .title-block { text-align: center; }
-.game-title { font-size: calc(var(--u) * 40); font-weight: 400; color: var(--lamp-5); text-shadow: calc(var(--u) * 1) calc(var(--u) * 1) 0 var(--night-0); }
-.build { font-size: calc(var(--u) * 8); color: var(--fog-2); }
-.title-note { font-size: calc(var(--u) * 8); color: var(--fog-3); max-width: calc(var(--u) * 300); text-align: center; }
+.game-title { font-size: calc(var(--uf, var(--u)) * 40); font-weight: 400; color: var(--lamp-5); text-shadow: calc(var(--u) * 1) calc(var(--u) * 1) 0 var(--night-0); }
+.build { font-size: calc(var(--uf, var(--u)) * 8); color: var(--fog-2); }
+.title-note { font-size: calc(var(--uf, var(--u)) * 8); color: var(--fog-3); max-width: calc(var(--u) * 300); text-align: center; }
 
 .error-screen .panel { border-color: var(--rot-3); }
-.error-text { font: calc(var(--u) * 8) / 1.2 'Jersey 10', ui-monospace, Consolas, monospace; color: var(--rot-4); white-space: pre-wrap; max-height: calc(var(--u) * 80); overflow: auto; background: var(--night-0); padding: calc(var(--u) * 4); border: var(--u) solid var(--night-4); }
+.error-text { font: calc(var(--uf, var(--u)) * 8) / 1.2 'Jersey 10', ui-monospace, Consolas, monospace; color: var(--rot-4); white-space: pre-wrap; max-height: calc(var(--u) * 80); overflow: auto; background: var(--night-0); padding: calc(var(--u) * 4); border: var(--u) solid var(--night-4); }
 
 /* ------------------------------------------------------------ the tuning panel (dev) */
 
 .tuning-screen { justify-content: flex-end; align-items: stretch; background: transparent; }
-.tuning-screen .panel { max-height: none; height: 100%; width: calc(var(--u) * 250); padding: calc(var(--u) * 6); font-size: calc(var(--u) * 7); }
-.tuning-screen h1 { font-size: calc(var(--u) * 9); margin-bottom: calc(var(--u) * 4); }
+.tuning-screen .panel { max-height: none; height: 100%; width: calc(var(--u) * 250); padding: calc(var(--u) * 6); font-size: calc(var(--uf, var(--u)) * 7); }
+.tuning-screen h1 { font-size: calc(var(--uf, var(--u)) * 9); margin-bottom: calc(var(--u) * 4); }
 .tuning-screen .settings-list { min-width: 0; }
 .tuning-screen .set-row { padding: calc(var(--u) * 1) calc(var(--u) * 3); }
 .tuning-screen .changed .set-label { color: var(--lamp-5); }
 .tuning-group { color: var(--fog-2); margin-top: calc(var(--u) * 4); font-weight: 400; }
-.tuning-note { font-size: calc(var(--u) * 7); color: var(--sea-5); min-height: calc(var(--u) * 7); }
+.tuning-note { font-size: calc(var(--uf, var(--u)) * 7); color: var(--sea-5); min-height: calc(var(--u) * 7); }
 
 /* ------------------------------------------------------------ the harbor (Phase 5) */
 
 /* What sits over the harbor while you walk it: never takes input, stays under every screen. */
-.hub-hud { position: absolute; inset: 0; pointer-events: none; font-size: calc(var(--u) * 8); }
+.hub-hud { position: absolute; inset: 0; pointer-events: none; font-size: calc(var(--uf, var(--u)) * 8); }
 .hub-hud.quiet .hud-mats, .hub-hud.quiet .hud-next { visibility: hidden; }
 .hud-mats {
   position: absolute; left: calc(var(--u) * 6); top: calc(var(--u) * 6);
-  display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2) calc(var(--u) * 7); max-width: calc(var(--u) * 260);
+  /* A grid, so a count growing (9,999, then 12.3k) never reflows the bar (0.7.3). */
+  display: grid; grid-template-columns: repeat(5, minmax(calc(var(--u) * 52), auto)); gap: calc(var(--u) * 3) calc(var(--u) * 6); max-width: calc(var(--u) * 320);
   padding: calc(var(--u) * 3) calc(var(--u) * 5);
-  background: rgba(7, 8, 13, 0.72); border: var(--u) solid var(--night-4);
+  /* 0.9.0: nearly solid, so a count reads over a busy street. */
+  background: rgba(7, 8, 13, 0.92); border: var(--u) solid var(--night-4);
 }
 .hud-mats, .hud-next { transition: opacity 0.2s; }
 .hud-mats.under, .hud-next.under { opacity: 0.25; }
-.hud-mat { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); color: var(--fog-5); }
+.hud-mat { display: inline-flex; align-items: center; gap: calc(var(--u) * 3); color: var(--fog-5); }
+/* Every material's picture in a box of one size (0.9.0), its name under its count. */
+.hud-mat-pic { display: inline-flex; align-items: center; justify-content: center; width: calc(var(--u) * 16); height: calc(var(--u) * 16); flex: none; }
+.hud-mat-text { display: inline-flex; flex-direction: column; line-height: 1; }
+.hud-mat-name { color: var(--fog-3); font-size: calc(var(--uf, var(--u)) * 7); white-space: nowrap; }
+.hud-mat-for { display: block; color: var(--fog-3); font-size: calc(var(--uf, var(--u)) * 5); }   /* (RULING-L1: what a material at 0 is for) */
 .hud-mat.none { color: var(--fog-1); }
+.hud-mat.none .hud-mat-name { color: var(--fog-1); }
 .hud-mat.none .icon { opacity: 0.35; }
 .hud-next {
   position: absolute; left: calc(var(--u) * 6); bottom: calc(var(--u) * 6); width: calc(var(--u) * 132);
@@ -332,8 +349,9 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 }
 .hud-next-title { color: var(--fog-3); }
 .hud-next-name { color: var(--fog-5); }
-.hud-next-need { color: var(--fog-2); font-size: calc(var(--u) * 7); }
-.hud-next-ready { color: var(--lamp-5); font-size: calc(var(--u) * 7); }
+.hud-next-need { color: var(--fog-2); font-size: calc(var(--uf, var(--u)) * 7); }
+.hud-next-opens { color: var(--violet-4); font-size: calc(var(--uf, var(--u)) * 7); }
+.hud-next-ready { color: var(--lamp-5); font-size: calc(var(--uf, var(--u)) * 7); }
 .meter { display: block; height: calc(var(--u) * 3); background: var(--night-0); border: var(--u) solid var(--fog-1); margin: calc(var(--u) * 1) 0; }
 .meter-fill { display: block; height: 100%; background: var(--lamp-4); }
 .hud-prompt, .hud-bubble {
@@ -343,7 +361,7 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
   color: var(--fog-5); white-space: nowrap;
 }
 .hud-bubble { white-space: normal; width: max-content; max-width: calc(var(--u) * 170); border-color: var(--lamp-3); display: flex; flex-direction: column; }
-.bubble-name { color: var(--lamp-5); font-size: calc(var(--u) * 7); }
+.bubble-name { color: var(--lamp-5); font-size: calc(var(--uf, var(--u)) * 7); }
 .bubble-text { color: var(--fog-5); }
 .hud-banner {
   position: absolute; left: 50%; top: calc(var(--u) * 26); transform: translateX(-50%);
@@ -351,7 +369,7 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
   background: rgba(7, 8, 13, 0.85); border: var(--u) solid var(--lamp-3);
   text-align: center; max-width: calc(var(--u) * 320);
 }
-.banner-title { color: var(--lamp-5); font-size: calc(var(--u) * 12); }
+.banner-title { color: var(--lamp-5); font-size: calc(var(--uf, var(--u)) * 12); }
 .banner-line { color: var(--fog-4); }
 /* Bottom left: the page's status notice (update ready, a failed save) sits bottom right. */
 .hud-skip { position: absolute; left: calc(var(--u) * 8); bottom: calc(var(--u) * 8); color: var(--fog-3); }
@@ -366,12 +384,23 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 /* The gate's second step: what the focused row's value does, under the list. */
 /* At 720p a full gate (a kit, every curse, three slots) is taller than the view: its rows scroll inside the panel. */
 .setup-screen .settings-list { max-height: calc(var(--u) * 180); overflow-y: auto; padding: var(--u); }
+/* The gate's multi rows (the sweep, X2): several items on one row. Plain boxes with square corners;
+   the item in focus has the lamp's outline, a switch says On or Off in words. */
+.set-multi { flex-direction: column; align-items: stretch; gap: calc(var(--u) * 2); cursor: default; }
+.set-sum { color: var(--fog-3); }
+.set-items { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); }
+.set-item { padding: calc(var(--u) * 1) calc(var(--u) * 3); border: var(--u) solid var(--fog-1); color: var(--fog-3); cursor: pointer; }
+.set-item.on { color: var(--fog-5); border-color: var(--fog-3); }
+.set-item.off { color: var(--fog-2); border-color: var(--night-4); }
+.set-item.at { outline: calc(var(--u) * 1) solid var(--lamp-5); color: var(--lamp-6); }
 .setup-detail { min-height: calc(var(--u) * 20); margin-top: calc(var(--u) * 4); display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
 .bld-level { color: var(--lamp-4); }
 .bld-desc { grid-column: 1 / -1; color: var(--fog-3); margin: calc(var(--u) * 2) 0 calc(var(--u) * 6); max-width: none; }
 .bld-body { display: flex; gap: calc(var(--u) * 10); align-items: flex-start; }
 .bld-col { display: flex; flex-direction: column; gap: calc(var(--u) * 4); }
 .bld-next { width: calc(var(--u) * 170); flex: none; }
+/* Fully restored: no next level, so the list takes the whole width (0.7.3). */
+.bld-body.full .bld-next { display: none; }
 .bld-list { flex: 1; min-width: 0; }
 .bld-list .list { max-height: calc(var(--u) * 200); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: var(--u); }
 .bld-note { min-height: calc(var(--u) * 9); margin-top: calc(var(--u) * 4); color: var(--sea-5); }
@@ -380,23 +409,66 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .cost { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2) calc(var(--u) * 6); }
 .cost-item { display: inline-flex; align-items: center; gap: calc(var(--u) * 1); color: var(--fog-5); }
 .cost-item.short { color: var(--rot-4); }
-.why { color: var(--fog-2); font-size: calc(var(--u) * 7); }
+.why { color: var(--fog-2); font-size: calc(var(--uf, var(--u)) * 7); }
 .list-row { padding: calc(var(--u) * 2) calc(var(--u) * 4); border: var(--u) solid var(--night-4); background: var(--night-2); cursor: pointer; display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
 .list-row.static { cursor: default; }
 .list-row.off .row-name { color: var(--fog-2); }
 .row-top { display: flex; align-items: center; gap: calc(var(--u) * 3); }
 .row-name { color: var(--fog-5); flex: 1; min-width: 0; text-align: left; }
-.row-rank { color: var(--lamp-4); font-size: calc(var(--u) * 7); }
-.row-desc { color: var(--fog-3); font-size: calc(var(--u) * 7); }
-.row-adds { color: var(--violet-4); font-size: calc(var(--u) * 7); }
-.row-done { color: var(--moss-3); font-size: calc(var(--u) * 7); }
-.row-active { color: var(--sea-5); font-size: calc(var(--u) * 7); }
-.row-ready { color: var(--lamp-5); font-size: calc(var(--u) * 7); }
+.row-rank { color: var(--lamp-4); font-size: calc(var(--uf, var(--u)) * 7); }
+.row-desc { color: var(--fog-3); font-size: calc(var(--uf, var(--u)) * 7); }
+.row-adds { color: var(--violet-4); font-size: calc(var(--uf, var(--u)) * 7); }
+.row-done { color: var(--moss-3); font-size: calc(var(--uf, var(--u)) * 7); }
+.row-active { color: var(--sea-5); font-size: calc(var(--uf, var(--u)) * 7); }
+.row-ready { color: var(--lamp-5); font-size: calc(var(--uf, var(--u)) * 7); }
+
+/* A list that scrolls (ui/hints.js bandList): whole rows, and a solid band above and below that
+   says how many rows are out of view that way. A plain bar, never a fade. */
+.banded { display: flex; flex-direction: column; min-height: 0; }
+.list-band {
+  visibility: hidden; text-align: center; font-size: calc(var(--uf, var(--u)) * 7); line-height: 1;
+  padding: calc(var(--u) * 1) 0; color: var(--fog-4); background: var(--night-3); border: var(--u) solid var(--night-4);
+}
+.list-band.on { visibility: visible; }
+.list-band.up { margin-bottom: calc(var(--u) * 1); }
+.list-band.down { margin-top: calc(var(--u) * 1); }
+.list-row .tags { margin-top: calc(var(--u) * 1); }
+.hint .glyph { margin-right: calc(var(--u) * 1); }
+
+/* The bestiary (the harbor's menu) and the save code (the title and the harbor). */
+.bestiary-screen .panel { width: calc(var(--u) * 380); }
+.bestiary-screen .list { max-height: calc(var(--u) * 200); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: var(--u); }
+.row-desc.center { text-align: center; margin-top: calc(var(--u) * 3); }
+.savecode-screen .panel { width: calc(var(--u) * 330); }
+.save-note { max-width: calc(var(--u) * 300); }
+
+/* The Field guide (the pause menu) and the Salt Well (0.8.0). */
+.guide-screen .panel { width: calc(var(--u) * 380); }
+.guide-screen .list { max-height: calc(var(--u) * 200); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: var(--u); }
+.well-screen .panel { border-color: var(--sea-4); }
+.well-screen .cards { flex-wrap: wrap; max-width: calc(var(--u) * 560); }
+/* The Fog Bell's pick (0.8.2): up to 12 cards (every weapon and passive carried), four to a row,
+   each as short as its text. */
+.bellpick-screen .panel { border-color: var(--sea-4); }
+.bellpick-screen .cards { flex-wrap: wrap; max-width: calc(var(--u) * 560); margin: 0 auto; }
+.bellpick-screen .draft-cards .card { min-height: 0; width: calc(var(--u) * 128); }
+.bellpick-screen .draft-cards.many .card .card-desc { font-size: calc(var(--uf, var(--u)) * 8); }
+/* The pause menu's ledger (0.8.2): one line under This map. */
+.pause-screen .ledger { max-width: calc(var(--u) * 260); }
 
 /* The gate, the results, the harbor's menu. */
 .gate-screen .panel { border-color: var(--lamp-3); }
-.results-screen .panel { width: calc(var(--u) * 430); border-color: var(--lamp-3); }
-.results-body { display: flex; gap: calc(var(--u) * 12); align-items: flex-start; }
+/* The gate's map cards (0.8.0): what each map drops and moves, side by side. */
+.map-card { width: calc(var(--u) * 190); text-align: left; }
+.map-card .card-note { margin-top: calc(var(--u) * 2); }
+.map-card .map-line { color: var(--fog-5); margin-top: calc(var(--u) * 1); }
+.results-screen .panel { width: calc(var(--u) * 430); border-color: var(--lamp-3); display: flex; flex-direction: column; overflow: hidden; }
+/* The heading stays put; the news scrolls under it (0.7.3). */
+.results-head { flex: none; }
+.results-body { display: flex; gap: calc(var(--u) * 12); align-items: flex-start; min-height: 0; }
+.results-news { max-height: calc(var(--u) * 130); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+.news-line { color: var(--fog-4); }
+.news-line.focused { outline-width: var(--u); }
 .results-col { flex: 1; min-width: 0; }
 .news-research_done, .news-record { color: var(--lamp-5); }
 .news-note { color: var(--fog-2); }
@@ -406,10 +478,12 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 /* The new player's guide (ui/hubhud.js setGuide): the goal across the top, and a marker: a
    triangle bobbing over the target, or at the screen's edge pointing toward it. */
 .hud-goal {
-  position: absolute; left: 50%; top: calc(var(--u) * 8); transform: translateX(-50%);
+  /* 0.9.0: at the top right, clear of the materials (it covered their 5th column); ui/hubhud.js
+     placeGoal drops it below them if they still meet. */
+  position: absolute; right: calc(var(--u) * 6); top: calc(var(--u) * 6);
+  max-width: calc(var(--u) * 280);
   padding: calc(var(--u) * 3) calc(var(--u) * 8);
-  background: rgba(7, 8, 13, 0.85); border: var(--u) solid var(--lamp-3); color: var(--lamp-6);
-  white-space: nowrap;
+  background: rgba(7, 8, 13, 0.92); border: var(--u) solid var(--lamp-3); color: var(--lamp-6);
 }
 .hud-guide {
   position: absolute; width: 0; height: 0;
@@ -424,7 +498,8 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 
 /* A first run's tips (ui/menus.js runTips): bottom left, over the run. */
 .run-tips {
-  position: absolute; left: calc(var(--u) * 8); bottom: calc(var(--u) * 10);
+  /* (round 2, L1 6, L3 6: at the bottom it covered the notice line; up here it sits under the HUD's meter, clear of it) */
+  position: absolute; left: calc(var(--u) * 8); top: calc(var(--u) * 96); max-width: calc(var(--u) * 200);
   padding: calc(var(--u) * 4) calc(var(--u) * 8);
   background: rgba(7, 8, 13, 0.82); border: var(--u) solid var(--night-5); color: var(--fog-5);
   pointer-events: none;
@@ -452,3 +527,260 @@ p { margin: 0 0 calc(var(--u) * 6); max-width: calc(var(--u) * 300); }
 .ascend-option.off { opacity: 0.5; }
 .stats-screen .panel { width: calc(var(--u) * 600); max-width: none; }
 .stats-weapons .stats-weapon dl.stats { grid-template-columns: auto auto auto auto; }
+
+/* ------------------------------------------------------------ 0.9.0 (W7) */
+
+/* The glossary (ui/glossary.js): the terms down the left, the focused one's entry on the right. */
+.glossary-screen .panel { width: calc(var(--u) * 470); }
+.gloss-body { display: flex; gap: calc(var(--u) * 10); align-items: flex-start; }
+.gloss-list { width: calc(var(--u) * 150); flex: none; }
+.gloss-list .list { max-height: calc(var(--u) * 250); overflow: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 1); padding: var(--u); }
+.gloss-group { margin: calc(var(--u) * 4) 0 calc(var(--u) * 1); }
+.gloss-row { padding: calc(var(--u) * 1) calc(var(--u) * 4); }
+.gloss-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 4); }
+.gloss-name { color: var(--lamp-5); font-size: calc(var(--uf, var(--u)) * 12); }
+.gloss-desc, .gloss-where { margin: 0; max-width: none; }
+.gloss-where { color: var(--fog-3); }
+.gloss-row.unseen .row-name { color: var(--fog-2); }   /* (RULING-L1: not seen yet) */
+.gloss-more { color: var(--fog-4); }
+.gloss-label { color: var(--fog-2); }
+/* Which term the glossary button opens, for the focused element: the bottom right of the view. */
+.gloss-hint {
+  position: absolute; right: calc(var(--u) * 6); bottom: calc(var(--u) * 4); z-index: 5;
+  font-size: calc(var(--uf, var(--u)) * 7); color: var(--fog-3);
+  padding: calc(var(--u) * 1) calc(var(--u) * 4); background: var(--night-1); border: var(--u) solid var(--night-4);
+  pointer-events: none;
+}
+.gloss-hint .glyph { margin-right: calc(var(--u) * 1); }
+
+/* Settings (0.9.0): rows in groups that scroll as whole rows, and the focused row's description. */
+.settings-screen .settings-list { max-height: calc(var(--u) * 210); overflow-y: auto; padding: var(--u); }
+.set-group { margin: calc(var(--u) * 4) 0 calc(var(--u) * 1); }
+.set-detail { min-height: calc(var(--u) * 18); max-width: calc(var(--u) * 290); margin-top: calc(var(--u) * 4); color: var(--fog-3); font-size: calc(var(--uf, var(--u)) * 8); }
+/* Controls: an action, its controller button, its key; the cell waiting for a press is marked. */
+.controls-screen .panel { width: calc(var(--u) * 400); }
+.controls-head, .ctl-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: calc(var(--u) * 4); align-items: center; }
+.controls-head { color: var(--fog-2); padding: 0 calc(var(--u) * 5); font-size: calc(var(--uf, var(--u)) * 8); }
+.controls-list { max-height: calc(var(--u) * 200); overflow-y: auto; display: flex; flex-direction: column; gap: calc(var(--u) * 1); padding: var(--u); }
+.ctl-row { flex-direction: row; cursor: default; }
+.ctl-cell { padding: calc(var(--u) * 1) calc(var(--u) * 4); border: var(--u) solid var(--night-4); color: var(--fog-5); cursor: pointer; text-align: center; }
+.ctl-cell.waiting { color: var(--lamp-6); border-color: var(--lamp-4); }
+/* Tips over the things themselves (app/runtips.js; 0.9.0): one short line, a box with a notch under it. */
+.world-tips { position: absolute; inset: 0; pointer-events: none; }
+.world-tip {
+  position: absolute; transform: translate(-50%, -100%); white-space: nowrap;
+  padding: calc(var(--u) * 1) calc(var(--u) * 4); font-size: calc(var(--uf, var(--u)) * 8);
+  color: var(--lamp-6); background: rgba(7, 8, 13, 0.85); border: var(--u) solid var(--lamp-3);
+}
+.gloss-hint.run { bottom: calc(var(--u) * 40); }
+/* The death recap on the run's end screen. */
+.recap { margin: 0 0 calc(var(--u) * 6); padding: calc(var(--u) * 3) calc(var(--u) * 6); border: var(--u) solid var(--rot-2); background: var(--night-2); }
+.recap-killer { color: var(--rot-4); }
+.recap-sub { color: var(--fog-2); font-size: calc(var(--uf, var(--u)) * 7); margin-top: calc(var(--u) * 2); }
+.recap-line { color: var(--fog-4); font-size: calc(var(--uf, var(--u)) * 8); }
+/* The save code's paste box (0.9.0): plain, square, the game's colors. */
+.paste-box { font: inherit; font-size: calc(var(--uf, var(--u)) * 7); color: var(--fog-5); background: var(--night-0); border: var(--u) solid var(--fog-1); padding: calc(var(--u) * 2); resize: none; user-select: text; -webkit-user-select: text; }
+/* A resumed run catching up (app/resume.js): one line in the middle of the view. */
+.catch-up { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: calc(var(--u) * 4) calc(var(--u) * 10); background: var(--night-1); border: var(--u) solid var(--lamp-3); color: var(--lamp-6); font-size: calc(var(--uf, var(--u)) * 10); }
+/* The results lead with what can be bought now (0.9.0). */
+.ready-block { margin: 0 0 calc(var(--u) * 6); padding: calc(var(--u) * 3) calc(var(--u) * 6); border: var(--u) solid var(--lamp-3); background: var(--night-2); display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+.ready-block h2 { margin: 0 0 calc(var(--u) * 1); color: var(--lamp-5); }
+.ready-line { display: flex; gap: calc(var(--u) * 6); align-items: baseline; }
+/* A purchase that would take a Ready level out of reach (0.9.0). */
+.warn { color: var(--rot-4); font-size: calc(var(--uf, var(--u)) * 7); }
+/* Spoils (0.9.0): a chest and what follows from it, one step at a time under the reel. */
+.spoils-screen .panel { width: calc(var(--u) * 470); }
+.spoils-done { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 1); margin-top: calc(var(--u) * 4); }
+.spoils-line { color: var(--sea-5); font-size: calc(var(--uf, var(--u)) * 8); }
+.spoils-step { margin-top: calc(var(--u) * 6); border-top: var(--u) solid var(--night-4); padding-top: calc(var(--u) * 4); }
+.spoils-step h2 { text-align: center; }
+.spoils-weapons { flex-wrap: wrap; }
+/* The run's damage by weapon (W6's src/render/damagetable.js): on the run's end and the harbor's results. */
+.damage-table { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: calc(var(--u) * 2) calc(var(--u) * 4); align-items: center; margin: calc(var(--u) * 4) 0; }
+.damage-table .dmg-name { color: var(--fog-5); white-space: nowrap; }
+.damage-table .dmg-lv { color: var(--fog-3); }
+.damage-table .dmg-bar { height: calc(var(--u) * 4); background: var(--night-3); border: var(--u) solid var(--night-0); min-width: calc(var(--u) * 60); }
+.damage-table .dmg-fill { height: 100%; background: var(--lamp-4); }
+.damage-table .dmg-row-top .dmg-fill { background: var(--lamp-5); }
+.damage-table .dmg-num { color: var(--fog-5); text-align: right; }
+.damage-table .dmg-pct { color: var(--fog-3); text-align: right; min-width: calc(var(--u) * 18); }
+.damage-table .dmg-bar, .damage-table .dmg-fill { display: block; }
+.dmg-head { margin: calc(var(--u) * 4) 0 0; }
+/* A building's panel never pushes its own prompts out of view (0.9.0, V4: the Library's clipped
+   them at every size): the panel is a column, and the list takes what room is left. */
+.building-screen .panel { display: flex; flex-direction: column; }
+.building-screen .bld-head, .building-screen .bld-note { flex: none; }
+.building-screen .bld-body { flex: 1 1 auto; min-height: 0; }
+.building-screen .bld-col.bld-list { align-self: stretch; min-height: 0; }
+.building-screen .bld-list .banded { flex: 1 1 auto; min-height: 0; }
+.building-screen .bld-list .list { max-height: none; flex: 1 1 auto; min-height: 0; }
+/* The same for the screens with a long list (0.9.0: at a larger text size the list gives way, never
+   the prompts under it). */
+.settings-screen .panel, .glossary-screen .panel, .controls-screen .panel { display: flex; flex-direction: column; }
+.settings-screen .panel > *, .glossary-screen .panel > *, .controls-screen .panel > * { flex: none; }
+.settings-screen .panel > .banded, .controls-screen .panel > .banded, .glossary-screen .gloss-body { flex: 1 1 auto; min-height: 0; }
+.banded > .list, .banded > .settings-list, .banded > .controls-list { flex: 1 1 auto; min-height: 0; }
+.glossary-screen .gloss-list { display: flex; flex-direction: column; min-height: 0; max-height: 100%; }
+
+/* 0.9.0 (W5): a gear tier's rarity (ruling 10): the word in a 1 px frame of its color. */
+.rarity { border: 1px solid currentColor; padding: 0 calc(var(--u) * 1.5); }
+.rarity-common { color: var(--fog-4); }
+.rarity-uncommon { color: var(--moss-3); }
+.rarity-rare { color: var(--sea-4); }
+.rarity-epic { color: var(--violet-3); }
+.rarity-legendary { color: var(--lamp-4); }
+.list-row.done .row-name { color: var(--fog-3); }
+.title-completion { color: var(--fog-4); font-size: calc(var(--uf, var(--u)) * 8); }
+
+/* 0.9.0 (W1b, ruling 10): a weapon's rolled upgrade card: a plain 1-unit frame in its rarity's
+   color, kept while focused (the focus is the outline), the rarity's word beside its level, and its
+   Form progress under the line. */
+.draft-card.frame-common, .draft-card.frame-common.focused { border-color: var(--fog-4); }
+.draft-card.frame-uncommon, .draft-card.frame-uncommon.focused { border-color: var(--moss-3); }
+.draft-card.frame-rare, .draft-card.frame-rare.focused { border-color: var(--sea-4); }
+.draft-card.frame-epic, .draft-card.frame-epic.focused { border-color: var(--violet-3); }
+.draft-card.frame-legendary, .draft-card.frame-legendary.focused { border-color: var(--lamp-4); }
+.card-sub .rarity { font-size: calc(var(--uf, var(--u)) * 7); }
+.card-form { font-size: calc(var(--uf, var(--u)) * 7); color: var(--fog-3); }
+.card-form.paused { color: var(--fog-2); }
+
+/* The skill tree (ruling 15, ui/skillscreen.js): plain boxes in rows; a fork is two boxes with "or" between. */
+.skill-tree { display: flex; flex-direction: column; gap: calc(var(--u) * 3); margin: calc(var(--u) * 3) 0; }
+.skill-row { display: flex; gap: calc(var(--u) * 4); align-items: flex-start; }
+.skill-label { width: calc(var(--u) * 44); flex: none; color: var(--fog-2); font-size: calc(var(--uf, var(--u)) * 7); padding-top: calc(var(--u) * 3); }
+.skill-line { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); align-items: flex-start; }
+.skill-col, .skill-chain { display: flex; gap: 0; align-items: center; }
+.skill-col { flex-direction: column; }
+.skill-stem { width: var(--u); height: calc(var(--u) * 4); background: var(--night-5); }
+.skill-link { height: var(--u); width: calc(var(--u) * 5); background: var(--night-5); }
+.skill-fork { align-self: flex-start; padding: calc(var(--u) * 3) calc(var(--u) * 1); color: var(--fog-2); font-size: calc(var(--uf, var(--u)) * 7); border-top: var(--u) double transparent; }
+.skill-box { min-width: calc(var(--u) * 62); padding: calc(var(--u) * 2) calc(var(--u) * 4); border: var(--u) solid var(--night-4); background: var(--night-2); cursor: pointer; display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+.skill-box.held { border-color: var(--moss-3); background: var(--night-3); }
+.skill-box.closed, .skill-box.locked, .skill-box.needs { color: var(--fog-2); border-style: dashed; }
+.skill-box.points .skill-name { color: var(--fog-3); }
+.skill-state { font-size: calc(var(--uf, var(--u)) * 6); color: var(--fog-2); }
+.skill-box.held .skill-state { color: var(--moss-3); }
+.skill-about { min-height: calc(var(--u) * 30); padding: calc(var(--u) * 3) calc(var(--u) * 4); border: var(--u) solid var(--night-4); display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+.skill-about .hold { position: relative; align-self: flex-start; padding: calc(var(--u) * 1) calc(var(--u) * 3); border: var(--u) solid var(--night-4); z-index: 0; }
+.skill-about .hold .hold-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--night-4); z-index: -1; }
+.skill-ledger { display: flex; flex-direction: column; gap: calc(var(--u) * 1); margin-top: calc(var(--u) * 2); }
+
+/* C3 (ruling 14 A2 and E): a card's "now → after" and the pick that is an event.
+   The number now is quieter, the number after bright; the arrow is drawn (the typeface has none). */
+.card-change { color: var(--fog-5); }
+.change-now { color: var(--fog-3); }
+.change-after { color: var(--lamp-5); }
+.arrow { display: inline-block; position: relative; width: calc(var(--u) * 7); height: calc(var(--u) * 5); margin: 0 calc(var(--u) * 2); vertical-align: middle; }
+.arrow::before { content: ''; position: absolute; left: 0; right: calc(var(--u) * 2); top: calc(var(--u) * 2); height: var(--u); background: currentColor; }
+.arrow::after { content: ''; position: absolute; right: 0; top: 0; border-left: calc(var(--u) * 3) solid currentColor; border-top: calc(var(--u) * 2.5) solid transparent; border-bottom: calc(var(--u) * 2.5) solid transparent; }
+/* The frame's color says the rarity with the word beside it, never alone; its weight grows with it
+   (Rare and Epic 2, Legendary 3), and focus sits a gap outside it so the two never merge. */
+.draft-card.frame-rare, .draft-card.frame-epic { border-width: calc(var(--u) * 2); padding: calc(var(--u) * 5); }
+.draft-card.frame-legendary { border-width: calc(var(--u) * 3); padding: calc(var(--u) * 4); }
+.draft-card.focused { outline-offset: calc(var(--u) * 2); }
+.rarity-legendary { font-weight: 400; color: var(--lamp-4); }
+/* The held beat: the picked card lit, the others dimmed, while its sound plays. */
+.screen.beat .card:not(.picked), .screen.beat .btn { opacity: 0.3; }
+.screen.beat .card.picked { outline: calc(var(--u) * 2) solid var(--lamp-5); outline-offset: calc(var(--u) * 2); background: var(--night-4); }
+.screen.beat-legendary .card.picked { border-color: var(--lamp-4); outline-color: var(--lamp-4); }
+.screen.beat-capstone .card.picked, .screen.beat-form .card.picked { outline-color: var(--violet-4); }
+
+/* C3 (ruling 14 E): the short character select. Four lines a card in one size and color (the cost
+   is never the dimmest), and the focused character's whole story under the row. */
+.char-cards .char-card { width: calc(var(--u) * 112); gap: calc(var(--u) * 3); }
+.char-cards.many { flex-wrap: nowrap; gap: calc(var(--u) * 4); }
+.char-cards.many .char-card { width: calc(var(--u) * 96); padding: calc(var(--u) * 4); }
+.char-line { color: var(--fog-4); font-size: calc(var(--uf, var(--u)) * 8); }
+.char-detail { margin-top: calc(var(--u) * 6); padding: calc(var(--u) * 4) calc(var(--u) * 6); border: var(--u) solid var(--night-4); display: flex; flex-direction: column; gap: calc(var(--u) * 2); min-height: calc(var(--u) * 40); }
+.gate-screen.big h1 { margin-bottom: calc(var(--u) * 2); font-size: calc(var(--u) * 18); }   /* (the map's name: big already) */
+.gate-screen.big .char-cards .char-card { gap: calc(var(--u) * 1.5); }
+.gate-screen.big .char-detail { gap: calc(var(--u) * 1); }
+.gate-screen.big h2 { margin: 0 0 calc(var(--u) * 1.5); }
+.gate-screen .panel { padding-top: calc(var(--u) * 7); padding-bottom: calc(var(--u) * 3); }
+.gate-screen.big .panel { padding-top: calc(var(--u) * 2); }   /* (C3: the hint row clear of the border, six characters at any text size) */
+.gate-screen .hint { margin-top: calc(var(--u) * 3); }
+.gate-screen .char-detail { min-height: 0; margin-top: calc(var(--u) * 4); }
+.gate-screen.big .map-card { width: calc(var(--u) * 270); }   /* (wider, so fewer lines) */
+.gate-screen.big .card-art { padding: 0; }
+.gate-screen.big .char-detail { display: grid; grid-template-columns: 1fr 1fr; align-content: start; column-gap: calc(var(--u) * 8); margin-top: calc(var(--u) * 2); }
+.gate-screen.big .char-detail .card-title { grid-column: 1 / -1; }
+.char-detail > .card-title { display: flex; align-items: baseline; gap: calc(var(--u) * 4); }
+.strip-more { margin-left: auto; color: var(--lamp-5); font-size: calc(var(--uf, var(--u)) * 7); }
+.strip-more[hidden] { display: none; }
+.char-col { display: flex; flex-direction: column; gap: calc(var(--u) * 1); }
+/* (ruling 19 PB) The character step as a column: the strip takes what is left and scrolls inside
+   itself, so the hint row is never pushed off, whatever the characters' text grows to. */
+.gate-screen:not(.map-screen) .panel { display: flex; flex-direction: column; }
+.gate-screen:not(.map-screen) .panel > * { flex: none; }
+.gate-screen:not(.map-screen) .panel > .char-detail { flex: 0 1 auto; overflow-y: auto; min-height: calc(var(--u) * 20); }
+.band-cut { visibility: hidden; }   /* C3: a heading a list's edge cuts through (ui/hints.js) */
+/* C3 (ruling 18 P1): a weapon's codex page. What a run has taken says "Taken" in the lamp's color. */
+.weapon-page .row-rank { color: var(--fog-3); }
+.weapon-page .row-rank.taken { color: var(--lamp-5); }
+.weapon-page .ascend-head h1 { text-align: left; }
+.weapon-page .wpage-row.done .row-name { color: var(--fog-5); }
+.weapon-page .ascend-head h1 { margin: 0; }
+
+/* ------------------------------------------------------------ X6 (the sweep, S3b): panels give way */
+
+/* Every panel is a column (above): its parts keep their height, except a banded list (ui/hints.js
+   bandList, scrollBox) or a part marked .give, which takes what is left and scrolls inside itself,
+   its bands saying how much is out of view. So a title and a hint row stay in view at every text
+   size, and a screen marks the one part that may give way. When even the parts that keep their
+   height don't fit, the panel itself scrolls, as before. */
+.panel > * { flex: none; }
+.panel > .give, .panel > .banded { flex: 1 1 auto; min-height: 0; }
+.give { overflow-y: auto; }
+.banded > :not(.list-band) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Cards in a list that scrolls: room for the focus frame (it sits outside the card). */
+.banded > .cards, .banded > .ascend-forms { padding: calc(var(--u) * 4); }
+.banded > .cards { flex-wrap: wrap; align-content: flex-start; }
+/* The boss chest's Forms step (S3b F1): the reel above it is hidden (the done list stays), and a
+   weapon's six Forms go two to a row, each pair on its own row (First, Second, Final). */
+.spoils-screen.step-forms .reels { display: none; }
+.spoils-screen.step-ember .reel-desc { display: none; }   /* (the Ember step: the reel's names stay, its lines go) */
+/* The step's parts are the panel's own (so its list gives way like any other); its rule over the first. */
+.spoils-screen .spoils-step { display: contents; }
+.spoils-step > * { flex: none; }
+.spoils-step > .banded { flex: 1 1 auto; min-height: 0; }
+.spoils-step > :first-child { margin-top: calc(var(--u) * 6); border-top: var(--u) solid var(--night-4); padding-top: calc(var(--u) * 4); }
+.ascend-forms.six { grid-template-columns: 1fr 1fr; }
+.ascend-forms.six .card { width: auto; }
+/* The Fog Bell with a full build (S3b F4): more than 10 cards go five to a row. */
+.bellpick-screen .draft-cards.lots { max-width: calc(var(--u) * 576); }
+.bellpick-screen .draft-cards.lots .card { width: calc(var(--u) * 104); }
+/* Pause (S3b F13): the build column scrolls; the buttons beside it stay. */
+.pause-screen .pause-grid { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+.pause-screen .pause-grid > .menu-col { align-self: flex-start; }
+.pause-screen .build-col { min-height: 0; overflow-y: auto; padding: 0 calc(var(--u) * 2); }
+/* Stats (S3b F2): the three columns share the room left under the title, each scrolling inside itself. */
+.stats-screen .stats-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.stats-screen .stats-col { min-height: 0; overflow-y: auto; }
+.stats-screen .stats-col:last-child { display: flex; flex-direction: column; overflow: hidden; }
+.stats-screen .stats-col:last-child > * { flex: none; }
+.stats-screen .stats-col:last-child > .banded { flex: 1 1 auto; min-height: 0; }
+/* A part that scrolls as one focus stop (ui/hints.js scrollBox): a thin frame when it has the focus,
+   its text in its own colors. */
+.scroll-box.focused { outline-width: var(--u); background: transparent; color: inherit; }
+.stats-screen .banded > .stats-col { padding: var(--u) calc(var(--u) * 2); }
+.focus-block.focused { outline-width: var(--u); background: transparent; color: inherit; }
+/* The results (S3b F12): the part between the heading and the buttons scrolls; nothing is squeezed. */
+.results-screen .panel { overflow: auto; }
+.results-mid { padding: var(--u) calc(var(--u) * 2); }
+.results-mid > * { margin-left: 0; margin-right: 0; }
+/* The save code with its paste box (S3b's note): fits at 150% text (the column keeps the paragraph's
+   margin; the button column's own is dropped, as the block layout's margins once met). */
+.savecode-screen .panel > p + .menu-col { margin-top: 0; }
+/* The glossary (S3b F10 gave it a Back button): the list is held to the body's height (it ran past it
+   at 150% text and under the button), the entry beside it scrolls if it must. */
+.glossary-screen .gloss-body { align-items: stretch; }
+.glossary-screen .gloss-list { max-height: none; }
+.glossary-screen .gloss-list > .banded { flex: 1 1 auto; min-height: 0; }
+.glossary-screen .gloss-detail { min-height: 0; overflow-y: auto; }
+.glossary-screen .action-row { margin-top: calc(var(--u) * 4); }
+/* The glossary's line in a screen's hint row (X6: in the view's corner it lay over panels' corners). */
+.gloss-hint.in-row { position: static; display: block; margin: calc(var(--u) * 2) auto 0; padding: 0; background: transparent; border: none; text-align: center; }
+.gloss-hint.in-row.blank { visibility: hidden; }
+/* A Reliquary's or the Ferryman's relic swap (X6): the carried relics wrap, within the panel's width. */
+.relic-screen .relic-cards { max-width: calc(var(--u) * 576); margin: 0 auto; }
+.tag-shared { border-color: var(--sea-4); color: var(--sea-5); }   /* Ruling 23 PA: a shared Rare trait (its rule is the glossary's Trait) */

@@ -1,111 +1,53 @@
-// Chests, runes, and evolutions (ARCHITECTURE §5.8, §5.11).
+// Chests (ARCHITECTURE §5.8, §5.11).
 //
 // Elites drop a chest with 1 item. Bosses drop a chest with 1, 3, or 5 items (luck shifts the
-// odds toward more), and each item is an evolution first, while any weapon can evolve. Items are level-ups
-// of owned weapons and passives, and runes (you choose which weapon's open socket gets it: a real
-// decision); relics come from Reliquaries, the vault, and the Ferryman instead (sim/relics.js), and
-// a map's secret cache holds its own. Everything but runes applies at once; the chest halt is
-// for the reel on screen, and each rune queues its own placement decision.
+// odds toward more). Items are level-ups of owned weapons and passives (where a rune was, ruling
+// 14: a weapon upgrade at Rare or better, tuning.chests.rareChance); relics come from Reliquaries,
+// the vault, and the Ferryman instead (sim/relics.js), and a map's secret cache holds its own.
+// Everything applies at once; the chest halt is for the reel on screen.
 //
-// Evolution: a maxed weapon, plus its partner passive at the required level, plus a boss chest,
-// becomes the evolved weapon (its own definition).
+// Evolutions are gone (0.9.0, the lead's ruling 1): Forms are the only way a weapon transforms
+// (sim/ascend.js). A weapon's level from a chest is one rolled upgrade (ruling 10, sim/weaponups.js,
+// on the loot stream), and like every weapon level-up it can open an axis of its Forms.
 
-import { PK } from './constants.js';
+import { PK, EF, DT } from './constants.js';
+import { NO_CHEST } from './enemies.js';
 import { EV } from './events.js';
 import { spawnPickup, addMaterial } from './pickups.js';
 import { applyCard } from './draft.js';
-import { runeFits, buildSlot } from './weapons.js';
 import { heal } from './player.js';
 import { runHooks } from './hooks.js';
-import { markStatsDirty, addRelic } from './build.js';
+import { markStatsDirty, addRelic, relicsFull } from './build.js';
+import { giveUpgrade, isDrafted } from './ascend.js';
+import { canLevelWeapon, rollUpgrade, noteLegendaryOffered } from './weaponups.js';
 
 export const CHEST_ELITE = 1;
 export const CHEST_BOSS = 2;
 export const CHEST_SECRET = 3;
+/** A rung Fog Bell's chest (0.8.2, idea 3): a pick of a weapon or passive to gain levels. */
+export const CHEST_BELL = 4;
 
 /** A chest on the ground where an elite or boss fell. */
 export function dropChest(world, x, y, kind) {
   spawnPickup(world, PK.CHEST, x, y, kind, 0);
 }
 
-/** First weapon slot that can evolve now, or -1. */
-export function evolvableSlot(world) {
-  const b = world.build;
-  for (let s = 0; s < b.weaponSlots; s++) {
-    const slot = world.slots[s];
-    if (!slot || !slot.def.evolution) continue;
-    const evo = slot.def.evolution;
-    if (slot.level < slot.def.maxLevel) continue;
-    const need = Math.max(1, evo.passiveLevel - (world.config.evolutionPassiveReduction || 0));
-    const ps = b.passives.find((p) => p.def.id === evo.passive);
-    if (!ps || ps.level < need) continue;
-    if (!world.weaponIndex.has(evo.into)) continue;
-    if (world.slots.some((o) => o && o.def && o.def.id === evo.into)) continue;
-    return s;
-  }
-  return -1;
-}
-
-/** Evolve the first eligible weapon. Returns its slot index, or -1 if none can evolve. */
-export function evolveOne(world, source) {
-  const s = evolvableSlot(world);
-  if (s < 0) return -1;
-  const slot = world.slots[s];
-  const into = world.weaponDefs[world.weaponIndex.get(slot.def.evolution.into)];
-  // Runes carry over, in order, while they still fit the new weapon (and the runes before them).
-  const runes = new Array(into.runeSlots || 0).fill(null);
-  let r = 0;
-  for (const rune of slot.runes) if (rune && r < runes.length && runeFits(rune, into, runes, slot.ascensions)) runes[r++] = rune;
-  world.build.evolvedFrom.add(slot.def.id);
-  world.slots[s] = buildSlot(world, s, into, 1, runes, slot);
-  world.result.evolutions.push({ from: slot.def.id, into: into.id, source, tick: world.tick });
-  world.result.noteWeaponLevel(into.id, 1);
-  const p = world.player;
-  world.events.push(EV.EVOLVE, p.x, p.y, s);
-  markStatsDirty(world);
-  return s;
-}
-
-/**
- * Runes that could go somewhere in the current build. `claimed` counts sockets per slot already
- * promised to runes rolled earlier in the same chest, so a chest never rolls more runes than
- * there are sockets for them.
- */
-function placeableRunes(world, claimed) {
-  const out = [];
-  for (const rune of world.pools.runes) {
-    if (!(rune.weight > 0)) continue;
-    if (freeSocketFor(world, rune, claimed) >= 0) out.push(rune);
-  }
-  return out;
-}
-
-function freeSocketFor(world, rune, claimed) {
-  for (const s of openSocketsFor(world, rune)) {
-    const open = world.slots[s].runes.filter((r) => r === null).length;
-    if (open > (claimed.get(s) || 0)) return s;
-  }
-  return -1;
-}
-
-/** Weapon slots with an open socket where this rune fits (with the runes already there). */
-export function openSocketsFor(world, rune) {
-  const out = [];
-  for (let s = 0; s < world.build.weaponSlots; s++) {
-    const slot = world.slots[s];
-    if (!slot || !slot.runes.length) continue;
-    if (!slot.runes.includes(null)) continue;
-    if (!runeFits(rune, slot.def, slot.runes, slot.ascensions)) continue;
-    out.push(s);
-  }
-  return out;
-}
+// (stub, 0.9.0) The evolutions are gone; these stay until the screens stop asking (W1-CONTRACT.md §4).
+/** No weapon evolves: -1. */
+export function evolvableSlot() { return -1; }
+/** No weapon evolves: false. */
+export function canEvolve() { return false; }
+/** Nothing is ever ready to evolve: false. */
+export function showsReady() { return false; }
+/** Nothing evolves: -1. */
+export function evolveOne() { return -1; }
 
 function ownedLevelUps(world) {
   const out = [];
   for (let s = 0; s < world.build.weaponSlots; s++) {
     const slot = world.slots[s];
-    if (slot && slot.level < slot.def.maxLevel) out.push({ kind: 'weapon', id: slot.def.id, level: slot.level + 1, isNew: false });
+    // (A character's own weapon grows on its own track, never from a chest.)
+    if (isDrafted(slot) && canLevelWeapon(world, slot)) out.push({ kind: 'weapon', id: slot.def.id, slot: s, level: slot.level + 1, isNew: false });
   }
   for (const ps of world.build.passives) {
     if (ps.level < ps.def.maxLevel) out.push({ kind: 'passive', id: ps.def.id, level: ps.level + 1, isNew: false });
@@ -113,23 +55,25 @@ function ownedLevelUps(world) {
   return out;
 }
 
-function rollItem(world, claimed) {
-  const rng = world.rng.loot, T = world.tuning.chests, luck = world.stats.luck;
-  const runes = placeableRunes(world, claimed);
-  if (runes.length && rng.chance(T.runeChance)) {
-    const i = rng.weighted(runes.map((r) => r.weight));
-    const s = freeSocketFor(world, runes[i], claimed);
-    claimed.set(s, (claimed.get(s) || 0) + 1);
-    return { kind: 'rune', id: runes[i].id };
-  }
+function rollItem(world) {
+  const rng = world.rng.loot, T = world.tuning.chests;
+  // (Where a chest once held a rune: an item is Rare or better this often, when a weapon can take it.)
+  const fine = rng.chance(T.rareChance);
   const ups = ownedLevelUps(world);
   if (ups.length) {
-    const c = ups[rng.int(ups.length)];
+    const weapons = ups.filter((c) => c.kind === 'weapon');
+    let c = fine && weapons.length ? weapons[rng.int(weapons.length)] : ups[rng.int(ups.length)];
+    if (c.kind === 'weapon') {
+      const u = rollUpgrade(world, c.slot, rng, null, fine ? { min: 2 } : null);   // its upgrade, rolled on the loot stream
+      if (u.up === 'special') noteLegendaryOffered(world, c.slot);
+      c = { ...c, ...u };
+    }
     applyCard(world, c);
     return c;
   }
-  // Everything maxed: coin or a heal.
-  if (rng.chance(0.5)) {
+  // Nothing to level (no weapon carried, every passive maxed): coin or a heal.
+  // (A character who can't heal always takes the Coin; the roll is still drawn, so the stream stays in step.)
+  if (rng.chance(0.5) || world.config.noHeal) {
     addMaterial(world, world.materialIndex.get('coin'), T.fallbackCoin);
     return { kind: 'coin', id: 'coin', amount: T.fallbackCoin };
   }
@@ -146,34 +90,90 @@ function bossItemCount(world) {
 }
 
 /**
- * Open a chest: roll and apply its items, and queue the reel and any rune placements. A boss
- * chest rolls 1, 3, or 5 items, and each item is an evolution while any weapon can evolve (so
- * a big chest can evolve several), then an ordinary item.
+ * Open a chest: roll and apply its items, and queue the reel. A boss
+ * chest rolls 1, 3, or 5 items, an elite's 1.
  */
 export function openChest(world, kind, x, y) {
+  if (kind === CHEST_BELL) { openBellChest(world, x, y); return; }
   const items = [];
-  const claimed = new Map();
+  const at = world.halts.length;   // the chest's reel shows before any Form choice its items earn (S1)
   const count = kind === CHEST_BOSS ? bossItemCount(world) : 1;
-  for (let k = 0; k < count; k++) {
-    const s = kind === CHEST_BOSS ? evolveOne(world, 'chest') : -1;
-    if (s >= 0) items.push({ kind: 'evolution', id: world.slots[s].def.id, slot: s });
-    else items.push(rollItem(world, claimed));
-  }
-  finishChest(world, kind, x, y, items);
+  for (let k = 0; k < count; k++) items.push(rollItem(world));
+  finishChest(world, kind, x, y, items, at);
 }
 
-function finishChest(world, kind, x, y, items) {
+/**
+ * A rung bell's chest (idea 3): a pick (the `bellpick` halt) of a weapon or passive you carry that
+ * can level, to gain tuning.tasks.bell.levels levels (a weapon's: that many rolled upgrades, on the
+ * loot stream when picked; ruling 10); with nothing to level, Coin, as any chest.
+ */
+function openBellChest(world, x, y) {
+  const options = bellOptions(world);
+  if (!options.length) { const at = world.halts.length; finishChest(world, CHEST_BELL, x, y, [rollItem(world)], at); return; }
+  world.result.chests++;
+  world.events.push(EV.CHEST, x, y, CHEST_BELL, 1);
+  runHooks(world, 'onChestOpen', CHEST_BELL, []);
+  world.halts.push({ kind: 'bellpick', x, y, options });
+}
+
+/** What a bell's pick offers: each weapon (in slot order) that can level, then each passive (in the order taken) that isn't maxed. */
+export function bellOptions(world) {
+  const n = world.tuning.tasks.bell.levels, out = [];
+  for (let s = 0; s < world.build.weaponSlots; s++) {
+    const sl = world.slots[s];
+    if (isDrafted(sl) && canLevelWeapon(world, sl)) out.push({ kind: 'weapon', id: sl.def.id, slot: s, from: sl.level, to: sl.level + n });
+  }
+  world.build.passives.forEach((ps, k) => {
+    if (ps.level < ps.def.maxLevel) out.push({ kind: 'passive', id: ps.def.id, slot: k, from: ps.level, to: Math.min(ps.def.maxLevel, ps.level + n) });
+  });
+  return out;
+}
+
+/** The bell's pick: { kind: 'pick', index }: that one gains its levels. Returns true (done). */
+export function bellPickDecide(world, h, d) {
+  if (d.kind !== 'pick') throw new Error(`bellpick: expected "pick", got "${d.kind}"`);
+  const o = h.options[d.index];
+  if (!o) throw new Error(`bellpick: no option ${d.index}`);
+  if (o.kind === 'weapon') {
+    const sl = world.slots[o.slot];
+    if (!sl || sl.def.id !== o.id) throw new Error(`bellpick: ${o.id} isn't in slot ${o.slot}`);
+    // Its levels, each a rolled upgrade (the loot stream) and a step of Form progress. The halt keeps what was rolled (h.rolled), for the screen.
+    h.rolled = [];
+    for (let k = o.from; k < o.to; k++) {
+      const u = rollUpgrade(world, o.slot, world.rng.loot);
+      if (!u) break;
+      giveUpgrade(world, o.slot, u);
+      h.rolled.push(u);
+    }
+  } else {
+    const ps = world.build.passives[o.slot];
+    if (!ps || ps.def.id !== o.id) throw new Error(`bellpick: ${o.id} isn't carried`);
+    ps.level = Math.min(ps.def.maxLevel, o.to);
+  }
+  markStatsDirty(world);
+  return true;
+}
+
+/**
+ * `at`: how many halts were queued before the chest's items were rolled. The chest's halt goes in
+ * there, ahead of the halts its items queued (a Form choice an item's level earned), so the reel
+ * that gave the level shows first (S1's finding 11).
+ */
+function finishChest(world, kind, x, y, items, at = world.halts.length) {
   world.result.chests++;
   world.events.push(EV.CHEST, x, y, kind, items.length);
   runHooks(world, 'onChestOpen', kind, items);
-  world.halts.push({ kind: 'chest', chestKind: kind, items });
-  for (const it of items) if (it.kind === 'rune') world.halts.push({ kind: 'rune', rune: it.id });
+  // The Lodestone's rule: a chest pulls in every gem on the map. The Salt Ledger: an elite's or a boss's chest gives a Reroll.
+  if (world.rules.lodestone) world.magnetAll = Math.max(world.magnetAll, world.tuning.xp.magnetItemPull);
+  if (world.rules.saltledger && (kind === CHEST_ELITE || kind === CHEST_BOSS)) world.charges.reroll++;
+  world.halts.splice(Math.min(at, world.halts.length), 0, { kind: 'chest', chestKind: kind, items });
   markStatsDirty(world);
 }
 
 /**
  * Open a map's secret cache (once a run). It holds the secret's relic while you can take it
- * (not owned, not banished); otherwise one ordinary chest item. It shows as a chest reel.
+ * (not owned, not banished; with the relic slots full, a relic pick of it to swap for); otherwise
+ * one chest item. It shows as a chest reel.
  */
 export function openCache(world, index) {
   const s = world.secrets[index];
@@ -182,33 +182,71 @@ export function openCache(world, index) {
   const relic = world.relicDefs.find((r) => r.id === s.relic) || null;
   const b = world.build;
   const items = [];
+  const at = world.halts.length;
   if (relic && !b.relics.includes(relic) && !b.banished.has(`relic:${relic.id}`)) {
+    if (relicsFull(world)) {
+      // The relic slots full (0.9.0): its relic is a pick to swap one for, or pass.
+      world.result.secrets.push(s.id);
+      world.events.push(EV.SECRET, s.x, s.y, index);
+      world.halts.push({ kind: 'relic', source: 'secret', offer: [relic.id], x: s.x, y: s.y, full: true });
+      return;
+    }
     addRelic(world, relic);
     items.push({ kind: 'relic', id: relic.id });
-  } else {
-    items.push(rollItem(world, new Map()));
-  }
+  } else items.push(rollItem(world));
   world.result.secrets.push(s.id);
   world.events.push(EV.SECRET, s.x, s.y, index);
-  finishChest(world, CHEST_SECRET, s.x, s.y, items);
+  finishChest(world, CHEST_SECRET, s.x, s.y, items, at);
 }
 
-/** Resolve a rune placement: { kind: 'place', slot } or { kind: 'discard' }. */
-export function runeDecide(world, halt, d) {
-  const rune = world.runeDefs.find((r) => r.id === halt.rune);
-  const p = world.player;
-  if (d.kind === 'discard') {
-    world.events.push(EV.RUNE, p.x, p.y, world.runeDefs.indexOf(rune), -1);
-    return true;
+/**
+ * Where the next chest comes from, for the ready-to-evolve notice (0.7.3): a chest already lying
+ * on the map (the nearest), else a living elite or boss that carries one (the nearest), else the
+ * next timeline event that pays one (an elite, a muster, a boss, a chest), else overtime's next
+ * repeating elite or muster. Plain data (a cold path: the run scene asks while a weapon is ready):
+ *   { kind: 'chest', x, y }
+ *   { kind: 'elite' | 'boss', handle, enemy: id, x, y }
+ *   { kind: 'event', event: 'elite' | 'muster' | 'boss' | 'chest', enemy: id | null, name: string | null, at: run seconds }
+ * or null when nothing is coming.
+ */
+export function nextChestSource(world) {
+  const p = world.player, P = world.pickups, E = world.enemies;
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < P.count; i++) {
+    if (P.kind[i] !== PK.CHEST) continue;
+    const dx = P.x[i] - p.x, dy = P.y[i] - p.y, d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = i; }
   }
-  if (d.kind !== 'place') throw new Error(`rune: unknown decision "${d.kind}"`);
-  const open = openSocketsFor(world, rune);
-  if (!open.includes(d.slot)) throw new Error(`rune: ${halt.rune} can't go in slot ${d.slot}`);
-  const slot = world.slots[d.slot];
-  slot.runes[slot.runes.indexOf(null)] = rune;
-  world.result.runes.push({ weapon: slot.def.id, rune: rune.id });
-  world.events.push(EV.RUNE, p.x, p.y, world.runeDefs.indexOf(rune), d.slot);
-  markStatsDirty(world);
-  return true;
+  if (best >= 0) return { kind: 'chest', x: P.x[best], y: P.y[best] };
+  bestD = Infinity;
+  for (let i = 0; i < E.count; i++) {
+    const f = E.flags[i];
+    if ((f & EF.DEAD) !== 0 || (f & (EF.ELITE | EF.BOSS)) === 0 || E.boss[i] === NO_CHEST) continue;
+    const dx = E.x[i] - p.x, dy = E.y[i] - p.y, d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  if (best >= 0) {
+    return { kind: (E.flags[best] & EF.BOSS) !== 0 ? 'boss' : 'elite', handle: E.handle(best), enemy: world.enemyDefs[E.type[best]].id, x: E.x[best], y: E.y[best] };
+  }
+  const d = world.director;
+  for (let k = d.eventIdx; k < d.events.length; k++) {
+    const e = d.events[k];
+    if (e.event === 'elite' || e.event === 'muster' || e.event === 'boss' || e.event === 'chest') {
+      return { kind: 'event', event: e.event, enemy: e.enemy ?? null, name: e.name ?? null, at: e.at };
+    }
+  }
+  if (d.overtime) {
+    const reps = world.map.overtime.repeat || [];
+    let j0 = -1;
+    for (let j = 0; j < reps.length; j++) {
+      if (reps[j].event !== 'elite' && reps[j].event !== 'muster') continue;
+      if (j0 < 0 || d.otNext[j] < d.otNext[j0]) j0 = j;
+    }
+    if (j0 >= 0) {
+      const r = reps[j0];
+      const enemy = r.enemies ? r.enemies[d.otCount[j0] % r.enemies.length] : r.enemy;
+      return { kind: 'event', event: r.event, enemy, name: r.name ?? null, at: d.otNext[j0] * DT };
+    }
+  }
+  return null;
 }
-
