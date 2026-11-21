@@ -11,7 +11,8 @@
 //   elite     twice the size on the pixel grid, with a dark line and a gold one around it
 //   framed    an icon: the picture on a dark square with a border in its tag's color
 
-import { blank, setPx, alphaAt, outlined, silhouette, scaled, stamp } from '../../src/render/pixels.js';
+import { blank, setPx, alphaAt, outlined, silhouette, scaled, stamp, rgbOf } from '../../src/render/pixels.js';
+import { PALETTE } from '../../src/data/palette.js';
 import { nearestPalette } from './color.mjs';
 import { mask, maskAt } from './mask.mjs';
 
@@ -67,6 +68,10 @@ export function cropMask(m) {
  * @property {string} shade  bottom and right edges
  * @property {string} [hole] enclosed holes (default: 'night-1'; null leaves them see-through)
  * @property {string} [outline] default 'night-0'; null for none
+ * @property {string} [tone] a second body color, the enemy's family mark (0.9.0): the lit and
+ *   body pixels in the top `toneTo` of the sprite's height take it, so a crowd reads as two-tone
+ *   figures, each family by its own pair, rather than one-tint silhouettes
+ * @property {number} [toneTo] how far down the tone reaches, a share of the height (default 0.4)
  */
 
 /**
@@ -81,6 +86,13 @@ export function tint(m, ramp, id, { shade = true } = {}) {
   const holes = ramp.hole === null ? null : enclosedHoles(m);
   const f = blank(id, m.w, m.h);
   const empty = (x, y) => !maskAt(m, x, y);
+  // The family tone's reach: rows from the sprite's top through `toneTo` of its height.
+  let toneEnd = -1;
+  if (ramp.tone) {
+    let y0 = m.h, y1 = -1;
+    for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.a[y * m.w + x]) { if (y < y0) y0 = y; y1 = y; }
+    if (y1 >= 0) toneEnd = y0 + Math.max(1, Math.round((y1 - y0 + 1) * (ramp.toneTo ?? 0.4)));
+  }
   for (let y = 0; y < m.h; y++) {
     for (let x = 0; x < m.w; x++) {
       const i = y * m.w + x;
@@ -90,6 +102,9 @@ export function tint(m, ramp, id, { shade = true } = {}) {
           if (empty(x, y - 1) || empty(x - 1, y)) c = ramp.light;
           else if (empty(x, y + 1) || empty(x + 1, y)) c = ramp.shade;
         }
+        // The family tone takes the lit and body pixels in its band (a 1-bit sprite is mostly
+        // strokes a pixel or two wide, nearly all edge); the shade side keeps its shade.
+        if (y < toneEnd && c !== ramp.shade) c = ramp.tone;
         setPx(f, x, y, c);
       } else if (holes && holes[i]) setPx(f, x, y, ramp.hole || 'night-1');
     }
@@ -207,3 +222,22 @@ export function cropFrame(f, box, id = f.id) {
   return o;
 }
 
+/**
+ * A frame with some palette colors swapped for others (`map`: palette name -> palette name); any
+ * other color stays. The run's walkable ground is lifted a step this way (art/manifest.js
+ * GROUND_LIFT).
+ */
+export function recolored(f, map, id = f.id) {
+  const swap = new Map();
+  for (const [from, to] of Object.entries(map)) swap.set(PALETTE[from], rgbOf(to));
+  const o = blank(id, f.w, f.h);
+  o.rgba.set(f.rgba);
+  for (let i = 0; i < f.w * f.h; i++) {
+    const k = i * 4;
+    if (o.rgba[k + 3] === 0) continue;
+    const hex = `#${((1 << 24) | (o.rgba[k] << 16) | (o.rgba[k + 1] << 8) | o.rgba[k + 2]).toString(16).slice(1)}`;
+    const to = swap.get(hex);
+    if (to) { o.rgba[k] = to[0]; o.rgba[k + 1] = to[1]; o.rgba[k + 2] = to[2]; }
+  }
+  return o;
+}

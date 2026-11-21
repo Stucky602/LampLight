@@ -5,10 +5,14 @@
 // tile's density times its thickness) worked out per pixel instead of on the GPU. The fog's
 // drifting wisps aren't drawn (they move). Workspace only, for looking at the art without a browser.
 //
-//   node tools/atlas/hub-preview.mjs [--levels lamp_post=2,library=1] [--day] [--boat] [--scale 2] [--out file.png]
+//   node tools/atlas/hub-preview.mjs [--levels lamp_post=2,library=1 | --levels all=5] [--runs 10] [--time 0]
+//                                    [--day] [--boat] [--crop x,y,w,h] [--scale 2] [--out file.png]
 //
 // --day    no night and no fog (the art as it is)
 // --boat   a boat tied up at the pier, its newcomer stepping off (the first tick of her walk up)
+// --runs   the profile's runs (props from the tenth run, 'runs:10')
+// --time   the harbor's clock, seconds (where the walkers are on their loops; default 0)
+// --crop   only these tiles (x, y, w, h), for a close look at a corner at a bigger scale
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
@@ -18,6 +22,7 @@ import { DATA } from '../../src/data/index.js';
 import { HUB_TERRAIN } from '../../src/data/hub.js';
 import {
   groundFrame, objectFrame, buildingDraw, harborLights, fogDensity, fogAtPoint, lookColor, arrivalLook, lightAt, newcomerTint, boatTint, ANCHORS, scaffoldAt,
+  ambientLook, buntingAt, reachedNow, propFrame,
 } from '../../src/render/hubtiles.js';
 import { createHubWorld, setPeople } from '../../src/hub/world.js';
 import { glowAt } from '../../src/render/textures.js';
@@ -46,6 +51,7 @@ const LOOK = DATA.hubTuning.look;
 const doc = defaultProfile();
 for (const kv of String(arg('levels', '')).split(',').filter(Boolean)) {
   const [k, v] = kv.split('=');
+  if (k === 'all') { for (const b of DATA.buildings) doc.profile.buildings[b.id] = Math.min(Number(v), b.levels.length); continue; }
   const b = DATA.buildings.find((x) => x.id === k);
   if (!b) usage(`there is no building called "${k}" (${DATA.buildings.map((x) => x.id).join(', ')})`);
   const n = Number(v);
@@ -53,15 +59,21 @@ for (const kv of String(arg('levels', '')).split(',').filter(Boolean)) {
   doc.profile.buildings[k] = n;
 }
 const levels = Object.fromEntries(DATA.buildings.map((b) => [b.id, doc.profile.buildings[b.id] ?? 0]));
+const runs = Number(arg('runs', 0));
+const time = Number(arg('time', 0));
+doc.stats.runs = runs;
 const levelOf = (id) => levels[id] ?? 0;
 const S = Number(arg('scale', 2));
-if (!(Number.isInteger(S) && S >= 1 && S <= 8)) usage(`--scale must be a whole number from 1 to 8, not "${arg('scale')}"`);
+if (!(Number.isInteger(S) && S >= 1 && S <= 12)) usage(`--scale must be a whole number from 1 to 12, not "${arg('scale')}"`);
 const cols = hub.map[0].length, rows = hub.map.length;
 const W = cols * 16, H = rows * 16;
 const img = new Float64Array(W * H * 3);
+const missing = new Set();
 const frame = (id) => { const r = table.frames[id]; if (!r) throw new Error(`no frame ${id}`); return r; };
+const hasFrame = (id) => { if (table.frames[id]) return true; missing.add(id); return false; };
 
 function blit(id, dx, dy, flip = false) {
+  if (!hasFrame(id)) return;
   const [x0, y0, w, h] = frame(id);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const sx = flip ? x0 + w - 1 - x : x0 + x;
@@ -79,7 +91,7 @@ for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) blit(groundFrame(h
 
 // Things that stand up, sorted by their feet: objects, buildings, the lamps, props, and people.
 const draw = [];
-const standing = (id, px, footY, foot = footY, flip = false) => { const r = frame(id); draw.push({ id, x: Math.round(px - r[2] / 2), y: footY - r[3], foot, flip }); };
+const standing = (id, px, footY, foot = footY, flip = false) => { if (!hasFrame(id)) return; const r = frame(id); draw.push({ id, x: Math.round(px - r[2] / 2), y: footY - r[3], foot, flip }); };
 for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
   const o = objectFrame(hub, x, y);
   if (o) draw.push({ id: o, x: x * 16, y: y * 16, foot: y * 16 + 16 });
@@ -87,16 +99,31 @@ for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
 for (const p of hub.plots) {
   const d = buildingDraw(p.building, levelOf(p.building));
   if (p.building === 'lamp_post') { standing(d.upper, p.x * 16 + 8, (p.y + 1) * 16); continue; }
-  draw.push({ id: d.upper, x: p.x * 16, y: p.y * 16, foot: (p.y + p.h) * 16 });
+  draw.push({ id: d.upper, x: p.x * 16, y: (p.y + p.h) * 16 - frame(d.upper)[3], foot: (p.y + p.h) * 16 });
   if (d.scaffold) {
-    const r = frame('hub_scaffold_5x4'), [x, y] = scaffoldAt(p, { w: r[2], h: r[3] }, d.scaffold.drop);
-    draw.push({ id: 'hub_scaffold_5x4', x, y, foot: (p.y + p.h) * 16 + 0.5 });
+    const sid = p.w === 3 ? 'hub_scaffold_3x4' : 'hub_scaffold_5x4', r = frame(sid), [x, y] = scaffoldAt(p, { w: r[2], h: r[3] }, d.scaffold.drop);
+    draw.push({ id: sid, x, y, foot: (p.y + p.h) * 16 + 0.5 });
   }
 }
-for (const r of hub.ruins) draw.push({ id: `bld_${r.id}_ruin`, x: r.x * 16, y: r.y * 16, foot: (r.y + r.h) * 16 });
+for (const r of hub.ruins) draw.push({ id: `bld_${r.id}_ruin`, x: r.x * 16, y: (r.y + r.h) * 16 - frame(`bld_${r.id}_ruin`)[3], foot: (r.y + r.h) * 16 });
 const smallLamps = [hub.gate.lamp, hub.harbor.lamp].filter(Boolean);
 for (const [x, y] of smallLamps) standing('prop_lamppost', x * 16 + 8, (y + 1) * 16 - ANCHORS.smallLampLift, (y + 1) * 16);
-for (const pr of shownProps(doc, DATA)) standing(pr.sprite, pr.at[0] * 16 + 8, (pr.at[1] + 1) * 16);
+// The props out (the game's own milestones: render/hubtiles.js reachedNow reads the runs too), at
+// their animation frame at --time; and the bunting strung from a prop's lamp.
+const props = hub.props.filter((p) => reachedNow(p.from, levels, runs));
+for (const pr of props) {
+  const a = table.anims?.[pr.sprite];
+  const k = a ? propFrame(a.n, a.fps, time) : 0;
+  standing(k ? `${pr.sprite}@${k}` : pr.sprite, pr.at[0] * 16 + 8, (pr.at[1] + 1) * 16);
+  if (pr.strung && hasFrame('hub_bunting')) { const b = buntingAt(hub, pr); draw.push({ id: 'hub_bunting', x: b.x, y: b.y, foot: Math.max(b.left.y, b.right.y) + 40 }); }
+}
+// The town's life (render/hubtiles.js ambientLook): walkers and animals stood on their feet,
+// boats by their bottom middle.
+for (const a of ambientLook(hub, levels, time, LOOK)) {
+  if (a.kind === 'moor') standing(a.sprite, a.x, a.y, a.y, a.facing < 0);
+  else if (a.sprite.startsWith('npc_')) standing(a.sprite, a.x, a.y + PLAYER_FEET_ROOM, a.y, a.facing < 0);
+  else standing(a.sprite, a.x, a.y, a.y, a.facing < 0);
+}
 // People stand on their tile's middle (the view's anchor), their frame's feet room below it,
 // facing the way the harbor's world turns them (the ones waiting face the square).
 const world = createHubWorld({ hub, terrain: HUB_TERRAIN, tuning: DATA.tuning, revealed: revealedFog(doc, DATA), props: shownProps(doc, DATA) });
@@ -119,7 +146,7 @@ const fogAt = (x, y) => fogAtPoint(fogMap, cols, rows, x, y);
 const still = { px: boatAt[0], x: boatAt[0], py: boatAt[1], y: boatAt[1] };
 const deck = { px: boatAt[0] + hub.harbor.aboard, x: boatAt[0] + hub.harbor.aboard, py: boatAt[1] + hub.harbor.deck, y: boatAt[1] + hub.harbor.deck, facing: 1 };
 const arrival = withBoat ? arrivalLook({ phase: 'walk', boat: still, walker: deck }, 1, fogAt, hub.harbor, LOOK) : null;
-const lights = harborLights({ hub, levels, look: LOOK, you: { x: hub.spawn[0] * 16 + 8, y: hub.spawn[1] * 16 + 8 }, arrival });
+const lights = harborLights({ hub, levels, look: LOOK, you: { x: hub.spawn[0] * 16 + 8, y: hub.spawn[1] * 16 + 8 }, arrival, props });
 const night = !process.argv.includes('--day');
 
 if (night) {
@@ -184,12 +211,17 @@ if (withBoat) {
   }
 }
 
-const out = new Uint8ClampedArray(W * S * H * S * 4);
-for (let y = 0; y < H * S; y++) for (let x = 0; x < W * S; x++) {
-  const j = (Math.floor(y / S) * W + Math.floor(x / S)) * 3, o = (y * W * S + x) * 4;
+const [cx, cy, cw, ch] = String(arg('crop', `0,0,${cols},${rows}`)).split(',').map((v) => Number(v) * 16);
+if (![cx, cy, cw, ch].every(Number.isFinite) || cw <= 0 || ch <= 0) usage('--crop is x,y,w,h in tiles');
+const out = new Uint8ClampedArray(cw * S * ch * S * 4);
+for (let y = 0; y < ch * S; y++) for (let x = 0; x < cw * S; x++) {
+  const px = cx + Math.floor(x / S), py = cy + Math.floor(y / S), o = (y * cw * S + x) * 4;
+  if (px >= W || py >= H) { out[o + 3] = 255; continue; }
+  const j = (py * W + px) * 3;
   out[o] = img[j]; out[o + 1] = img[j + 1]; out[o + 2] = img[j + 2]; out[o + 3] = 255;
 }
 const file = resolve(arg('out', join(ROOT, 'tools/out/hub-preview.png')));
 mkdirSync(dirname(file), { recursive: true });
-writeFileSync(file, encodePng({ width: W * S, height: H * S, rgba: out }));
+writeFileSync(file, encodePng({ width: cw * S, height: ch * S, rgba: out }));
+if (missing.size) console.warn(`not on the atlas yet (skipped): ${[...missing].join(', ')}`);
 console.log(`hub preview: ${file}`);

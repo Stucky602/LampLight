@@ -2,20 +2,25 @@
 // out. Pure apart from the pack images it's given, so the gate can run the parts that don't need
 // the packs. tools/atlas/build.mjs is the command that writes the files.
 
-import { SPRITES, RAMPS, PACKS, TOWN_COLORS } from '../../art/manifest.js';
-import { DRAW, HOLD } from '../../art/draw/index.js';
-import { ruin, openings, boardWindows, lightWindows, flowerBox, wallLantern, tavernSign, librarySign, docksSign, smithySign, chapelSign, marketSign, apothecarySign, cartographerSign, fillDoorways } from '../../art/draw/hub.js';
+import { SPRITES, RAMPS, PACKS, TOWN_COLORS, GROUND_LIFT } from '../../art/manifest.js';
+import { DRAW, HOLD, POSES, OUTLINES } from '../../art/draw/index.js';
+import { ruin, openings, boardWindows, lightWindows, flowerBox, wallLantern, tavernSign, librarySign, docksSign, smithySign, chapelSign, marketSign, apothecarySign, cartographerSign, lighthouseSign, fillDoorways } from '../../art/draw/hub.js';
+import { openDoor, litDoorway, forgeGlow } from '../../art/draw/harbor.js';
+import { lighthouseTower } from '../../art/draw/lighthouse.js';
 import { RIGS, restPose, rigPlace } from '../../src/render/rigs.js';
 import { TAG_COLORS } from '../../src/data/palette.js';
 import { blank, stamp, outlined } from '../../src/render/pixels.js';
-import { tint, tintLayers, remap, flash, elite, framed, cropFrame, padTo, maskOf, cropMask } from './treat.mjs';
+import { tint, tintLayers, remap, flash, elite, framed, cropFrame, padTo, maskOf, cropMask, recolored } from './treat.mjs';
 import { PLAYER_FEET_ROOM } from '../../src/render/playerframe.js';
+import { ROOF_ROOM } from '../../src/render/buildingframe.js';
 
 export const TILE = 16;
 export const ICON_SIZE = 18;
 export const ELITE_SCALE = 2;
 /** A character's frame: the 16 px tile with room on every side for what she holds. */
 export const PLAYER_SIZE = TILE + 2 * PLAYER_FEET_ROOM;
+/** The color of the player's light rim in runs (lamp-6: warm like her, paler than an elite's gold line). */
+export const PLAYER_RIM = 'lamp-6';
 
 /** Icon border colors: weapons and passives by their first tag, relics and runes by kind. */
 export const ICON_BORDER = Object.freeze({ ...TAG_COLORS, relic: 'violet-3', rune: 'violet-4', gear: 'fog-4', item: 'moss-3', arcana: 'lamp-5', none: 'fog-2' });
@@ -26,10 +31,16 @@ export function iconKeysFor(data) {
   for (const w of data.weapons) out[w.icon] = w.tags?.[0] || 'none';
   for (const p of data.passives) out[p.icon] = p.tags?.[0] || 'none';
   for (const r of data.relics) out[r.icon] = 'relic';
-  for (const r of data.runes) out[r.icon] = 'rune';
+  for (const r of data.runes || []) out[r.icon] = 'rune';   // (none since ruling 14: the rune icons are relics' now)
+  for (const d of data.dashes || []) if (out[d.icon] === undefined) out[d.icon] = 'none';
   for (const r of data.recipes || []) out[r.icon] = 'gear';
   for (const c of data.consumables || []) out[c.icon] = 'item';
-  for (const a of data.arcana || []) out[a.icon] = 'arcana';
+  // A capstone Form's own look (0.9.0, W1's contract §3 and §7): its icon framed in the tag color
+  // of its line's weapon, since an evolved weapon no longer stands in data.weapons.
+  for (const line of data.ascensions || []) {
+    const base = (data.weapons || []).find((w) => w.id === line.line);
+    for (const o of line.options || []) if (o.look?.icon && out[o.look.icon] === undefined) out[o.look.icon] = base?.tags?.[0] || 'none';
+  }
   return out;
 }
 
@@ -65,7 +76,9 @@ function source(entry, packs, k = 0) {
   if (entry.draw) {
     const gen = DRAW[entry.draw];
     if (!gen) throw new Error(`${entry.id}: no drawing called "${entry.draw}" in art/draw/`);
-    return gen(entry);
+    // A drawing may build on a pack tile (the Salted Dead's salt over the pack's figure): `tile`
+    // hands it one as a mask.
+    return gen(entry, { tile: (name, index) => { const p = packs[name]; if (!p) throw new Error(`${entry.id}: pack "${name}" isn't loaded`); return maskOf(tileOf(p, index, entry.id)); } });
   }
   const pack = packs[entry.pack];
   if (!pack) throw new Error(`${entry.id}: pack "${entry.pack}" isn't loaded`);
@@ -77,6 +90,12 @@ function asMask(src, id) {
   if (src && src.a) return src;
   if (src && src.rgba) return maskOf(src);
   throw new Error(`${id}: expected a mask or a one-color tile`);
+}
+
+/** A ground tile as drawn, lifted a palette step if it's ground you walk on (GROUND_LIFT). */
+function groundOf(e, packs) {
+  const f = source(e, packs);
+  return GROUND_LIFT.draws.includes(e.draw) ? recolored(f, GROUND_LIFT.colors, e.id) : f;
 }
 
 /**
@@ -124,7 +143,7 @@ export function townFrame(e, packs) {
 }
 
 /** The signs a building can hang over its door (the manifest's `sign`). */
-const SIGNS = Object.freeze({ library: librarySign, tavern: tavernSign, docks: docksSign, smithy: smithySign, chapel: chapelSign, market: marketSign, apothecary: apothecarySign, cartographer: cartographerSign });
+const SIGNS = Object.freeze({ lighthouse: lighthouseSign, library: librarySign, tavern: tavernSign, docks: docksSign, smithy: smithySign, chapel: chapelSign, market: marketSign, apothecary: apothecarySign, cartographer: cartographerSign });
 
 /** The places on a building's frame for its sign, its door lantern, and its window boxes. */
 function dressBuilding(f, e, { windows, doors }, { sign, lantern, boxes }) {
@@ -143,16 +162,46 @@ function dressBuilding(f, e, { windows, doors }, { sign, lantern, boxes }) {
   return f;
 }
 
-/** A building's frame at one stage (the manifest's `stage`); its open doorways are dark inside. */
+/** A building with a forge (the manifest's `forge`) shows it through its open doorway once lit, brighter at the last level. */
+function forged(f, e, where, bright) {
+  if (e.forge) for (const d of where.open) forgeGlow(f, d, bright);
+  return f;
+}
+
+/**
+ * A building's frame at one stage (the manifest's `stage`); its open doorways are dark inside. The
+ * frame has ROOF_ROOM px above the roof for the building's own outline (`outline`, art/draw/index.js
+ * OUTLINES), which stands from the roof's stage on.
+ */
 export function buildingFrame(e, packs) {
+  // A tower drawn in code (C3: the Lighthouse), its sign and door lantern its own to place.
+  const f = e.tower ? lighthouseTower(e.id, e.stage, { sign: SIGNS[e.sign]?.() ?? null, lantern: wallLantern() }) : buildingStage(e, packs);
+  const out = blank(e.id, f.w, f.h + ROOF_ROOM);
+  stamp(out, f, 0, ROOF_ROOM);
+  if (e.outline && e.stage !== 'ruin') {
+    const draw = OUTLINES[e.outline];
+    if (!draw) throw new Error(`${e.id}: no outline called "${e.outline}" in art/draw/`);
+    draw(out, ROOF_ROOM, e.stage);
+  }
+  return out;
+}
+
+function buildingStage(e, packs) {
   const whole = fillDoorways(townFrame(e, packs), e.layout);
   const where = openings(e.layout);
   switch (e.stage) {
     case 'ruin': return ruin(whole, e.layout, e.id);
     case 'roof': return boardWindows(whole, where.windows);
-    case 'lit': return lightWindows(whole, where.windows);
-    case 'keeper': return dressBuilding(lightWindows(whole, where.windows), e, where, { sign: true, lantern: true });
-    case 'alive': return dressBuilding(lightWindows(whole, where.windows), e, where, { sign: true, lantern: true, boxes: true });
+    case 'lit': return forged(lightWindows(whole, where.windows), e, where, false);
+    case 'keeper': return forged(dressBuilding(lightWindows(whole, where.windows), e, where, { sign: true, lantern: true }), e, where, false);
+    case 'alive': {
+      // The last level: the door stands open, the lamplight inside warm on the floor; an open
+      // doorway is lit inside the same way (a forge's burns hot).
+      const f = dressBuilding(lightWindows(whole, where.windows), e, where, { sign: true, lantern: true, boxes: true });
+      for (const d of where.doors) openDoor(f, d);
+      for (const d of where.open) if (!e.forge) litDoorway(f, d);
+      return forged(f, e, where, true);
+    }
     default: throw new Error(`${e.id}: no building stage called "${e.stage}"`);
   }
 }
@@ -182,6 +231,10 @@ export function buildFrames(packs, data, sprites = SPRITES) {
           draw(body, ...e.hold.at);
         }
         add(body); add(flash(body));
+        // Her light rim (0.9.0): a pale warm line round her own dark outline, so she reads over a
+        // packed crowd (the run view draws this one; the harbor and menus draw the plain frame).
+        const rim = outlined(body, PLAYER_RIM, `${e.id}#rim`);
+        add(rim); add(flash(rim));
         break;
       }
       case 'enemy': {
@@ -224,7 +277,7 @@ export function buildFrames(packs, data, sprites = SPRITES) {
         break;
       }
       case 'ground': {
-        const f = source(e, packs);
+        const f = groundOf(e, packs);
         f.id = e.id;
         add(f);
         break;
@@ -232,7 +285,7 @@ export function buildFrames(packs, data, sprites = SPRITES) {
       case 'block': {
         const floorEntry = sprites.find((x) => x.kind === 'ground' && x.variant === e.floor);
         if (!floorEntry) throw new Error(`${e.id}: no floor tile with variant ${e.floor}`);
-        const f = source(floorEntry, packs);
+        const f = groundOf(floorEntry, packs);
         f.id = e.id;
         const obj = colored(cropMask(asMask(source(e, packs), e.id)), e.id, e.ramp).frame;
         if (obj.w > TILE || obj.h > TILE) {
@@ -250,7 +303,22 @@ export function buildFrames(packs, data, sprites = SPRITES) {
       }
       case 'town': add(townFrame(e, packs)); break;
       case 'building': add(buildingFrame(e, packs)); break;
-      case 'npc': add(padTo(townFrame(e, packs), PLAYER_SIZE, PLAYER_SIZE, e.id)); break;
+      case 'npc': {
+        // A townsperson on the characters' frame; one with a `pose` (art/draw/index.js POSES) is
+        // drawn that way, `frames` times (frame k is "<id>@<k>"), an animation at `fps`.
+        const n = e.frames || 1;
+        if (n > 1) anims[e.id] = { n, fps: e.fps || 3 };
+        for (let k = 0; k < n; k++) {
+          const f = padTo(townFrame(e, packs), PLAYER_SIZE, PLAYER_SIZE, k === 0 ? e.id : `${e.id}@${k}`);
+          if (e.pose) {
+            const pose = POSES[e.pose];
+            if (!pose) throw new Error(`${e.id}: no pose called "${e.pose}" in art/draw/`);
+            pose(f, k);
+          }
+          add(f);
+        }
+        break;
+      }
       default: throw new Error(`${e.id}: unknown kind "${e.kind}"`);
     }
   }
@@ -272,7 +340,9 @@ export function buildFrames(packs, data, sprites = SPRITES) {
 export function composeRig(id, rig, partFrames) {
   const at = rigPlace(id, restPose(rig), new Float64Array(rig.parts.length * 2));
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  const placed = rig.parts.map((p, k) => {
+  // A part shown only in action (`still: false`, the Old Grey's wings) isn't in the resting pose.
+  const placed = rig.parts.map((p, k) => (p.still === false ? null : p)).map((p, k) => {
+    if (p === null) return null;
     const f = partFrames.get(p.frame);
     if (!f) throw new Error(`rig ${id}: no frame "${p.frame}"`);
     // Pixi mirrors a flipped part around its pivot, so pixel c lands at pivot + px - c - 1.
@@ -284,7 +354,7 @@ export function composeRig(id, rig, partFrames) {
   // Centered on the boss: the frame reaches as far on each side as the widest part.
   const hw = Math.max(-x0, x1), hh = Math.max(-y0, y1);
   const out = blank(id, hw * 2, hh * 2);
-  for (const { f, x, y } of placed) stamp(out, f, x + hw, y + hh);
+  for (const q of placed) if (q !== null) stamp(out, q.f, q.x + hw, q.y + hh);
   return out;
 }
 

@@ -1,0 +1,1386 @@
+{
+ "v": 3,
+ "minutes": 25,
+ "measure": {
+  "character": "lamplighter",
+  "archetypes": [
+   "projectile_storm",
+   "orbit_tank",
+   "burning_ground"
+  ],
+  "bot": "kite",
+  "overtime": "leave",
+  "skilled": true
+ },
+ "sets": [
+  {
+   "map": "drowned_docks",
+   "stage": 0,
+   "fingerprint": "d6b4fe35167fbd51",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1217.6,
+     "materials": {
+      "coin": 1296,
+      "oil": 839,
+      "timber": 379,
+      "rope": 274,
+      "drowned_pages": 396,
+      "rum": 130,
+      "iron": 27,
+      "map_scraps": 7
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1221.18,
+     "materials": {
+      "coin": 1472,
+      "oil": 817,
+      "timber": 461,
+      "rope": 336,
+      "drowned_pages": 460,
+      "rum": 172,
+      "iron": 29,
+      "map_scraps": 7
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1221.7,
+     "materials": {
+      "coin": 1043,
+      "oil": 673,
+      "timber": 322,
+      "rope": 249,
+      "drowned_pages": 326,
+      "rum": 128,
+      "iron": 31,
+      "map_scraps": 5
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1237.4,
+     "materials": {
+      "coin": 906,
+      "oil": 587,
+      "timber": 325,
+      "rope": 244,
+      "drowned_pages": 293,
+      "rum": 100,
+      "iron": 29,
+      "map_scraps": 10
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1279.58,
+     "materials": {
+      "coin": 826,
+      "oil": 520,
+      "timber": 260,
+      "rope": 206,
+      "drowned_pages": 267,
+      "rum": 106,
+      "iron": 18,
+      "map_scraps": 10
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1218.13,
+     "materials": {
+      "coin": 1492,
+      "oil": 941,
+      "timber": 455,
+      "rope": 352,
+      "drowned_pages": 488,
+      "rum": 157,
+      "iron": 31,
+      "map_scraps": 7
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1249.43,
+     "materials": {
+      "coin": 1153,
+      "oil": 704,
+      "timber": 405,
+      "rope": 286,
+      "drowned_pages": 327,
+      "rum": 102,
+      "iron": 29,
+      "map_scraps": 7
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1217.88,
+     "materials": {
+      "coin": 1085,
+      "oil": 642,
+      "timber": 341,
+      "rope": 239,
+      "drowned_pages": 336,
+      "rum": 96,
+      "iron": 29,
+      "map_scraps": 10
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1217.58,
+     "materials": {
+      "coin": 1136,
+      "oil": 768,
+      "timber": 410,
+      "rope": 267,
+      "drowned_pages": 401,
+      "rum": 131,
+      "iron": 24,
+      "map_scraps": 7
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1222.27,
+     "materials": {
+      "coin": 1436,
+      "oil": 851,
+      "timber": 460,
+      "rope": 319,
+      "drowned_pages": 410,
+      "rum": 170,
+      "iron": 29,
+      "map_scraps": 7
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1230.78,
+     "materials": {
+      "coin": 1114,
+      "oil": 676,
+      "timber": 362,
+      "rope": 270,
+      "drowned_pages": 378,
+      "rum": 113,
+      "iron": 28,
+      "map_scraps": 10
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1217.55,
+     "materials": {
+      "coin": 1251,
+      "oil": 752,
+      "timber": 417,
+      "rope": 275,
+      "drowned_pages": 445,
+      "rum": 146,
+      "iron": 29,
+      "map_scraps": 10
+     },
+     "seaGlass": 0,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  },
+  {
+   "map": "drowned_docks",
+   "stage": 1,
+   "fingerprint": "eb452f6e089c888a",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1222.68,
+     "materials": {
+      "coin": 1162,
+      "oil": 677,
+      "timber": 404,
+      "rope": 269,
+      "drowned_pages": 370,
+      "rum": 109,
+      "iron": 26,
+      "map_scraps": 9
+     },
+     "seaGlass": 46,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1217.5,
+     "materials": {
+      "coin": 1306,
+      "oil": 834,
+      "timber": 421,
+      "rope": 295,
+      "drowned_pages": 409,
+      "rum": 141,
+      "iron": 27,
+      "map_scraps": 10
+     },
+     "seaGlass": 46,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1239.68,
+     "materials": {
+      "coin": 1092,
+      "oil": 669,
+      "timber": 338,
+      "rope": 217,
+      "drowned_pages": 325,
+      "rum": 98,
+      "iron": 24,
+      "map_scraps": 10
+     },
+     "seaGlass": 44,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1232.63,
+     "materials": {
+      "coin": 1288,
+      "oil": 791,
+      "timber": 444,
+      "rope": 321,
+      "drowned_pages": 426,
+      "rum": 152,
+      "iron": 29,
+      "map_scraps": 6
+     },
+     "seaGlass": 44,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1217.5,
+     "materials": {
+      "coin": 1411,
+      "oil": 872,
+      "timber": 458,
+      "rope": 317,
+      "drowned_pages": 466,
+      "rum": 191,
+      "iron": 26,
+      "map_scraps": 7
+     },
+     "seaGlass": 54,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1217.53,
+     "materials": {
+      "coin": 1292,
+      "oil": 815,
+      "timber": 448,
+      "rope": 319,
+      "drowned_pages": 370,
+      "rum": 135,
+      "iron": 26,
+      "map_scraps": 9
+     },
+     "seaGlass": 43,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1217.5,
+     "materials": {
+      "coin": 1578,
+      "oil": 923,
+      "timber": 484,
+      "rope": 356,
+      "drowned_pages": 474,
+      "rum": 195,
+      "iron": 28,
+      "map_scraps": 7
+     },
+     "seaGlass": 55,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1229.73,
+     "materials": {
+      "coin": 1402,
+      "oil": 811,
+      "timber": 488,
+      "rope": 310,
+      "drowned_pages": 388,
+      "rum": 161,
+      "iron": 27,
+      "map_scraps": 11
+     },
+     "seaGlass": 42,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1218.58,
+     "materials": {
+      "coin": 1543,
+      "oil": 868,
+      "timber": 500,
+      "rope": 339,
+      "drowned_pages": 503,
+      "rum": 159,
+      "iron": 26,
+      "map_scraps": 10
+     },
+     "seaGlass": 27,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1229.33,
+     "materials": {
+      "coin": 1019,
+      "oil": 642,
+      "timber": 340,
+      "rope": 267,
+      "drowned_pages": 352,
+      "rum": 111,
+      "iron": 15,
+      "map_scraps": 6
+     },
+     "seaGlass": 39,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1218.18,
+     "materials": {
+      "coin": 1336,
+      "oil": 830,
+      "timber": 423,
+      "rope": 260,
+      "drowned_pages": 453,
+      "rum": 148,
+      "iron": 27,
+      "map_scraps": 6
+     },
+     "seaGlass": 57,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1217.5,
+     "materials": {
+      "coin": 1322,
+      "oil": 790,
+      "timber": 425,
+      "rope": 304,
+      "drowned_pages": 396,
+      "rum": 149,
+      "iron": 29,
+      "map_scraps": 6
+     },
+     "seaGlass": 45,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  },
+  {
+   "map": "drowned_docks",
+   "stage": 2,
+   "fingerprint": "d0a95f5d2e1518f0",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1218.08,
+     "materials": {
+      "coin": 1530,
+      "oil": 916,
+      "timber": 536,
+      "rope": 370,
+      "drowned_pages": 487,
+      "rum": 155,
+      "iron": 34,
+      "map_scraps": 14
+     },
+     "seaGlass": 44,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1217.5,
+     "materials": {
+      "coin": 1983,
+      "oil": 1091,
+      "timber": 648,
+      "rope": 473,
+      "drowned_pages": 575,
+      "rum": 207,
+      "iron": 31,
+      "map_scraps": 8
+     },
+     "seaGlass": 64,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1230.12,
+     "materials": {
+      "coin": 1577,
+      "oil": 943,
+      "timber": 458,
+      "rope": 384,
+      "drowned_pages": 475,
+      "rum": 167,
+      "iron": 31,
+      "map_scraps": 10
+     },
+     "seaGlass": 38,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1218.32,
+     "materials": {
+      "coin": 1716,
+      "oil": 1006,
+      "timber": 562,
+      "rope": 355,
+      "drowned_pages": 532,
+      "rum": 206,
+      "iron": 23,
+      "map_scraps": 8
+     },
+     "seaGlass": 42,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1246.83,
+     "materials": {
+      "coin": 1571,
+      "oil": 861,
+      "timber": 457,
+      "rope": 349,
+      "drowned_pages": 490,
+      "rum": 170,
+      "iron": 34,
+      "map_scraps": 10
+     },
+     "seaGlass": 53,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1226.33,
+     "materials": {
+      "coin": 1492,
+      "oil": 917,
+      "timber": 512,
+      "rope": 342,
+      "drowned_pages": 505,
+      "rum": 150,
+      "iron": 32,
+      "map_scraps": 13
+     },
+     "seaGlass": 40,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1220.7,
+     "materials": {
+      "coin": 1587,
+      "oil": 962,
+      "timber": 512,
+      "rope": 343,
+      "drowned_pages": 530,
+      "rum": 146,
+      "iron": 28,
+      "map_scraps": 10
+     },
+     "seaGlass": 53,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1217.7,
+     "materials": {
+      "coin": 1819,
+      "oil": 1068,
+      "timber": 645,
+      "rope": 379,
+      "drowned_pages": 589,
+      "rum": 183,
+      "iron": 34,
+      "map_scraps": 7
+     },
+     "seaGlass": 73,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1220.77,
+     "materials": {
+      "coin": 1414,
+      "oil": 855,
+      "timber": 475,
+      "rope": 348,
+      "drowned_pages": 423,
+      "rum": 143,
+      "iron": 32,
+      "map_scraps": 13
+     },
+     "seaGlass": 44,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1217.58,
+     "materials": {
+      "coin": 1604,
+      "oil": 1001,
+      "timber": 547,
+      "rope": 399,
+      "drowned_pages": 487,
+      "rum": 171,
+      "iron": 28,
+      "map_scraps": 10
+     },
+     "seaGlass": 40,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1218.58,
+     "materials": {
+      "coin": 1463,
+      "oil": 880,
+      "timber": 514,
+      "rope": 324,
+      "drowned_pages": 442,
+      "rum": 148,
+      "iron": 35,
+      "map_scraps": 11
+     },
+     "seaGlass": 45,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1217.58,
+     "materials": {
+      "coin": 1651,
+      "oil": 1024,
+      "timber": 563,
+      "rope": 411,
+      "drowned_pages": 590,
+      "rum": 177,
+      "iron": 31,
+      "map_scraps": 8
+     },
+     "seaGlass": 45,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  },
+  {
+   "map": "drowned_docks",
+   "stage": 3,
+   "fingerprint": "55db9eb99bad3cb9",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1217.6,
+     "materials": {
+      "coin": 2017,
+      "oil": 1131,
+      "timber": 633,
+      "rope": 430,
+      "drowned_pages": 627,
+      "rum": 199,
+      "iron": 28,
+      "map_scraps": 14
+     },
+     "seaGlass": 60,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1218.8,
+     "materials": {
+      "coin": 1600,
+      "oil": 948,
+      "timber": 486,
+      "rope": 316,
+      "drowned_pages": 455,
+      "rum": 176,
+      "iron": 31,
+      "map_scraps": 7
+     },
+     "seaGlass": 42,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1217.53,
+     "materials": {
+      "coin": 2322,
+      "oil": 1393,
+      "timber": 694,
+      "rope": 435,
+      "drowned_pages": 700,
+      "rum": 260,
+      "iron": 31,
+      "map_scraps": 14
+     },
+     "seaGlass": 62,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1217.48,
+     "materials": {
+      "coin": 2068,
+      "oil": 1127,
+      "timber": 697,
+      "rope": 477,
+      "drowned_pages": 627,
+      "rum": 265,
+      "iron": 31,
+      "map_scraps": 12
+     },
+     "seaGlass": 58,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1217.5,
+     "materials": {
+      "coin": 2155,
+      "oil": 1271,
+      "timber": 719,
+      "rope": 547,
+      "drowned_pages": 731,
+      "rum": 230,
+      "iron": 31,
+      "map_scraps": 12
+     },
+     "seaGlass": 66,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1217.53,
+     "materials": {
+      "coin": 2042,
+      "oil": 1230,
+      "timber": 648,
+      "rope": 430,
+      "drowned_pages": 647,
+      "rum": 229,
+      "iron": 32,
+      "map_scraps": 10
+     },
+     "seaGlass": 63,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1217.63,
+     "materials": {
+      "coin": 2332,
+      "oil": 1296,
+      "timber": 737,
+      "rope": 508,
+      "drowned_pages": 673,
+      "rum": 246,
+      "iron": 29,
+      "map_scraps": 15
+     },
+     "seaGlass": 45,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1218.1,
+     "materials": {
+      "coin": 1711,
+      "oil": 1031,
+      "timber": 591,
+      "rope": 402,
+      "drowned_pages": 538,
+      "rum": 213,
+      "iron": 21,
+      "map_scraps": 10
+     },
+     "seaGlass": 42,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1221.07,
+     "materials": {
+      "coin": 1555,
+      "oil": 1006,
+      "timber": 595,
+      "rope": 352,
+      "drowned_pages": 510,
+      "rum": 213,
+      "iron": 28,
+      "map_scraps": 12
+     },
+     "seaGlass": 41,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1217.48,
+     "materials": {
+      "coin": 1524,
+      "oil": 948,
+      "timber": 530,
+      "rope": 335,
+      "drowned_pages": 496,
+      "rum": 184,
+      "iron": 32,
+      "map_scraps": 10
+     },
+     "seaGlass": 55,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1218.6,
+     "materials": {
+      "coin": 1901,
+      "oil": 1157,
+      "timber": 663,
+      "rope": 408,
+      "drowned_pages": 581,
+      "rum": 196,
+      "iron": 29,
+      "map_scraps": 9
+     },
+     "seaGlass": 53,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1218.08,
+     "materials": {
+      "coin": 1667,
+      "oil": 1024,
+      "timber": 535,
+      "rope": 374,
+      "drowned_pages": 496,
+      "rum": 180,
+      "iron": 35,
+      "map_scraps": 7
+     },
+     "seaGlass": 56,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  },
+  {
+   "map": "salt_marsh",
+   "stage": 1,
+   "fingerprint": "805d67ae33bac606",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1224.73,
+     "materials": {
+      "coin": 1155,
+      "oil": 699,
+      "map_scraps": 10,
+      "marsh_herbs": 542,
+      "salt_glass": 45
+     },
+     "seaGlass": 49,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1220.3,
+     "materials": {
+      "coin": 1301,
+      "oil": 815,
+      "map_scraps": 10,
+      "marsh_herbs": 625,
+      "salt_glass": 53
+     },
+     "seaGlass": 79,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1220.9,
+     "materials": {
+      "coin": 1267,
+      "oil": 716,
+      "map_scraps": 13,
+      "marsh_herbs": 669,
+      "salt_glass": 44
+     },
+     "seaGlass": 47,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1224.7,
+     "materials": {
+      "coin": 1254,
+      "oil": 770,
+      "map_scraps": 5,
+      "marsh_herbs": 572,
+      "salt_glass": 42
+     },
+     "seaGlass": 81,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1229.13,
+     "materials": {
+      "coin": 1248,
+      "oil": 705,
+      "map_scraps": 10,
+      "marsh_herbs": 608,
+      "salt_glass": 49
+     },
+     "seaGlass": 57,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1220.3,
+     "materials": {
+      "coin": 1206,
+      "oil": 733,
+      "map_scraps": 9,
+      "marsh_herbs": 609,
+      "salt_glass": 44
+     },
+     "seaGlass": 38,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1224.13,
+     "materials": {
+      "coin": 1339,
+      "oil": 816,
+      "map_scraps": 13,
+      "marsh_herbs": 642,
+      "salt_glass": 54
+     },
+     "seaGlass": 52,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1216.85,
+     "materials": {
+      "coin": 1205,
+      "oil": 752,
+      "map_scraps": 11,
+      "marsh_herbs": 630,
+      "salt_glass": 45
+     },
+     "seaGlass": 65,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1216.9,
+     "materials": {
+      "coin": 1185,
+      "oil": 631,
+      "map_scraps": 11,
+      "marsh_herbs": 525,
+      "salt_glass": 36
+     },
+     "seaGlass": 52,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1220.37,
+     "materials": {
+      "coin": 1245,
+      "oil": 722,
+      "map_scraps": 10,
+      "marsh_herbs": 600,
+      "salt_glass": 49
+     },
+     "seaGlass": 53,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1216.88,
+     "materials": {
+      "coin": 1214,
+      "oil": 750,
+      "map_scraps": 10,
+      "marsh_herbs": 559,
+      "salt_glass": 49
+     },
+     "seaGlass": 50,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1220.32,
+     "materials": {
+      "coin": 1120,
+      "oil": 674,
+      "map_scraps": 10,
+      "marsh_herbs": 516,
+      "salt_glass": 44
+     },
+     "seaGlass": 52,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  },
+  {
+   "map": "salt_marsh",
+   "stage": 2,
+   "fingerprint": "94017917d816dcab",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1216.82,
+     "materials": {
+      "coin": 1448,
+      "oil": 844,
+      "map_scraps": 13,
+      "marsh_herbs": 648,
+      "salt_glass": 52
+     },
+     "seaGlass": 38,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1220.3,
+     "materials": {
+      "coin": 1515,
+      "oil": 955,
+      "map_scraps": 13,
+      "marsh_herbs": 734,
+      "salt_glass": 52
+     },
+     "seaGlass": 80,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1216.85,
+     "materials": {
+      "coin": 1348,
+      "oil": 774,
+      "map_scraps": 11,
+      "marsh_herbs": 734,
+      "salt_glass": 50
+     },
+     "seaGlass": 80,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1216.85,
+     "materials": {
+      "coin": 1593,
+      "oil": 935,
+      "map_scraps": 10,
+      "marsh_herbs": 769,
+      "salt_glass": 47
+     },
+     "seaGlass": 75,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1220.98,
+     "materials": {
+      "coin": 1408,
+      "oil": 828,
+      "map_scraps": 13,
+      "marsh_herbs": 729,
+      "salt_glass": 46
+     },
+     "seaGlass": 51,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1216.83,
+     "materials": {
+      "coin": 1796,
+      "oil": 1061,
+      "map_scraps": 13,
+      "marsh_herbs": 868,
+      "salt_glass": 52
+     },
+     "seaGlass": 81,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1220.9,
+     "materials": {
+      "coin": 1385,
+      "oil": 888,
+      "map_scraps": 14,
+      "marsh_herbs": 725,
+      "salt_glass": 56
+     },
+     "seaGlass": 49,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1220.4,
+     "materials": {
+      "coin": 1575,
+      "oil": 1007,
+      "map_scraps": 16,
+      "marsh_herbs": 802,
+      "salt_glass": 52
+     },
+     "seaGlass": 56,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1216.82,
+     "materials": {
+      "coin": 1514,
+      "oil": 908,
+      "map_scraps": 14,
+      "marsh_herbs": 746,
+      "salt_glass": 53
+     },
+     "seaGlass": 40,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1216.88,
+     "materials": {
+      "coin": 1535,
+      "oil": 858,
+      "map_scraps": 13,
+      "marsh_herbs": 771,
+      "salt_glass": 59
+     },
+     "seaGlass": 60,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1224.12,
+     "materials": {
+      "coin": 1487,
+      "oil": 923,
+      "map_scraps": 16,
+      "marsh_herbs": 744,
+      "salt_glass": 46
+     },
+     "seaGlass": 75,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1216.82,
+     "materials": {
+      "coin": 1889,
+      "oil": 1115,
+      "map_scraps": 8,
+      "marsh_herbs": 852,
+      "salt_glass": 55
+     },
+     "seaGlass": 51,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  },
+  {
+   "map": "salt_marsh",
+   "stage": 3,
+   "fingerprint": "74bf40d8f71bb5e9",
+   "runs": [
+    {
+     "k": 0,
+     "seconds": 1209.9,
+     "materials": {
+      "coin": 1716,
+      "oil": 1035,
+      "map_scraps": 14,
+      "marsh_herbs": 781,
+      "salt_glass": 62
+     },
+     "seaGlass": 76,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 1,
+     "seconds": 1224.17,
+     "materials": {
+      "coin": 1695,
+      "oil": 1020,
+      "map_scraps": 14,
+      "marsh_herbs": 803,
+      "salt_glass": 54
+     },
+     "seaGlass": 47,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 2,
+     "seconds": 1220.32,
+     "materials": {
+      "coin": 1656,
+      "oil": 1017,
+      "map_scraps": 12,
+      "marsh_herbs": 879,
+      "salt_glass": 59
+     },
+     "seaGlass": 52,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 3,
+     "seconds": 1209.88,
+     "materials": {
+      "coin": 1634,
+      "oil": 926,
+      "map_scraps": 9,
+      "marsh_herbs": 795,
+      "salt_glass": 53
+     },
+     "seaGlass": 49,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 4,
+     "seconds": 1220.33,
+     "materials": {
+      "coin": 1921,
+      "oil": 1137,
+      "map_scraps": 15,
+      "marsh_herbs": 912,
+      "salt_glass": 59
+     },
+     "seaGlass": 48,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 5,
+     "seconds": 1216.92,
+     "materials": {
+      "coin": 1725,
+      "oil": 1085,
+      "map_scraps": 14,
+      "marsh_herbs": 848,
+      "salt_glass": 54
+     },
+     "seaGlass": 42,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 6,
+     "seconds": 1220.32,
+     "materials": {
+      "coin": 1588,
+      "oil": 950,
+      "map_scraps": 6,
+      "marsh_herbs": 800,
+      "salt_glass": 40
+     },
+     "seaGlass": 50,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 7,
+     "seconds": 1224.1,
+     "materials": {
+      "coin": 1725,
+      "oil": 975,
+      "map_scraps": 14,
+      "marsh_herbs": 858,
+      "salt_glass": 53
+     },
+     "seaGlass": 5,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 8,
+     "seconds": 1216.82,
+     "materials": {
+      "coin": 1825,
+      "oil": 1095,
+      "map_scraps": 15,
+      "marsh_herbs": 839,
+      "salt_glass": 56
+     },
+     "seaGlass": 50,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 9,
+     "seconds": 1216.95,
+     "materials": {
+      "coin": 1984,
+      "oil": 1204,
+      "map_scraps": 12,
+      "marsh_herbs": 1034,
+      "salt_glass": 65
+     },
+     "seaGlass": 68,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 10,
+     "seconds": 1216.85,
+     "materials": {
+      "coin": 1886,
+      "oil": 1202,
+      "map_scraps": 14,
+      "marsh_herbs": 920,
+      "salt_glass": 56
+     },
+     "seaGlass": 61,
+     "bosses": 2,
+     "end": "cleared"
+    },
+    {
+     "k": 11,
+     "seconds": 1209.87,
+     "materials": {
+      "coin": 1833,
+      "oil": 1191,
+      "map_scraps": 14,
+      "marsh_herbs": 884,
+      "salt_glass": 49
+     },
+     "seaGlass": 57,
+     "bosses": 2,
+     "end": "cleared"
+    }
+   ]
+  }
+ ]
+}
