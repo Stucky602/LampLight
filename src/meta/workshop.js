@@ -3,24 +3,23 @@
 // { doc, changes } as meta/actions.js's do: a new document and what changed.
 //
 //   Smithy        make gear, raise its tier, re-roll an affix (choosing one of three), wear it,
-//                 cut a rune stone
-//   Market        trade materials at its (poor) rate
-//   Apothecary    buy consumables for a run
-//   Cartographer  claim bestiary milestones
-//   Tavern        train a mastery perk
+//   Market        trade materials at its (poor) rate, a few rares between two runs
+//   Apothecary    buy run tools for a run
+//   Tavern        starting kits (the skill trees are meta/skills.js)
 //
 // Nothing here is random in the way a drop is: what a new item rolls and what a re-roll offers come
 // from a seed made of the item and the profile's own counters, so the same profile always sees the
 // same offer (reloading doesn't reroll it).
 
 import { canPay, pay, scale } from './costs.js';
-import { MetaError, writable, partOf, shortText } from './actions.js';
-import { levelOf, levelEffect, resolveContent, masteryOf, perksOf, heldOf } from './state.js';
+import { MetaError, writable, partOf, needText, needsLevel, newlyUnlocked } from './actions.js';
+import { levelOf, levelEffect, resolveContent, masteryOf, heldOf, contentOpen } from './state.js';
 import { createRng } from '../lib/rng.js';
-import { GEAR_SLOTS, TIER_MUL, THIRD_AFFIX_TIER, RUNE_STONE_COST, REROLL_COST } from '../data/gear.js';
+import { GEAR_SLOTS, TIER_MUL, THIRD_AFFIX_TIER, REROLL_COST, GEAR_TIER_EXTRA } from '../data/gear.js';
 
 const isObj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
-const need = (data, doc, cost) => `Need ${shortText(data, partOf(doc, 'materials'), cost)}`;
+/** "Need 5 Salt Glass", and where a short material drops when that map isn't open yet (meta/actions.js needText). */
+const need = (data, doc, cost) => needText(doc, data, cost);
 const nameOf = (list, id) => list.find((x) => x.id === id)?.name ?? id;
 
 // ---------------------------------------------------------------- gear
@@ -70,7 +69,7 @@ export function affixValue(affix, tier) {
 export function affixText(affix, tier) {
   if (affix.kind === 'hook' || affix.kind === 'rule') return affix.name;
   const v = affixValue(affix, tier), m = affix.mod;
-  const pct = m.op === 'pct';
+  const pct = m.op === 'pct' || affix.percent === true;   // (`percent`: a share that adds, such as Crit Chance)
   const n = pct ? Math.round(v * 1000) / 10 : Math.round(v * 10) / 10;
   return `${n >= 0 ? '+' : ''}${n}${pct ? '%' : ''} ${affix.name}`;
 }
@@ -90,7 +89,7 @@ function drawAffixes(data, recipe, taken, n, seed) {
 export function whyNotCraft(doc, data, recipeId) {
   const r = data.recipes.find((x) => x.id === recipeId);
   if (!r) return `There is no gear called "${recipeId}".`;
-  if (levelOf(doc, 'smithy', data) === 0) return 'Requires Smithy Lv 1';
+  if (levelOf(doc, 'smithy', data) === 0) return needsLevel(data, 'smithy', 1);
   if (!resolveContent(doc, data).recipes.includes(recipeId)) return 'Not found yet';
   if (!canPay(partOf(doc, 'materials'), r.cost)) return need(data, doc, r.cost);
   return null;
@@ -115,21 +114,24 @@ export function craftGear(doc, data, recipeId) {
   return { doc: out, changes: [{ kind: 'gear_made', uid, id: r.id, cost: r.cost, worn }] };
 }
 
-/** What raising an item one tier costs: its recipe's price times the new tier. */
+/** What raising an item one tier costs: its recipe's price times the new tier, and tiers 4 and 5's Salt Glass (0.8.0). */
 export function upgradeCost(data, item) {
   const r = data.recipes.find((x) => x.id === item.id);
-  return r ? scale(r.cost, item.tier + 1) : null;
+  if (!r) return null;
+  const cost = { ...scale(r.cost, item.tier + 1) };
+  for (const [id, n] of Object.entries(GEAR_TIER_EXTRA[item.tier + 1] || {})) cost[id] = (cost[id] ?? 0) + n;
+  return cost;
 }
 
 export function whyNotUpgradeGear(doc, data, uid) {
   const item = gearItems(doc).find((x) => x.uid === uid);
   if (!item) return 'No such item';
-  if (item.tier >= TIER_MUL.length) return 'Already at max tier';
+  if (item.tier >= TIER_MUL.length) return 'Already Legendary';
   const max = gearTierMax(doc, data);
   if (item.tier >= max) {
     const b = data.buildings.find((x) => x.id === 'smithy');
     const lv = b ? b.levels.findIndex((l) => (l.gearTier ?? 0) > item.tier) + 1 : 0;
-    return lv > 0 ? `Requires Smithy Lv ${lv}` : 'Not in this version';
+    return lv > 0 ? needsLevel(data, 'smithy', lv) : 'Not in this version';
   }
   const cost = upgradeCost(data, item);
   if (!cost) return 'Not in this version';
@@ -174,10 +176,10 @@ export function whyNotReroll(doc, data, uid, at) {
   if (!item) return 'No such item';
   if (!levelEffect(doc, data, 'smithy', 'reroll')) {
     const b = data.buildings.find((x) => x.id === 'smithy');
-    return `Requires Smithy Lv ${b.levels.findIndex((l) => l.reroll) + 1}`;
+    return needsLevel(data, 'smithy', b.levels.findIndex((l) => l.reroll) + 1);
   }
-  if (!(at >= 1 && at < item.affixes.length)) return at === 0 ? "The recipe's own affix stays" : 'No such affix';
-  if (!rerollOffer(doc, data, uid, at).length) return 'Nothing to re-roll into';
+  if (!(at >= 1 && at < item.affixes.length)) return at === 0 ? "This bonus comes with the pattern and can't change" : 'That bonus isn\'t on this piece';
+  if (!rerollOffer(doc, data, uid, at).length) return 'Nothing to reroll into';
   if (!canPay(partOf(doc, 'materials'), rerollCost(item))) return need(data, doc, rerollCost(item));
   return null;
 }
@@ -186,7 +188,7 @@ export function whyNotReroll(doc, data, uid, at) {
 export function rerollGear(doc, data, uid, at, choice) {
   const why = whyNotReroll(doc, data, uid, at);
   if (why) throw new MetaError(why);
-  if (!rerollOffer(doc, data, uid, at).includes(choice)) throw new MetaError('Not one of the offered affixes');
+  if (!rerollOffer(doc, data, uid, at).includes(choice)) throw new MetaError('Pick one of the 3 offered bonuses');
   const out = writable(doc, ['materials', 'gear']);
   out.profile.gear.inventory = inventoryCopy(doc);
   const item = out.profile.gear.inventory.find((x) => x.uid === uid);
@@ -207,7 +209,7 @@ export function whyNotEquip(doc, data, uid) {
   if (!gearSlotsOpen(doc, data).includes(r.slot)) {
     const b = data.buildings.find((x) => x.id === 'smithy');
     const lv = b.levels.findIndex((l) => (l.gearSlots ?? 0) > GEAR_SLOTS.indexOf(r.slot)) + 1;
-    return `Requires Smithy Lv ${lv}`;
+    return needsLevel(data, 'smithy', lv);
   }
   if (gearEquipped(doc)[r.slot] === uid) return 'Already worn';
   return null;
@@ -265,31 +267,6 @@ export function gearForRun(doc, data) {
   return { mods, config, hooks };
 }
 
-// ---------------------------------------------------------------- rune stones
-
-export function whyNotCutRune(doc, data, runeId) {
-  const r = data.runes.find((x) => x.id === runeId);
-  if (!r) return `There is no rune called "${runeId}".`;
-  if (!levelEffect(doc, data, 'smithy', 'runeCrafting')) {
-    const b = data.buildings.find((x) => x.id === 'smithy');
-    return `Requires Smithy Lv ${b.levels.findIndex((l) => l.runeCrafting) + 1}`;
-  }
-  if (!resolveContent(doc, data).runes.includes(runeId)) return 'Not found yet';
-  if (!canPay(partOf(doc, 'materials'), RUNE_STONE_COST)) return need(data, doc, RUNE_STONE_COST);
-  return null;
-}
-
-/** Cut a rune stone: one run's rune, placed in a weapon at 0:00. */
-export function cutRuneStone(doc, data, runeId) {
-  const why = whyNotCutRune(doc, data, runeId);
-  if (why) throw new MetaError(why);
-  const out = writable(doc, ['materials', 'consumables']);
-  out.profile.materials = pay(out.profile.materials, RUNE_STONE_COST);
-  const key = `rune:${runeId}`;
-  out.profile.consumables[key] = heldOf(doc, key) + 1;
-  return { doc: out, changes: [{ kind: 'rune_stone', id: runeId, cost: RUNE_STONE_COST }] };
-}
-
 // ---------------------------------------------------------------- the Market
 
 /** The Market's rates now, or null (a ruin). */
@@ -298,15 +275,16 @@ export function marketRates(doc, data) {
   return lv > 0 ? data.market.rates[lv] : null;
 }
 
+const marketTier = (data, id) => (data.market.common.includes(id) ? 'common' : data.market.rare.includes(id) ? 'rare' : null);
+
 /**
  * One trade of `give` for `get` at the Market's rates: { give: n, get: m } (n of `give` for m of
  * `get`), or null when the two don't trade (the same material, or one the Market doesn't deal in).
  */
 export function tradeTerms(doc, data, give, get) {
-  const rates = marketRates(doc, data), M = data.market;
+  const rates = marketRates(doc, data);
   if (!rates || give === get) return null;
-  const tier = (id) => (M.common.includes(id) ? 'common' : M.rare.includes(id) ? 'rare' : null);
-  const a = tier(give), b = tier(get);
+  const a = marketTier(data, give), b = marketTier(data, get);
   if (!a || !b) return null;
   if (a === 'common' && b === 'common') return { give: rates.common, get: 1 };
   if (a === 'common' && b === 'rare') return { give: rates.toRare, get: 1 };
@@ -314,34 +292,76 @@ export function tradeTerms(doc, data, give, get) {
   return { give: rates.common, get: 1 }; // rare for rare
 }
 
-export function whyNotTrade(doc, data, give, get) {
-  if (!marketRates(doc, data)) return 'Requires Market Lv 1';
+/** How many rare materials the Market sells between two runs: META's, plus what the Lighthouse adds (its stage 7). */
+export function raresCap(doc, data) {
+  const base = data.meta.marketRaresPerRun;
+  return Number.isFinite(base) ? base + levelEffect(doc, data, 'lighthouse', 'marketRaresAdd') : Infinity;
+}
+
+/** "Iron or Map Scraps": the Market's rare materials by name (no word of their own: "Rare" is a rarity). */
+const rareNames = (data, and = 'or') => { const n = data.market.rare.map((id) => nameOf(data.materials, id)); return n.length < 3 ? n.join(` ${and} `) : `${n.slice(0, -1).join(', ')}, ${and} ${n.at(-1)}`; };
+
+/**
+ * Rare materials the Market still sells before the next run (0.7.3: META.marketRaresPerRun
+ * between two runs, so trading never stands in for the elites that drop them). The count bought
+ * is kept with the run it was bought after (profile.market: { rares, run }).
+ */
+export function raresLeft(doc, data) {
+  const cap = raresCap(doc, data);
+  const M = doc?.profile?.market;
+  const runs = Number(doc?.stats?.runs) || 0;
+  const bought = isObj(M) && M.run === runs && Number.isInteger(M.rares) && M.rares > 0 ? M.rares : 0;
+  return Math.max(0, cap - bought);
+}
+
+/** The materials one row could be paid with, in the Market's order (commons, then rares). */
+export function payOptions(doc, data, get) {
+  return [...data.market.common, ...data.market.rare].filter((give) => tradeTerms(doc, data, give, get));
+}
+
+export function whyNotTrade(doc, data, give, get, times = 1) {
+  if (!marketRates(doc, data)) return needsLevel(data, 'market', 1);
   const t = tradeTerms(doc, data, give, get);
-  if (!t) return 'Market doesn\'t trade those';
-  if (!canPay(partOf(doc, 'materials'), { [give]: t.give })) return need(data, doc, { [give]: t.give });
+  if (!t) return `The ${data.buildings.find((x) => x.id === 'market')?.name ?? 'Market'} doesn't trade those`;
+  if (!(Number.isInteger(times) && times >= 1)) return 'Trade a whole number of times';
+  if (marketTier(data, get) === 'rare') {
+    const left = raresLeft(doc, data);
+    if (left <= 0) return `No more ${rareNames(data)} until after your next run`;
+    if (t.get * times > left) return `Only ${left} more ${rareNames(data)} until after your next run`;
+  }
+  const cost = { [give]: t.give * times };
+  if (!canPay(partOf(doc, 'materials'), cost)) return need(data, doc, cost);
   return null;
 }
 
-/** Trade once: `give` for `get` at the Market's terms. */
-export function marketTrade(doc, data, give, get) {
-  const why = whyNotTrade(doc, data, give, get);
+/** Trade `times` times: `give` for `get` at the Market's terms (a rare counts against the cap). */
+export function marketTrade(doc, data, give, get, times = 1) {
+  const why = whyNotTrade(doc, data, give, get, times);
   if (why) throw new MetaError(why);
   const t = tradeTerms(doc, data, give, get);
   const out = writable(doc, ['materials']);
-  out.profile.materials = pay(out.profile.materials, { [give]: t.give });
-  out.profile.materials[get] = (out.profile.materials[get] | 0) + t.get;
-  return { doc: out, changes: [{ kind: 'trade', give, gave: t.give, get, got: t.get }] };
+  out.profile.materials = pay(out.profile.materials, { [give]: t.give * times });
+  out.profile.materials[get] = (out.profile.materials[get] | 0) + t.get * times;
+  if (marketTier(data, get) === 'rare') {
+    const runs = Number(doc?.stats?.runs) || 0;
+    const cap = raresCap(doc, data);
+    out.profile.market = { run: runs, rares: (Number.isFinite(cap) ? cap : 0) - raresLeft(doc, data) + t.get * times };
+  }
+  return { doc: out, changes: [{ kind: 'trade', give, gave: t.give * times, get, got: t.get * times }] };
 }
 
 // ---------------------------------------------------------------- the Apothecary
 
-/** How many consumables can go into a run (the Apothecary's level). */
-export function consumableSlots(doc, data) { return levelEffect(doc, data, 'apothecary', 'consumableSlots'); }
+/** How many run tools can go into a run (the Apothecary's level, and the Lighthouse's stage 4). */
+export function consumableSlots(doc, data) {
+  const own = levelEffect(doc, data, 'apothecary', 'consumableSlots');
+  return own > 0 ? own + levelEffect(doc, data, 'lighthouse', 'consumableSlotsAdd') : 0;   // the Lighthouse's stage 4 (0.9.0), once the Apothecary sells any
+}
 
 export function whyNotBuyConsumable(doc, data, id) {
   const c = data.consumables.find((x) => x.id === id);
   if (!c) return `There is nothing called "${id}".`;
-  if (levelOf(doc, 'apothecary', data) === 0) return 'Requires Apothecary Lv 1';
+  if (levelOf(doc, 'apothecary', data) === 0) return needsLevel(data, 'apothecary', 1);
   if (!resolveContent(doc, data).consumables.includes(id)) return 'Not found yet';
   if (!canPay(partOf(doc, 'materials'), c.cost)) return need(data, doc, c.cost);
   return null;
@@ -357,99 +377,37 @@ export function buyConsumable(doc, data, id) {
   return { doc: out, changes: [{ kind: 'consumable', id, cost: c.cost, held: heldOf(doc, id) + 1 }] };
 }
 
-// ---------------------------------------------------------------- the Cartographer's bestiary
+// ---------------------------------------------------------------- trophies
 
-/** Milestones claimed for an enemy (0 to the number of milestones). */
-export function claimedOf(doc, data, enemyId) {
-  const c = doc?.profile?.bestiaryClaimed;
-  const n = isObj(c) && Number.isInteger(c[enemyId]) ? c[enemyId] : 0;
-  return Math.max(0, Math.min(data.meta.bestiaryMilestones.length, n));
-}
-
-/** Each enemy's bestiary line: kills, milestones claimed, and the next one (null when all are). */
-export function bestiaryRows(doc, data) {
-  const kills = isObj(doc?.profile?.bestiary) ? doc.profile.bestiary : {};
-  const ms = data.meta.bestiaryMilestones;
-  return data.enemies.filter((e) => !(e.tags || []).includes('boss')).map((e) => {
-    const k = Number.isFinite(kills[e.id]) ? Math.floor(kills[e.id]) : 0;
-    const claimed = claimedOf(doc, data, e.id);
-    const next = claimed < ms.length ? { kills: ms[claimed], reward: data.meta.bestiaryRewards[claimed], ready: k >= ms[claimed] } : null;
-    return { id: e.id, name: e.name, kills: k, claimed, next };
-  });
-}
-
-export function whyNotClaim(doc, data, enemyId) {
-  if (!levelEffect(doc, data, 'cartographer', 'bestiary')) {
-    const b = data.buildings.find((x) => x.id === 'cartographer');
-    return `Requires Cartographer Lv ${b.levels.findIndex((l) => l.bestiary) + 1}`;
-  }
-  const row = bestiaryRows(doc, data).find((r) => r.id === enemyId);
-  if (!row) return 'Not in the bestiary';
-  if (!row.next) return 'All claimed';
-  if (!row.next.ready) return `Need ${row.next.kills} kills (${row.kills})`;
-  return null;
-}
-
-/** Claim an enemy's next bestiary milestone: its materials (and, later on, its bonus). */
-export function claimBestiary(doc, data, enemyId) {
-  const why = whyNotClaim(doc, data, enemyId);
-  if (why) throw new MetaError(why);
-  const row = bestiaryRows(doc, data).find((r) => r.id === enemyId);
-  const reward = row.next.reward;
-  const out = writable(doc, ['materials', 'bestiaryClaimed']);
-  for (const [id, n] of Object.entries(reward.materials || {})) out.profile.materials[id] = (out.profile.materials[id] | 0) + n;
-  out.profile.bestiaryClaimed[enemyId] = row.claimed + 1;
-  return { doc: out, changes: [{ kind: 'bestiary_claim', id: enemyId, kills: row.next.kills, materials: { ...(reward.materials || {}) }, damageMul: reward.damageMul ?? 0 }] };
-}
-
-/** The bestiary bonus a run gets: { enemyId: share more damage }, each held to META.bestiaryBonusMax. */
+/**
+ * The damage bonus a run gets against each enemy whose trophy is open (its Hunt done; data/trophies.js):
+ * { enemyId: share more damage }. (RunConfig keeps the name bestiaryBonus.)
+ */
 export function bestiaryBonus(doc, data) {
   const out = {};
-  for (const e of data.enemies) {
-    const n = claimedOf(doc, data, e.id);
-    let v = 0;
-    for (let k = 0; k < n; k++) v += data.meta.bestiaryRewards[k].damageMul ?? 0;
-    if (v > 0) out[e.id] = Math.min(v, data.meta.bestiaryBonusMax);
-  }
+  for (const t of data.trophies || []) if (contentOpen(doc, data, t.unlock)) out[t.enemy] = t.damageMul;
   return out;
 }
 
-// ---------------------------------------------------------------- the Tavern's training
+// ---------------------------------------------------------------- the Tavern's kits (skills: meta/skills.js)
 
-export function whyNotTrain(doc, data, perkId) {
-  const p = data.perks.find((x) => x.id === perkId);
-  if (!p) return `There is no perk called "${perkId}".`;
-  if (!levelEffect(doc, data, 'tavern', 'mastery')) {
-    const b = data.buildings.find((x) => x.id === 'tavern');
-    return `Requires Tavern Lv ${b.levels.findIndex((l) => l.mastery) + 1}`;
-  }
-  if (perksOf(doc, p.character).has(perkId)) return 'Already trained';
-  if (!resolveContent(doc, data).characters.includes(p.character)) return `${nameOf(data.characters, p.character)} hasn't arrived yet`;
-  if (masteryOf(doc, data, p.character).rank < p.rank) return `Requires mastery rank ${p.rank}`;
-  if (!canPay(partOf(doc, 'materials'), p.cost)) return need(data, doc, p.cost);
-  return null;
-}
-
-/** Train a perk: from now on, every run as that character has it. */
-export function trainPerk(doc, data, perkId) {
-  const why = whyNotTrain(doc, data, perkId);
-  if (why) throw new MetaError(why);
-  const p = data.perks.find((x) => x.id === perkId);
-  const out = writable(doc, ['materials', 'characters']);
-  out.profile.materials = pay(out.profile.materials, p.cost);
-  const c = isObj(out.profile.characters[p.character]) ? { ...out.profile.characters[p.character] } : { unlocked: true, masteryXp: 0, perks: [] };
-  c.perks = [...(Array.isArray(c.perks) ? c.perks : []), perkId];
-  out.profile.characters[p.character] = c;
-  return { doc: out, changes: [{ kind: 'perk', id: perkId, character: p.character, cost: p.cost }] };
-}
-
-/** A character's kits: their own first, then the other once mastery opens it. [{ id, name, start, open }] */
+/**
+ * A character's kits: their own first, then the others, each open once its mastery rank (`rank`)
+ * and its own `unlock` (an order, 0.9.0), when it has them, are met. [{ id, name, start, open, rank, unlock }]
+ */
 export function kitsOf(doc, data, character) {
   const c = data.characters.find((x) => x.id === character);
   if (!c) return [];
   const rank = masteryOf(doc, data, character).rank;
   return [
     { id: '', name: 'Standard', start: c.start, open: true },
-    ...data.kits.filter((k) => k.character === character).map((k) => ({ id: k.id, name: k.name, start: k.start, open: rank >= k.rank, rank: k.rank })),
+    // A character's own kits, then the ones anyone can take (a weapon order's), once each weapon (never their own first).
+    ...data.kits.filter((k) => k.character === character || (k.character === '*' && k.start !== c.start && !data.kits.some((o) => o.character === character && o.start === k.start))).map((k) => ({
+      id: k.id, name: k.name, start: k.start, rank: k.rank, unlock: k.unlock,
+      // Their own kit opens at its rank, or sooner with that weapon's order (the order's kit says
+      // "any character", and their own kit of the same weapon stands in for it; the sweep, A7).
+      open: ((k.rank === undefined || rank >= k.rank) && (k.unlock === undefined || contentOpen(doc, data, k.unlock)))
+        || (k.character === character && data.kits.some((o) => o.character === '*' && o.start === k.start && o.unlock !== undefined && contentOpen(doc, data, o.unlock))),
+    })),
   ];
 }

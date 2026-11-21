@@ -14,37 +14,20 @@
 //
 // Bindings follow ARCHITECTURE.md §7. The tuning panel is "hold Create (View) for 1 s" rather
 // than a two-button chord, so it can never also trigger Pause (Options/Menu).
+//
+// 0.9.0 (W7): the bindings come from settings (input/bindings.js; Settings, Controls remaps them,
+// and captureNext() hears the button to give an action), a key pressed and let go between two
+// polls still counts as one press (V5: "a tap that goes down and up within one slow frame is
+// dropped"), and glyph(action) names the button an action has now.
 
 import { makeFrame, BTN_DASH } from '../lib/inputframe.js';
 import { readPadsInto, radialDeadzone, B } from './gamepad.js';
-import { promptStyle as stylePick } from './glyphs.js';
+import { promptStyle as stylePick, glyphFor as fixedGlyph } from './glyphs.js';
+import { DEFAULT_KEYS, DEFAULT_PAD, normalizeBindings, dashAloneOf, padButtonName, keyName } from './bindings.js';
 
-export const ACTIONS = ['dash', 'confirm', 'back', 'reroll', 'banish', 'skip', 'pause', 'tuning', 'debug'];
+export const ACTIONS = ['dash', 'confirm', 'back', 'reroll', 'banish', 'skip', 'pause', 'glossary', 'tuning', 'debug'];
 
-export const DEFAULT_BINDINGS = Object.freeze({
-  keys: Object.freeze({
-    dash: ['Space', 'ShiftLeft', 'ShiftRight'],
-    confirm: ['Enter', 'NumpadEnter', 'Space'],
-    back: ['Escape', 'Backspace'],
-    reroll: ['KeyR'],
-    banish: ['KeyB'],
-    skip: ['Tab'],
-    pause: ['Escape', 'KeyP'],
-    tuning: ['F1'],
-    debug: ['F3'],
-  }),
-  pad: Object.freeze({
-    dash: [B.R1, B.SOUTH],
-    confirm: [B.SOUTH],
-    back: [B.EAST],
-    reroll: [B.WEST],
-    banish: [B.NORTH],
-    skip: [B.L1],
-    pause: [B.START],
-    tuning: [B.SELECT],
-    debug: [],
-  }),
-});
+export const DEFAULT_BINDINGS = Object.freeze({ keys: DEFAULT_KEYS, pad: DEFAULT_PAD });
 
 /**
  * The dash's own buttons: the ones bound to dash and not to confirm (R1 or RB, Shift). In the
@@ -72,6 +55,7 @@ export function clampDeadzone(v, fallback = 0.2) {
 const MOVE_KEYS = Object.freeze({
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
 });
+const MOVE_CODES = new Set(Object.values(MOVE_KEYS).flat());
 const NAV_DIRS = ['up', 'down', 'left', 'right'];
 const NAV_PAD = Object.freeze({ up: B.UP, down: B.DOWN, left: B.LEFT, right: B.RIGHT });
 export const REPEAT_DELAY = 350;
@@ -89,8 +73,8 @@ function isEditable(t) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
 }
 
-function anyKey(keys, list) {
-  for (let i = 0; i < list.length; i++) if (keys.has(list[i])) return true;
+function anyKey(keys, list, tapped = null) {
+  for (let i = 0; i < list.length; i++) if (keys.has(list[i]) || (tapped !== null && tapped.has(list[i]))) return true;
   return false;
 }
 
@@ -111,6 +95,11 @@ export function createInput({
   const listeners = { connect: [], disconnect: [], device: [] };
   let deadzone = clampDeadzone(settings.deadzone);
   let promptOverride = settings.prompts ?? 'auto';
+  let bindings = normalizeBindings({ keys: settings.keys, pad: settings.pad });
+  let dashOwn = dashAloneOf(bindings);
+  const tapped = new Set();           // keys that went down since the last poll (a tap shorter than a frame)
+  let capture = null;                 // { device: 'pad'|'keys', fn, until } while Settings waits for a button
+  const padWas = new Map();           // pad index -> Uint8Array of last poll's buttons (for capture)
   let device = 'keyboard';
   let controllerType = null;
   let activePadIndex = null;          // the pad the player last used
@@ -141,8 +130,10 @@ export function createInput({
     if (isEditable(e.target)) return;  // typing in a text box is never a game input
     if (SWALLOW.has(e.code)) e.preventDefault?.();
     if (e.repeat) return;
-    keys.add(e.code);
     setDevice('keyboard');
+    if (capture?.device === 'keys') { const c = capture; capture = null; holdUntilLetGo(); c.fn(e.code); return; }
+    keys.add(e.code);
+    tapped.add(e.code);
   };
   const onKeyUp = (e) => { keys.delete(e.code); };
   const onBlur = () => keys.clear();   // alt-tab must not leave keys stuck down
@@ -202,6 +193,30 @@ export function createInput({
       setDevice('gamepad', switched);
     }
     if (!pads.length && device === 'gamepad') { device = 'keyboard'; deviceIsFallback = true; }
+    // Settings waiting for a pad button: the first one that goes down (not the d-pad or Home).
+    if (capture?.device === 'pad') {
+      for (const p of pads) {
+        const was = padWas.get(p.index);
+        for (let i = 0; i < p.buttons.length; i++) {
+          if (p.buttons[i] > 0.5 && was && !was[i] && i !== B.UP && i !== B.DOWN && i !== B.LEFT && i !== B.RIGHT && i !== B.HOME) {
+            const c = capture; capture = null; holdUntilLetGo(); c.fn(i); break;
+          }
+        }
+        if (!capture) break;
+      }
+    }
+    if (capture && now() > capture.until) { const c = capture; capture = null; c.fn(null); }
+    for (const p of pads) {
+      let was = padWas.get(p.index);
+      if (!was) { was = new Uint8Array(p.buttons.length); padWas.set(p.index, was); }
+      for (let i = 0; i < p.buttons.length; i++) was[i] = p.buttons[i] > 0.5 ? 1 : 0;
+    }
+  }
+
+  /** The press Settings just heard does nothing else: every action and direction waits for a let-go. */
+  function holdUntilLetGo() {
+    for (const a of ACTIONS) state[a].suppressed = true;
+    for (const d of NAV_DIRS) navState[d].suppressed = true;
   }
 
   function updateMove() {
@@ -218,16 +233,17 @@ export function createInput({
       if (1 > bm) { bx = dx / m; by = dy / m; bm = 1; }
     };
     digital((padButton(B.RIGHT) ? 1 : 0) - (padButton(B.LEFT) ? 1 : 0), (padButton(B.DOWN) ? 1 : 0) - (padButton(B.UP) ? 1 : 0));
-    digital((anyKey(keys, MOVE_KEYS.right) ? 1 : 0) - (anyKey(keys, MOVE_KEYS.left) ? 1 : 0),
-      (anyKey(keys, MOVE_KEYS.down) ? 1 : 0) - (anyKey(keys, MOVE_KEYS.up) ? 1 : 0));
+    digital((anyKey(keys, MOVE_KEYS.right, tapped) ? 1 : 0) - (anyKey(keys, MOVE_KEYS.left, tapped) ? 1 : 0),
+      (anyKey(keys, MOVE_KEYS.down, tapped) ? 1 : 0) - (anyKey(keys, MOVE_KEYS.up, tapped) ? 1 : 0));
     move.x = bx; move.y = by;
   }
 
   function updateActions(frameMs) {
     for (const a of ACTIONS) {
       const st = state[a];
-      const keyDown = anyKey(keys, DEFAULT_BINDINGS.keys[a]);
-      const padDown = anyPadButton(DEFAULT_BINDINGS.pad[a]);
+      // While Settings waits for a button, nothing else acts on it.
+      const keyDown = !capture && anyKey(keys, bindings.keys[a], tapped);
+      const padDown = !capture && anyPadButton(bindings.pad[a]);
       const raw = keyDown || padDown;
       if (st.suppressed && !raw) st.suppressed = false;
       st.prev = st.down;
@@ -242,7 +258,7 @@ export function createInput({
       }
     }
     // Held along with the dash action (and released with it by releaseAll).
-    dashAlone = state.dash.down && (anyKey(keys, DASH_ALONE.keys) || anyPadButton(DASH_ALONE.pad));
+    dashAlone = state.dash.down && (anyKey(keys, dashOwn.keys, tapped) || anyPadButton(dashOwn.pad));
   }
 
   function updateNav(frameMs) {
@@ -251,7 +267,7 @@ export function createInput({
     for (const p of pads) { const m = Math.abs(p.lx) + Math.abs(p.ly); if (m > sm) { sm = m; sx = p.lx; sy = p.ly; } }
     for (const d of NAV_DIRS) {
       const stick = d === 'up' ? sy < -STICK_NAV : d === 'down' ? sy > STICK_NAV : d === 'left' ? sx < -STICK_NAV : sx > STICK_NAV;
-      const raw = padButton(NAV_PAD[d]) || anyKey(keys, MOVE_KEYS[d]) || stick;
+      const raw = !capture && (padButton(NAV_PAD[d]) || anyKey(keys, MOVE_KEYS[d], tapped) || stick);
       const n = navState[d];
       if (n.suppressed && !raw) n.suppressed = false;
       const was = n.down;
@@ -270,6 +286,7 @@ export function createInput({
     updateMove();
     updateActions(frameMs);
     updateNav(frameMs);
+    tapped.clear();
   }
 
   return {
@@ -292,7 +309,44 @@ export function createInput({
     setSettings(s = {}) {
       if (s.deadzone !== undefined) deadzone = clampDeadzone(s.deadzone, deadzone);
       if (s.prompts !== undefined) promptOverride = s.prompts;
+      if (s.keys !== undefined || s.pad !== undefined) {
+        bindings = normalizeBindings({ keys: s.keys ?? null, pad: s.pad ?? null });
+        dashOwn = dashAloneOf(bindings);
+      }
     },
+    /** The bindings in use now ({ keys, pad }: input/bindings.js). */
+    get bindings() { return bindings; },
+    /**
+     * The button an action has now, as the prompts print it: "✕", "Hold LB", "Space" (the style
+     * in use, or `style`). Movement and the menus' left-right keep their fixed names.
+     */
+    glyph(action, style = null) {
+      const st = style ?? stylePick(promptOverride, device, controllerType);
+      if (!ACTIONS.includes(action)) return fixedGlyph(st, action);
+      const hold = HOLDS[action] && (st !== 'keyboard' || HOLDS[action].keyboard) ? 'Hold ' : '';
+      if (st === 'keyboard') {
+        // Dash names its own key first (Space also confirms; Shift only dashes in the harbor too).
+        let list = bindings.keys[action] || [];
+        // Pause names a key that only pauses (P), not the one it shares with Back (Esc): on a screen
+        // where Esc backs, "Esc Pause" was wrong (the sweep, S3b F6).
+        if (action === 'pause') { const own = list.filter((k) => !(bindings.keys.back || []).includes(k)); if (own.length) list = own; }
+        return list.length ? `${hold}${keyName(list[0])}` : fixedGlyph(st, action);
+      }
+      const list = bindings.pad[action] || [];
+      if (action === 'dash') { const own = dashOwn.pad[0]; if (own !== undefined) return padButtonName(st, own); }
+      return list.length ? `${hold}${padButtonName(st, list[0])}` : fixedGlyph(st, action);
+    },
+    /**
+     * Wait for the next button on `device` ('pad' or 'keys') and give it to fn (its index or code),
+     * or fn(null) after `ms` with none. Nothing else acts on that press.
+     */
+    captureNext(dev, fn, ms = 5000) {
+      if (capture) capture.fn(null);
+      capture = { device: dev, fn, until: now() + ms };
+      if (dev === 'pad') for (const p of pads) { const was = padWas.get(p.index); if (was) for (let i = 0; i < p.buttons.length; i++) was[i] = p.buttons[i] > 0.5 ? 1 : 0; }
+    },
+    cancelCapture() { if (capture) { const c = capture; capture = null; c.fn(null); } },
+    get capturing() { return capture ? capture.device : null; },
     /**
      * The quantized frame the sim consumes this tick. dashOnly: only the dash's own buttons dash
      * (the harbor, where the others confirm).
@@ -309,7 +363,11 @@ export function createInput({
      * directions are ignored until they are let go.
      */
     releaseAll() {
-      keys.clear();
+      // A movement key still held stays held (the sweep, S3b F5): the browser sends no fresh keydown
+      // for it, so dropping it here left the walk stopped after every screen until the key was
+      // pressed again. The menus never see it: its direction waits for a let-go (suppressed below).
+      for (const k of [...keys]) if (!MOVE_CODES.has(k)) keys.delete(k);
+      tapped.clear();
       for (const a of ACTIONS) { const st = state[a]; st.down = false; st.prev = false; st.heldMs = 0; st.fired = false; st.suppressed = true; }
       for (const d of NAV_DIRS) { const n = navState[d]; n.down = false; n.fire = false; n.heldMs = 0; n.suppressed = true; }
       move.x = 0; move.y = 0;

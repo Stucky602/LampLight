@@ -1,7 +1,9 @@
 // Always run the newest build (playtest web build only; the desktop .exe never self-reloads).
 //
-// On load, whenever the window regains focus, and whenever the tab becomes visible, fetch
-// version.json with the cache bypassed. If the build id differs from the running one:
+// On load, whenever the window regains focus, whenever the tab becomes visible, every few minutes
+// while the tab is in view (a tab that keeps the focus for hours looks too: the sweep, S4 F1), and
+// whenever the game reaches the title or a quiet harbor, fetch version.json with the cache
+// bypassed. If the build id differs from the running one:
 //   - at a safe point (title, hub, never mid-transition): reload now;
 //   - during a run: never reload mid-run (that would throw the run away). Show "update ready"
 //     and reload at the next safe point.
@@ -106,18 +108,39 @@ export function createVersionCheck({
   };
 }
 
-/** Wire the check to the page: load, focus, and becoming visible. Returns a detach function. */
-export function attachVersionCheck(vc, win = window, doc = document) {
+/** How often a tab in view looks for a new build on its own. */
+export const CHECK_EVERY_MS = 5 * 60 * 1000;
+
+/**
+ * Wire the check to the page: load, focus, becoming visible, and every `everyMs` while the tab is
+ * in view (a hidden tab waits: becoming visible checks). Returns a detach function.
+ */
+export function attachVersionCheck(vc, win = window, doc = document, { everyMs = CHECK_EVERY_MS, setEvery = (fn, ms) => setInterval(fn, ms), clearEvery = (h) => clearInterval(h) } = {}) {
   vc.check({ force: true });
   const onFocus = () => vc.check();
   const onVis = () => { if (doc.visibilityState === 'visible') vc.check(); };
   win.addEventListener('focus', onFocus);
   doc.addEventListener('visibilitychange', onVis);
+  const every = setEvery(() => { if (doc.visibilityState === undefined || doc.visibilityState === 'visible') vc.check(); }, everyMs);
+  every?.unref?.();   // (Node, in tests: the timer never keeps a process alive)
   return () => {
     win.removeEventListener('focus', onFocus);
     doc.removeEventListener('visibilitychange', onVis);
+    clearEvery(every);
     vc.cancelDeferred?.();
   };
+}
+
+/**
+ * Look for a new build whenever the game settles somewhere a reload loses nothing (the title, the
+ * harbor): an update already found loads now, and a new look is taken (throttled as every look
+ * is). Never when a run starts: that is not a safe point. `scenes` is app/scenes.js.
+ */
+export function checkAtSafePoints(vc, scenes) {
+  return scenes.onChange(() => {
+    // check() loads an update already found (it's a safe point), else looks for one.
+    if (scenes.isSafePoint()) vc.check();
+  });
 }
 
 /** Fetch version.json with every cache bypassed. */

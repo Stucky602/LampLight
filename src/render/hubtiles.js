@@ -204,15 +204,19 @@ export function boatShade(fog, look = LOOK) {
   return clamp01(Math.min(look.boatNight, 1 - look.boatInFog * clamp01(fog)));
 }
 
+/** The Lighthouse's still beam (C3): its way (out to sea, south and a little west), its length as a share of the beam's reach, its glows' radii at the lantern and at the far end. */
+export const BEAM = Object.freeze({ dx: -0.3, dy: 1, length: 1.6, steps: 8, r0: 22, r1: 64 });
+
 /**
  * Every light of the harbor this frame, in world px: [{ x, y, r, color, alpha, steady? }]. The town lamp
  * (its reach by the Lamp Post's level, swelling through its ceremony) and its white middle, your
- * lantern (at `you`, its feet), each building's windows and door lantern (coming up through a
- * ceremony), the small lamps (tiles), and a boat's lantern (at `arrival`'s halo while it's lit;
- * arrivalLook, or null for no boat). The view draws these into the light map, their reach times a flicker (not the `steady` white middle);
+ * lantern (at `you`, its feet), each building's windows, door lantern, and the pools they leave on
+ * the street (coming up through a ceremony, plotLights), the small lamps (tiles), a prop's lamp
+ * (`props`, the ones out: the gate's second lamp), and a boat's lantern (at `arrival`'s halo while
+ * it's lit; arrivalLook, or null for no boat). The view draws these into the light map, their reach times a flicker (not the `steady` white middle);
  * lightAt adds them up the same way (for the preview, and for a newcomer drawn over the light map).
  */
-export function harborLights({ hub, levels, cer = null, you, arrival = null, look = LOOK }) {
+export function harborLights({ hub, levels, cer = null, you, arrival = null, props = [], look = LOOK }) {
   const out = [];
   const lp = hub.plots.find((p) => p.building === 'lamp_post');
   const lamp = lampLight(levels.lamp_post ?? 0, cer && cer.building === 'lamp_post' ? cer : null, look);
@@ -221,13 +225,39 @@ export function harborLights({ hub, levels, cer = null, you, arrival = null, loo
   out.push({ x: lx, y: ly, r: lamp.r, color: lampColor, alpha: lamp.alpha });
   out.push({ x: lx, y: ly, r: look.lampCoreReach, color: 0xffffff, alpha: look.lampCoreLight, steady: true });
   out.push({ x: you.x, y: you.y - ANCHORS.middle, r: look.lanternReach, color: lampColor, alpha: look.lanternLight });
+  const forgeColor = paletteColor(FORGE_COLOR);
   for (const p of hub.plots) {
     for (const L of lightsNow(p, levels[p.building] ?? 0, cer && cer.building === p.building ? cer : null, look)) {
-      out.push({ x: L.x, y: L.y, r: L.r, color: L.kind === 'door' ? lampColor : windowColor, alpha: look.windowLight * L.alpha });
+      const color = L.kind === 'window' ? windowColor : L.kind === 'forge' ? forgeColor : lampColor;
+      out.push({ x: L.x, y: L.y, r: L.r, color, alpha: look.windowLight * L.alpha * (L.k ?? 1) });
     }
   }
   for (const [tx, ty] of [hub.gate.lamp, hub.harbor.lamp].filter(Boolean)) {
     out.push({ x: tx * 16 + 8, y: (ty + 1) * 16 - ANCHORS.smallLampLift - LIGHT_SPOTS.smallLampGlass, r: look.smallLampReach, color: lampColor, alpha: look.smallLampLight });
+  }
+  // The Lighthouse's lantern room (0.9.0): a glow once relit (its 'lit' stage), and at its last
+  // stage the beam, a still pool of light over the point (never a sweep: nothing moves the view).
+  const lh = hub.plots.find((p) => p.building === 'lighthouse');
+  const lhLevel = levels.lighthouse ?? 0;
+  if (lh && lhLevel >= 3) {
+    const gx = lh.x * 16 + lh.w * 8, gy = lh.y * 16 - 6;
+    out.push({ x: gx, y: gy, r: look.lighthouseGlowReach, color: lampColor, alpha: look.lighthouseGlowLight });
+    if (lhLevel >= 10) {
+      // C3: the beam itself, still (never a sweep: nothing moves the view): a shaft of light from the
+      // lantern out over the rocks to the sea, widening and fading as it goes, over the pool at its foot.
+      out.push({ x: gx, y: gy, r: look.lighthouseBeamReach * 0.6, color: lampColor, alpha: look.lighthouseBeamLight * 0.8 });
+      const n = BEAM.steps, len = look.lighthouseBeamReach * BEAM.length, d = Math.hypot(BEAM.dx, BEAM.dy);
+      for (let k = 1; k <= n; k++) {
+        const u = k / n;
+        out.push({ x: gx + (BEAM.dx / d) * len * u, y: gy + (BEAM.dy / d) * len * u, r: BEAM.r0 + (BEAM.r1 - BEAM.r0) * u, color: lampColor, alpha: look.lighthouseBeamLight * (1 - u * 0.75) });
+      }
+    }
+  }
+  // Props that carry a lamp (the gate's second lamp), lit like the small lamps, standing on their tile.
+  for (const pr of props) {
+    const def = hub.props.find((q) => q.id === pr.id);
+    if (def?.light !== 'small') continue;
+    out.push({ x: pr.at[0] * 16 + 8, y: (pr.at[1] + 1) * 16 - LIGHT_SPOTS.smallLampGlass, r: look.smallLampReach, color: lampColor, alpha: look.smallLampLight });
   }
   // A boat coming in: its stern lantern, lit until the camera heads back (arrivalLook).
   if (arrival?.lantern) out.push({ x: arrival.halo.x, y: arrival.halo.y, r: look.boatLanternReach, color: lampColor, alpha: look.boatLanternLight });
@@ -360,17 +390,48 @@ export function hopPhase(id, stepsPerSec = LOOK.hopStepsPerSec) {
 }
 
 /**
- * The lights a building gives at a level, in world px: its windows once lit (level 3), and the
- * lantern by its door from level 4. [{ x, y, r, kind: 'window' | 'door' }]
+ * The light a building's door gives, as shares of the look's door lantern (its reach, doorReach,
+ * and its brightness, windowLight), so the door lantern's numbers on the tuning panel move all of
+ * it: the pool a door lantern leaves on the street in front (level 4), and at level 5, with the
+ * door standing open, the lamplight inside, warmest low across the floor, and its spill out over
+ * the step onto the street. The Smithy's forge glows through its doorway once its windows are lit
+ * (level 3), and brighter when it's fully alive. [reach share, brightness share]
+ */
+export const DOOR_LIGHT = Object.freeze({
+  pool: Object.freeze([1.5, 0.45]), floor: Object.freeze([0.9, 0.9]), spill: Object.freeze([1.9, 0.7]),
+  forge: Object.freeze([1.1, 0.5]), forgeBright: Object.freeze([1.7, 1.1]),
+});
+/** The forge's light: hotter than a lamp (a palette color). */
+export const FORGE_COLOR = 'rot-4';
+/** The buildings with a forge, seen through the open doorway that is their door (the Smithy's layout). */
+export const FORGES = Object.freeze(['smithy']);
+
+/**
+ * The lights a building gives at a level, in world px: its windows once lit (level 3), the
+ * lantern by its door from level 4 and the pool it leaves on the street, and at level 5 the open
+ * door's light inside and on the street; the Smithy's forge through its doorway from level 3,
+ * brighter at 5 (DOOR_LIGHT). [{ x, y, r, kind, k }], `k` a share of the window's brightness. The
+ * order is by level, so a ceremony brings the new ones up after those it had (lightsNow).
  */
 export function plotLights(plot, level, look = LOOK) {
   const out = [];
   if (plot.building === 'lamp_post') return out;
-  if (level >= 3) for (const [wx, wy] of plot.windows || []) out.push({ x: (plot.x + wx) * 16 + 8, y: (plot.y + wy) * 16 + 8, r: look.windowReach, kind: 'window' });
+  const doorX = plot.door[0] * 16 + 8, foot = (plot.y + plot.h) * 16;
+  const at = (x, y, [reach, k], kind) => out.push({ x, y, r: look.doorReach * reach, kind, k });
+  if (level >= 3) {
+    for (const [wx, wy] of plot.windows || []) out.push({ x: (plot.x + wx) * 16 + 8, y: (plot.y + wy) * 16 + 8, r: look.windowReach, kind: 'window', k: 1 });
+    if (FORGES.includes(plot.building)) at(doorX, foot - 4, DOOR_LIGHT.forge, 'forge');
+  }
   if (level >= 4) {
     // The wall lantern the art hangs right of the door (tools/atlas dressBuilding: 12 px in, 1 down).
     const dx = plot.door[0] - plot.x, dy = plot.door[1] - 1 - plot.y;
-    out.push({ x: (plot.x + dx) * 16 + 14, y: (plot.y + dy) * 16 + 4, r: look.doorReach, kind: 'door' });
+    out.push({ x: (plot.x + dx) * 16 + 14, y: (plot.y + dy) * 16 + 4, r: look.doorReach, kind: 'door', k: 1 });
+    at(doorX + 3, foot + 7, DOOR_LIGHT.pool, 'pool');
+  }
+  if (level >= 5) {
+    at(doorX, foot - 3, DOOR_LIGHT.floor, 'floor');
+    at(doorX, foot + 10, DOOR_LIGHT.spill, 'spill');
+    if (FORGES.includes(plot.building)) at(doorX, foot - 4, DOOR_LIGHT.forgeBright, 'forge');
   }
   return out;
 }
@@ -385,6 +446,84 @@ export function lightsNow(plot, level, cer = null, look = LOOK) {
   const had = plotLights(plot, cer.from, look).length;
   const k = Math.min(1, Math.max(0, cer.build));
   return plotLights(plot, cer.level, look).map((l, i) => ({ ...l, alpha: i < had ? 1 : k }));
+}
+
+// ---------------------------------------------------------------- milestones, props, the town's life
+
+/**
+ * Whether a milestone is reached, from the view's own facts: 'start', '<building>:<level>' (the
+ * levels it draws), or 'runs:<n>' (the profile's runs). The same keys meta/state.js reached reads.
+ */
+export function reachedNow(key, levels, runs = 0) {
+  if (key === 'start') return true;
+  const m = /^([a-z][a-z0-9_]*):(\d+)$/.exec(key || '');
+  if (!m) return false;
+  return m[1] === 'runs' ? (runs | 0) >= Number(m[2]) : (levels[m[1]] ?? 0) >= Number(m[2]);
+}
+
+/** A prop's animation frame (0 for a still one): `n` frames at `fps`, on the harbor's clock (seconds). */
+export function propFrame(n, fps, time) {
+  return n > 1 && fps > 0 ? Math.floor(time * fps) % n : 0;
+}
+
+/**
+ * Where the bunting goes for a prop strung back to a lamp (data/hub.js props, `strung`): the two
+ * ends where it's tied on the posts (BUNTING_TIE px above each lamp's foot, under its lantern's cap, above a passer-by's head)
+ * and its frame's top left. The frame (art/draw/hub.js bunting) is drawn for the span between them;
+ * tests/harbor.test.js checks the two agree.
+ */
+export const BUNTING_TIE = 25;
+export function buntingAt(hub, prop) {
+  const [sx, sy] = prop.strung;
+  const small = [hub.gate.lamp, hub.harbor.lamp].some((t) => t && t[0] === sx && t[1] === sy);
+  const a = { x: sx * 16 + 8, y: (sy + 1) * 16 - (small ? ANCHORS.smallLampLift : 0) - BUNTING_TIE };
+  const b = { x: prop.at[0] * 16 + 8, y: (prop.at[1] + 1) * 16 - BUNTING_TIE };
+  const [l, r] = a.x <= b.x ? [a, b] : [b, a];
+  return { left: l, right: r, x: l.x, y: Math.min(l.y, r.y), w: r.x - l.x + 1, dy: r.y - l.y };
+}
+
+/** A loop's length in px (tiles, straight runs, round to the start). */
+function loopLength(loop) {
+  let n = 0;
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i], b = loop[(i + 1) % loop.length];
+    n += (Math.abs(b[0] - a[0]) + Math.abs(b[1] - a[1])) * 16;
+  }
+  return n;
+}
+
+/**
+ * The town's life this moment (data/hub.js ambient): who and what is out at these levels, and
+ * where, at the harbor's clock `time` (seconds). [{ id, sprite, kind, x, y (its feet, or a boat's
+ * bottom middle), facing, moving, born (the milestone's key) }]. Each walker starts at its own
+ * point on its loop (by its id), so two never move in step; a boat rides the swell on its own phase.
+ */
+export function ambientLook(hub, levels, time, look = LOOK) {
+  const out = [];
+  for (const a of hub.ambient || []) {
+    if (!reachedNow(a.from, levels)) continue;
+    const phase = (fnv1a(String(a.id)) % 997) / 997;
+    if (a.kind === 'walk') {
+      const len = loopLength(a.loop);
+      let d = ((time * a.speed + phase * len) % len + len) % len;
+      for (let i = 0; i < a.loop.length; i++) {
+        const p = a.loop[i], q = a.loop[(i + 1) % a.loop.length];
+        const seg = (Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1])) * 16;
+        if (d > seg && i < a.loop.length - 1) { d -= seg; continue; }
+        const k = seg > 0 ? Math.min(1, d / seg) : 0;
+        const x = (p[0] + (q[0] - p[0]) * k) * 16 + 8, y = (p[1] + (q[1] - p[1]) * k) * 16 + 8;
+        const dx = Math.sign(q[0] - p[0]);
+        out.push({ id: a.id, sprite: a.sprite, kind: a.kind, x, y, facing: dx === 0 ? (i % 2 === 0 ? 1 : -1) : dx, moving: true, from: a.from });
+        break;
+      }
+    } else if (a.kind === 'moor') {
+      const bob = Math.round(Math.sin(time * 1000 / look.boatBobMs + phase * 6.283185307179586) * look.boatBob);
+      out.push({ id: a.id, sprite: a.sprite, kind: a.kind, x: a.at[0] * 16 + 8, y: a.at[1] * 16 + 8 + ANCHORS.boatBelow + bob, facing: a.facing ?? 1, moving: false, from: a.from });
+    } else {
+      out.push({ id: a.id, sprite: a.sprite, kind: a.kind, x: a.at[0] * 16 + 8, y: (a.at[1] + 1) * 16 - (a.perch ?? 8), facing: a.facing ?? 1, moving: false, from: a.from });
+    }
+  }
+  return out;
 }
 
 /** The camera's center, kept inside the map so the view never shows past its edge. */

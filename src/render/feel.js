@@ -1,33 +1,11 @@
 // The feel toolkit's arithmetic (ARCHITECTURE §6.3), kept free of Pixi so the tests can check
-// it: screen shake, damage-number grouping, the render-side particle pool, and packed colors.
+// it: damage-number grouping, the render-side particle pool, and packed colors.
 // Nothing here allocates per frame.
 
 /** A Pixi Particle's packed color: 0xRRGGBB plus alpha (0..1), in the byte order Pixi uploads. */
 export function packColor(rgb, alpha = 1) {
   const bgr = ((rgb & 0xff) << 16) | (rgb & 0xff00) | ((rgb >> 16) & 0xff);
   return bgr + (((alpha < 0 ? 0 : alpha > 1 ? 1 : alpha) * 255 | 0) << 24);
-}
-
-/**
- * Screen shake, trauma model: events add trauma (0..1), it decays linearly, and the offset is
- * trauma² × maxOffset in a smooth pseudo-random direction, so small bumps barely register and
- * big ones really shake.
- */
-export function createShake() {
-  let trauma = 0;
-  return {
-    add(t) { if (t > 0) trauma = Math.min(1, trauma + t); },
-    update(dtSec, decayPerSec) { trauma = Math.max(0, trauma - decayPerSec * dtSec); },
-    /** Write the offset (whole pixels) into out[0], out[1]. `t` is time in seconds. */
-    offsetInto(out, t, maxOffset) {
-      const k = trauma * trauma * maxOffset;
-      out[0] = Math.round(k * (Math.sin(t * 71.3) * 0.6 + Math.sin(t * 113.9 + 1.7) * 0.4)) | 0;
-      out[1] = Math.round(k * (Math.sin(t * 89.1 + 0.9) * 0.6 + Math.sin(t * 131.7 + 2.3) * 0.4)) | 0;
-      return out;
-    },
-    get trauma() { return trauma; },
-    reset() { trauma = 0; },
-  };
 }
 
 /**

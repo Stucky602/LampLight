@@ -1,22 +1,44 @@
-// The gate's second step (ARCHITECTURE §10.2 step 1): how a run sets out, once the harbor has
-// opened any choice beyond the character. Pure; tested. The rows are what the profile has opened
-// right now, each a choice the screen steps through with left and right (ui/hubscreens.js
-// setupScreen) with a detail line for its value, and every value is one meta/runconfig.js
-// runConfigFor accepts: only challenges whose character has arrived, and only rune stones the
-// run's first weapon can take (a stone is used up as the run sets out, so one that can't be
-// placed would be lost).
+// The gate's second step (ARCHITECTURE §10.2 step 1): how a run sets out. Pure; tested. The rows
+// are what the profile has opened right now, and every value is one meta/runconfig.js runConfigFor
+// accepts. The sweep, X2 (rulings 11 to 13): the gate had 14 rows for a finished harbor; it has six,
+// in this order, each shown once the harbor has opened it:
+//   map         the map, and a short run of it once the Cartographer opens short runs
+//   character   who sets out, with the skills they have taken
+//   kit         the starting weapon
+//   heirloom    one relic found before, carried from 0:00 in a relic slot
+//   tools       run tools held, up to the harbor's slots (one row, each tool a switch)
+//   difficulty  the Tide and the curses, together
+// A `choice` row steps with left and right; a `multi` row holds several items: left and right move along them and
+// confirm changes the one in focus (ui/hubscreens.js setupScreen). Set runs (they were challenge
+// runs) start from the Harbor Orders board, never here.
 
-import { tideAvailable, cursesAvailable, resolveContent, heldOf, levelEffect } from '../meta/state.js';
+import { tideAvailable, cursesAvailable, resolveContent, heldOf, levelEffect, mapOpen, mapsOpen, heirloomChoices, orderPosted, slotsFor } from '../meta/state.js';
+import { skillsOf } from '../meta/skills.js';
 import { kitsOf, consumableSlots } from '../meta/workshop.js';
-import { modesOpen } from '../meta/runconfig.js';
-import { runeFits } from '../sim/weapons.js';
+import { modesOpen, noHealRefusal } from '../meta/runconfig.js';
 import { MetaError } from '../meta/actions.js';
-import { tideText, rewardText as rewardLabels } from '../ui/hubtext.js';
+import { tideText, tideRules, TIDE_HOW } from '../ui/hubtext.js';
+import { termShort } from '../data/glossary.js';
 
-/** The challenge runs this profile can set out on (their character has arrived). */
+/**
+ * The set runs this profile can start from the board: posted, their character arrived, and their
+ * map open (runConfigFor refuses the rest).
+ */
 export function challengesOpen(doc, data) {
   const here = new Set(resolveContent(doc, data).characters);
-  return data.challenges.filter((c) => here.has(c.character));
+  return data.challenges.filter((c) => here.has(c.character) && mapOpen(doc, data, c.map ?? data.maps[0].id) && orderPosted(doc, data, data.feats.find((f) => f.id === c.id)));
+}
+
+/** Why a set run can't start now ("The Punter hasn't arrived yet"), or null. `order`: its Harbor Order. */
+export function whyNotSetRun(doc, data, order) {
+  const r = order?.rules;
+  if (!r) return 'Not a challenge run';
+  if (!orderPosted(doc, data, order)) return 'Not posted yet';
+  const c = data.characters.find((x) => x.id === r.character);
+  if (!resolveContent(doc, data).characters.includes(r.character)) return `The ${c?.name ?? r.character} hasn't arrived yet`;
+  const m = data.maps.find((x) => x.id === r.map);
+  if (m && !mapOpen(doc, data, m.id)) return `The ${m.name} isn't open yet`;
+  return null;
 }
 
 /** Who a choice sets out as: the challenge's character in a challenge run, else the one chosen. */
@@ -31,148 +53,185 @@ function firstWeapon(doc, data, choice) {
   return kit ? kit.start : data.characters.find((c) => c.id === who)?.start ?? null;
 }
 
-/** Can a rune stone go into the run's first weapon at 0:00? (A stone that can't would be used up for nothing.) */
-export function stoneFits(doc, data, choice, runeId) {
-  const rune = data.runes.find((r) => r.id === runeId), weapon = data.weapons.find((w) => w.id === firstWeapon(doc, data, choice));
-  return !!rune && !!weapon && (weapon.runeSlots ?? 0) > 0 && runeFits(rune, weapon, [], []);
+/** The map a choice plays on: a set run's own, else the one chosen (map 1 when none is). */
+export function playsOn(data, choice) {
+  if (choice.mode === 'challenge') return data.challenges.find((c) => c.id === choice.challenge)?.map ?? data.maps[0].id;
+  return choice.map || data.maps[0].id;
 }
 
-/** The gate's last check before a run takes its stone (app/flow.js): throws when it can't be placed. */
-export function checkStone(doc, data, choice) {
-  if (choice.rune && !stoneFits(doc, data, choice, choice.rune)) {
-    const w = data.weapons.find((x) => x.id === firstWeapon(doc, data, choice));
-    throw new MetaError(`${data.runes.find((r) => r.id === choice.rune)?.name ?? choice.rune} doesn't fit the ${w?.name ?? 'first weapon'}.`);
-  }
-}
-
-const MODE_NAMES = Object.freeze({ standard: 'Standard', short: 'Short (10:00)', challenge: 'Challenge' });
-
-/** A first choice for a character from the profile's last one (only what's still open). */
-export function startChoice(doc, data, character) {
+/** A first choice for a character from the profile's last one (only what's still open), on `map` (map 1 when not given). */
+export function startChoice(doc, data, character, map = null) {
   const S = doc?.profile?.setup ?? {};
+  const on = map || data.maps[0].id;
   const kits = kitsOf(doc, data, character).filter((k) => k.open).map((k) => k.id);
-  const modes = modesFor(doc, data);
-  const mode = modes.includes(S.mode) ? S.mode : 'standard';
   const open = new Set(cursesAvailable(doc, data).map((c) => c.id));
-  const chs = challengesOpen(doc, data);
+  const relic = data.relics.find((r) => r.id === S.heirloom);
   return {
     character,
     kit: S.character === character && kits.includes(S.kit) ? S.kit : '',
-    mode,
-    challenge: chs.some((c) => c.id === S.challenge) ? S.challenge : (chs[0]?.id ?? ''),
-    tide: Math.min(doc?.profile?.tide?.selected ?? 0, tideAvailable(doc, data)),
+    mode: modesOpen(doc, data).includes(S.mode) ? S.mode : 'standard',
+    challenge: '',
+    tide: Math.min(doc?.profile?.tide?.selected ?? 0, tideAvailable(doc, data, on)),
+    map: on,
     curses: (S.curses || []).filter((c) => open.has(c)),
-    arcana: resolveContent(doc, data).arcana.includes(S.arcana) ? S.arcana : '',
+    heirloom: relic && heirloomChoices(doc, data).includes(relic.id) && !noHealRefusal(data, character, relic) ? relic.id : '',
     consumables: [],
     rune: '',
   };
 }
 
+/** "A, B, and C". */
+const listNames = (n) => (n.length < 3 ? n.join(' and ') : `${n.slice(0, -1).join(', ')}, and ${n.at(-1)}`);
+const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+/** What a mode means on a map, as a label. */
+function modeText(data, mode, mapId = data.maps[0].id) {
+  const map = data.maps.find((m) => m.id === mapId) ?? data.maps[0];
+  const last = Math.max(0, ...map.timeline.events.filter((e) => e.event === 'boss').map((e) => e.at));
+  const R = data.tuning.run;
+  if (mode === 'short') return `Everything comes ${Math.round(1 / R.shortTimeScale) === 2 ? 'twice' : `${Math.round(1 / R.shortTimeScale)} times`} as fast. The last boss comes at ${clock(last * R.shortTimeScale)}, and the run pays ${Math.round(R.shortRewardMul * 100)}% of what a full run would.`;
+  return `The last boss comes at ${clock(last)}.`;
+}
+
 /**
- * The rows for a choice: [{ key, label, kind: 'choice' | 'toggle', value, choices? }]. Empty when
- * there's nothing to choose but the character (the gate then sets out at once).
+ * The gate's rows for a choice, at most seven (the header lists them):
+ *   { key, label, kind: 'choice', value, choices: [[value, label]], detail: [lines], icon? }
+ *   { key, label, kind: 'multi', items: [{ id, label, on?, press, detail: [lines] }], summary, detail: [lines] }
+ * A multi item's `press` is the [key, value] applyRow takes when it is pressed; with `why` it can't
+ * be pressed now and says that instead. Empty when the harbor has opened nothing past the map and
+ * the character (the gate's cards ask those): the gate then sets out at once.
  */
 export function setupRows(doc, data, choice) {
   const rows = [];
-  const challenge = choice.mode === 'challenge';
-  const kits = kitsOf(doc, data, choice.character).filter((k) => k.open);
   const weaponName = (id) => data.weapons.find((w) => w.id === id)?.name ?? id;
   const descOf = (list, id) => list.find((x) => x.id === id)?.desc ?? null;
-  if (kits.length > 1 && !challenge) {
+  const who = choice.character, C = data.characters.find((c) => c.id === who), whoName = C?.name ?? who;
+  const on = playsOn(data, choice);
+
+  // 1. Map (and a short run of it).
+  const maps = mapsOpen(doc, data), modes = modesOpen(doc, data);
+  const mapChoices = maps.flatMap((id) => modes.map((m) => [m === 'short' ? `${id}:short` : id, `${data.maps.find((x) => x.id === id).name}${m === 'short' ? ', short run' : ''}`]));
+  const S = slotsFor(doc, data);
+  rows.push({ key: 'map', label: 'Map', kind: 'choice', value: choice.mode === 'short' ? `${on}:short` : on, choices: mapChoices,
+    detail: [modeText(data, choice.mode, on), `Slots: ${S.weapons} weapons, ${S.passives} passives, ${S.relics} relics.`] });
+
+  // 2. Character, with the skills in play (ruling 15).
+  const chars = resolveContent(doc, data).characters;
+  const trained = skillsOf(doc, data, who).map((id) => data.skills.find((s) => s.id === id).name);
+  // (Round 2, L2: a character not yet arrived, set by a tool, showed as its raw id; the row always names them.)
+  rows.push({ key: 'character', label: 'Character', kind: 'choice', value: who, choices: data.characters.filter((c) => chars.includes(c.id) || c.id === who).map((c) => [c.id, c.name]),
+    detail: [C?.desc ?? null, trained.length ? `Skills: ${listNames(trained)}.` : (levelEffect(doc, data, 'tavern', 'mastery') ? 'No skills taken yet.' : null)] });
+
+  // 3. Starting weapon.
+  const kits = kitsOf(doc, data, who).filter((k) => k.open);
+  if (kits.length > 1) {
     const k = kits.find((x) => x.id === choice.kit) ?? kits[0];
-    rows.push({ key: 'kit', label: 'Kit', kind: 'choice', value: choice.kit, choices: kits.map((x) => [x.id, `${x.name} (${weaponName(x.start)})`]), detail: [`Starting weapon: ${weaponName(k.start)}`] });
+    rows.push({ key: 'kit', label: 'Starting weapon', kind: 'choice', value: choice.kit, choices: kits.map((x) => [x.id, weaponName(x.start)]), detail: [descOf(data.weapons, k.start)] });
   }
-  const modes = modesFor(doc, data);
-  if (modes.length > 1) rows.push({ key: 'mode', label: 'Run', kind: 'choice', value: choice.mode, choices: modes.map((m) => [m, MODE_NAMES[m]]), detail: [modeText(data, choice.mode)] });
-  if (challenge) {
-    const won = new Set(doc?.profile?.challenges || []);
-    const c = data.challenges.find((x) => x.id === choice.challenge);
-    rows.push({ key: 'challenge', label: 'Challenge', kind: 'choice', value: choice.challenge, choices: challengesOpen(doc, data).map((x) => [x.id, `${x.name}${won.has(x.id) ? ' (won)' : ''}`]),
-      detail: c ? [c.desc, `Reward: ${rewardLabels(data, 'challenge', c)}${won.has(c.id) ? ' (won)' : ''}`] : null });
-  } else {
-    const max = tideAvailable(doc, data);
-    if (max > 0) rows.push({ key: 'tide', label: 'Tide', kind: 'choice', value: choice.tide, choices: Array.from({ length: max + 1 }, (_, k) => [k, k === 0 ? 'None' : `Tide ${k}`]), detail: choice.tide > 0 ? [tideText(data.tides[choice.tide - 1])] : null });
-    for (const c of cursesAvailable(doc, data)) rows.push({ key: `curse:${c.id}`, label: `Curse: ${c.name}`, kind: 'toggle', value: choice.curses.includes(c.id), detail: [c.desc, `+${Math.round(c.rewardMul * 100)}% Materials`] });
+
+  // 4. Heirloom: a relic found before. A character who can't heal isn't offered what only heals
+  // (the sweep, A5): the row leaves those out and says so.
+  const found = heirloomChoices(doc, data).map((id) => data.relics.find((r) => r.id === id));
+  if (found.length) {
+    const out = found.filter((r) => noHealRefusal(data, who, r)).map((r) => r.name);
+    const relic = found.find((r) => r.id === choice.heirloom);
+    rows.push({ key: 'heirloom', label: 'Heirloom', kind: 'choice', value: choice.heirloom, icon: relic?.icon ?? null,
+      choices: [['', 'None'], ...found.filter((r) => !noHealRefusal(data, who, r)).map((r) => [r.id, r.name])],
+      detail: [relic ? relic.desc : termShort('heirloom'), relic ? `It takes 1 of your ${S.relics} relic slots.` : null,
+        ...(out.length ? [`The ${whoName} can't heal, so ${listNames(out)} ${out.length === 1 ? 'is' : 'are'} left out.`] : [])] });
   }
-  const arcana = resolveContent(doc, data).arcana;
-  if (arcana.length) rows.push({ key: 'arcana', label: 'Arcana', kind: 'choice', value: choice.arcana, choices: [['', 'None'], ...arcana.map((id) => [id, data.arcana.find((a) => a.id === id).name])], detail: choice.arcana ? [descOf(data.arcana, choice.arcana)] : null, icon: choice.arcana ? data.arcana.find((a) => a.id === choice.arcana)?.icon : null });
-  // A slot a consumable: the ones held, none twice.
+
+  // 5. Run tools: the ones held, each a switch, up to the slots.
   const held = data.consumables.filter((c) => heldOf(doc, c.id) > 0);
   const slots = consumableSlots(doc, data);
-  if (held.length) {
-    for (let k = 0; k < slots; k++) {
-      const others = choice.consumables.filter((_, j) => j !== k);
-      const v = choice.consumables[k] || '';
-      rows.push({ key: `slot:${k}`, label: `Consumable ${k + 1}`, kind: 'choice', value: v, choices: [['', 'None'], ...held.filter((c) => !others.includes(c.id)).map((c) => [c.id, `${c.name} (${heldOf(doc, c.id)})`])], detail: v ? [descOf(data.consumables, v)] : null });
-    }
+  if (held.length && slots > 0) {
+    const taken = choice.consumables.filter(Boolean);
+    rows.push({ key: 'tools', label: 'Run tools', kind: 'multi', summary: `${taken.length} of ${slots}`,
+      items: held.map((c) => ({ id: c.id, label: c.name, on: taken.includes(c.id), press: [`tool:${c.id}`, !taken.includes(c.id)],
+        why: !taken.includes(c.id) && taken.length >= slots ? `Only ${slots} run ${slots === 1 ? 'tool' : 'tools'} can go into a run. Take one out first.` : null,
+        detail: [c.desc, `You have ${heldOf(doc, c.id)}. The run uses it up.`] })),
+      detail: [termShort('consumable')] });
   }
-  const stones = data.runes.filter((r) => heldOf(doc, `rune:${r.id}`) > 0 && stoneFits(doc, data, choice, r.id));
-  if (stones.length && levelEffect(doc, data, 'smithy', 'runeCrafting')) rows.push({ key: 'rune', label: 'Rune stone', kind: 'choice', value: choice.rune, choices: [['', 'None'], ...stones.map((r) => [r.id, `${r.name} (${heldOf(doc, `rune:${r.id}`)})`])], detail: choice.rune ? [descOf(data.runes, choice.rune), `Placed in the ${weaponName(firstWeapon(doc, data, choice))} at 0:00`] : null });
+
+  // 6. Difficulty: the Tide open on this run's map, and the curses.
+  const max = tideAvailable(doc, data, on), curses = cursesAvailable(doc, data);
+  if (max > 0 || curses.length) {
+    const items = [];
+    if (max > 0) {
+      const tideLines = choice.tide > 0 ? [tideText(data.tides[choice.tide - 1]), ...tideRules(data, choice.tide)] : [`${termShort('tide')} ${TIDE_HOW}.${maps.length > 1 ? ' Each map has its own Tides.' : ''}`];
+      items.push({ id: 'tide_down', label: 'Lower', press: ['tide', Math.max(0, choice.tide - 1)], why: choice.tide <= 0 ? 'No Tide is chosen.' : null, detail: tideLines });
+      items.push({ id: 'tide_up', label: 'Raise', press: ['tide', Math.min(max, choice.tide + 1)], why: choice.tide >= max ? `Tide ${max} is the highest open on this map.` : null, detail: tideLines });
+    }
+    for (const c of curses) items.push({ id: c.id, label: c.name, on: choice.curses.includes(c.id), press: [`curse:${c.id}`, !choice.curses.includes(c.id)], detail: [`Curse: ${c.desc}`, `Pays ${Math.round(c.rewardMul * 100)}% more materials`] });
+    const n = choice.curses.length;
+    rows.push({ key: 'difficulty', label: 'Difficulty', kind: 'multi', items,
+      summary: [max > 0 ? (choice.tide > 0 ? `Tide ${choice.tide}` : 'No Tide') : null, curses.length ? `${n} ${n === 1 ? 'curse' : 'curses'}` : null].filter(Boolean).join(', '),
+      detail: [`${termShort('tide')} ${termShort('curse')}`] });
+  }
+
+  // Nothing past the map and the character, which the gate's cards have just asked: set out at once.
+  if (rows.length === 2) return [];
+  for (const r of rows) { r.detail = (r.detail || []).filter(Boolean); for (const it of r.items || []) it.detail = (it.detail || []).filter(Boolean); }
   return rows;
 }
 
-/** What a mode means, as a label. */
-function modeText(data, mode) {
-  if (mode === 'challenge') return 'A set character and rules; each won once';
-  const last = Math.max(0, ...data.maps[0].timeline.events.filter((e) => e.event === 'boss').map((e) => e.at));
-  const R = data.tuning.run;
-  if (mode === 'short') return `Last boss at ${clock(last * R.shortTimeScale)}, ${Math.round(R.shortRewardMul * 100)}% Materials`;
-  return `Last boss at ${clock(last)}`;
-}
-
-const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
-
-/** The choice with one row's new value. */
+/** The choice with one row's new value (`key`: a row's key, or a multi item's `press` key). */
 export function applyRow(choice, key, value) {
   const c = { ...choice, curses: [...choice.curses], consumables: [...choice.consumables] };
   if (key.startsWith('curse:')) {
     const id = key.slice(6);
     c.curses = value ? [...new Set([...c.curses, id])] : c.curses.filter((x) => x !== id);
-  } else if (key.startsWith('slot:')) {
-    const k = Number(key.slice(5));
-    while (c.consumables.length <= k) c.consumables.push('');
-    c.consumables[k] = value;
+  } else if (key.startsWith('tool:')) {
+    const id = key.slice(5);
+    c.consumables = value ? [...new Set([...c.consumables.filter(Boolean), id])] : c.consumables.filter((x) => x && x !== id);
+  } else if (key === 'map') {
+    const [map, mode] = String(value).split(':');
+    c.map = map; c.mode = mode === 'short' ? 'short' : 'standard';
   } else c[key] = value;
-  // (A slot left empty keeps its place: setting the second slot never moves its pick to the first.)
-  while (c.consumables.length && !c.consumables.at(-1)) c.consumables.pop();
   return c;
 }
 
 /**
- * The choice held to what the profile allows after a change: a challenge one that can set out,
- * and no rune stone the run's first weapon can't take (a new kit or a challenge changes it).
+ * The choice held to what the profile allows after a change: a kit the character has, a Tide this
+ * map has opened, run tools within the slots, and an Heirloom the character can use (runes are
+ * gone since ruling 14; `rune` stays empty so the save's shape does).
  */
 export function settleChoice(doc, data, choice) {
-  const c = { ...choice, curses: [...choice.curses], consumables: [...choice.consumables] };
-  if (c.mode === 'challenge' && !challengesOpen(doc, data).some((x) => x.id === c.challenge)) c.challenge = challengesOpen(doc, data)[0]?.id ?? '';
-  if (c.rune && !stoneFits(doc, data, c, c.rune)) c.rune = '';
+  const c = { ...choice, curses: [...choice.curses], consumables: choice.consumables.filter(Boolean) };
+  if (c.mode === 'challenge') return c;
+  const who = c.character;
+  // A new character keeps only a kit of their own.
+  if (c.kit && !kitsOf(doc, data, who).some((k) => k.open && k.id === c.kit)) c.kit = '';
+  // The Tide held to what this map has opened.
+  if (Number.isInteger(c.tide)) c.tide = Math.min(c.tide, tideAvailable(doc, data, playsOn(data, c)));
+  c.rune = '';
+  // What only heals is no use to a character who can't.
+  if (c.heirloom && noHealRefusal(data, who, data.relics.find((r) => r.id === c.heirloom))) c.heirloom = '';
+  c.consumables = c.consumables.filter((id) => heldOf(doc, id) > 0).slice(0, consumableSlots(doc, data));
   return c;
 }
 
 /** The choice as runConfigFor takes it (empty values dropped). */
 export function choiceForRun(choice) {
   const out = { character: choice.character, mode: choice.mode };
-  if (choice.mode === 'challenge') out.challenge = choice.challenge;
-  else { if (choice.kit) out.kit = choice.kit; out.tide = choice.tide; out.curses = choice.curses; }
-  if (choice.arcana) out.arcana = choice.arcana;
+  if (choice.mode === 'challenge') { out.challenge = choice.challenge; return out; }
+  if (choice.kit) out.kit = choice.kit;
+  out.tide = choice.tide; out.curses = choice.curses;
+  if (choice.map) out.map = choice.map;
+  if (choice.heirloom) out.heirloom = choice.heirloom;
   const cons = choice.consumables.filter(Boolean);
   if (cons.length) out.consumables = cons;
-  if (choice.rune) out.rune = choice.rune;
   return out;
 }
 
-/** What the choice adds to the materials a run brings home ("+36% Materials"; a challenge run's own Tide and curses), or null. */
+/** What the choice adds to the materials a run brings home ("This run pays 36% more materials"; a set run's own Tide and curses), or null. */
 export function rewardText(data, choice) {
   const ch = choice.mode === 'challenge' ? data.challenges.find((c) => c.id === choice.challenge) : null;
   const tide = ch ? ch.tide ?? 0 : choice.tide, curses = ch ? ch.curses || [] : choice.curses;
   const t = tide > 0 ? data.tides[tide - 1].rewardMul : 0;
   const c = curses.reduce((s, id) => s + (data.curses.find((x) => x.id === id)?.rewardMul ?? 0), 0);
   const pct = Math.round((t + c) * 100);
-  return pct > 0 ? `+${pct}% Materials` : null;
-}
-
-/** The modes the gate offers: a challenge run only while one can set out. */
-function modesFor(doc, data) {
-  const open = challengesOpen(doc, data).length > 0;
-  return modesOpen(doc, data).filter((m) => m !== 'challenge' || open);
+  // A short run pays its share of what a full run with the same Tide and curses would.
+  if (choice.mode === 'short') return `This run pays ${Math.round(data.tuning.run.shortRewardMul * (1 + t + c) * 100)}% of a full run's materials`;
+  return pct > 0 ? `This run pays ${pct}% more materials` : null;
 }

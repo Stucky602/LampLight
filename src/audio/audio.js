@@ -1,5 +1,6 @@
 // Sound (ARCHITECTURE §9): every effect rendered once at boot from data/sfx.js, played from
-// buffers with voice limits, through master, music, and SFX volume buses.
+// buffers with voice limits, through master, music, ambience, and SFX volume buses. The music and
+// the ambience bed (0.9.0, ruling 8: made in code) are audio/music.js's; setMusic picks the loop.
 //
 // Voice limiting: each sound has its own cap (hits: 4, the gem pickup: 1) and there's a global
 // cap of 24. A play over either cap is simply dropped: in a horde game the fifth identical hit
@@ -10,6 +11,7 @@
 // in Chromium); Electron is told to allow it from the start. unlock() is safe to call anytime.
 
 import { zzfxSamples } from './zzfx.js';
+import { createMusic } from './music.js';
 
 /**
  * The voice bookkeeping, separate from Web Audio so it can be tested: may this sound start now?
@@ -58,22 +60,24 @@ export function createPitchClimb(windowMs, steps) {
   };
 }
 
-const SILENT = Object.freeze({ ok: false, unlock() {}, play() {}, setVolumes() {}, get state() { return 'none'; }, get voices() { return 0; } });
+const SILENT = Object.freeze({ ok: false, unlock() {}, play() {}, setVolumes() {}, setMusic() {}, get music() { return null; }, get state() { return 'none'; }, get voices() { return 0; } });
 
 /**
  * @param {object} o
  * @param {()=>object} [o.feel] the live `tuning.feel` (the gem climb reads vacuum.* from it)
  * @param {()=>number} [o.now] ms clock
  */
-export function createAudio({ sfx, voiceCap, volumes = { master: 0.8, music: 0.6, sfx: 0.8 }, feel = () => null, win = globalThis, now = () => performance.now() }) {
+export function createAudio({ sfx, voiceCap, volumes = { master: 0.8, music: 0.6, ambience: 0.6, sfx: 0.8 }, feel = () => null, win = globalThis, now = () => performance.now() }) {
   const Ctx = win.AudioContext || win.webkitAudioContext;
   // No Web Audio, or no sound device (the constructor throws): play silently. The debug overlay
   // shows the sound state.
   if (!Ctx) return SILENT;
   let ctx;
   try { ctx = new Ctx({ latencyHint: 'interactive' }); } catch { return SILENT; }
-  const master = ctx.createGain(), musicBus = ctx.createGain(), sfxBus = ctx.createGain();
-  sfxBus.connect(master); musicBus.connect(master); master.connect(ctx.destination);
+  const master = ctx.createGain(), musicBus = ctx.createGain(), ambienceBus = ctx.createGain(), sfxBus = ctx.createGain();
+  sfxBus.connect(master); musicBus.connect(master); ambienceBus.connect(master); master.connect(ctx.destination);
+  // The music and the bed: made lazily on the first setMusic, so a context that never starts makes none.
+  let music = null, wanted = null;
   const buffers = new Map();
   const caps = {}, gaps = {};
   for (const [name, def] of Object.entries(sfx)) {
@@ -90,6 +94,7 @@ export function createAudio({ sfx, voiceCap, volumes = { master: 0.8, music: 0.6
   function setVolumes(v) {
     master.gain.value = v.master ?? 0.8;
     musicBus.gain.value = v.music ?? 0.6;
+    ambienceBus.gain.value = v.ambience ?? 0.6;
     sfxBus.gain.value = v.sfx ?? 0.8;
   }
   setVolumes(volumes);
@@ -97,7 +102,22 @@ export function createAudio({ sfx, voiceCap, volumes = { master: 0.8, music: 0.6
   return {
     ok: true,
     /** Resume audio after a user gesture (browsers keep it suspended until then). */
-    unlock() { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); },
+    unlock() { if (ctx.state === 'suspended') ctx.resume().then(() => { if (wanted) this.setMusic(wanted, true); }).catch(() => {}); },
+    /**
+     * The loop to play: 'harbor', 'run', 'boss' (audio/cues.js musicFor), or null for none. Call it
+     * every frame; it does nothing unless the loop changes. Waits for the context to run (the
+     * browser's first input).
+     */
+    setMusic(kind, again = false) {
+      if (kind === wanted && !again) return;
+      wanted = kind ?? null;
+      if (ctx.state !== 'running') return;
+      try {
+        if (!music) music = createMusic(ctx, musicBus, ambienceBus);
+        music.set(wanted);
+      } catch { /* a voice the platform lacks: the game plays on without music */ }
+    },
+    get music() { return music?.playing ?? null; },
     get state() { return ctx.state; },
     get voices() { return limiter.total; },
     setVolumes,

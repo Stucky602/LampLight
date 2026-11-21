@@ -20,7 +20,30 @@ export function crc32Bytes(bytes) {
 
 /** CRC-32 of a string, hashed as UTF-8. Same result as desktop/savefs.cjs crc32(). */
 export function crc32(str) {
-  return crc32Bytes(utf8(str));
+  // One pass over the string, no byte array in between (the sweep, S4 C1: a save's checksum was
+  // most of the time a run's checkpoint took). The bytes fed are exactly utf8(str)'s, below.
+  const T = CRC_TABLE;
+  let c = 0xffffffff;
+  for (let i = 0; i < str.length; i++) {
+    let u = str.charCodeAt(i);
+    if (u < 0x80) { c = T[(c ^ u) & 0xff] ^ (c >>> 8); continue; }
+    if (u >= 0xd800 && u <= 0xdfff) {
+      const d = u <= 0xdbff && i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
+      if (d >= 0xdc00 && d <= 0xdfff) { u = 0x10000 + ((u - 0xd800) << 10) + (d - 0xdc00); i++; } else u = 0xfffd; // lone surrogate
+    }
+    if (u < 0x800) {
+      c = T[(c ^ (0xc0 | (u >> 6))) & 0xff] ^ (c >>> 8);
+    } else if (u < 0x10000) {
+      c = T[(c ^ (0xe0 | (u >> 12))) & 0xff] ^ (c >>> 8);
+      c = T[(c ^ (0x80 | ((u >> 6) & 63))) & 0xff] ^ (c >>> 8);
+    } else {
+      c = T[(c ^ (0xf0 | (u >> 18))) & 0xff] ^ (c >>> 8);
+      c = T[(c ^ (0x80 | ((u >> 12) & 63))) & 0xff] ^ (c >>> 8);
+      c = T[(c ^ (0x80 | ((u >> 6) & 63))) & 0xff] ^ (c >>> 8);
+    }
+    c = T[(c ^ (0x80 | (u & 63))) & 0xff] ^ (c >>> 8);
+  }
+  return (c ^ 0xffffffff) >>> 0;
 }
 
 /** CRC-32 as 8 lowercase hex characters. */

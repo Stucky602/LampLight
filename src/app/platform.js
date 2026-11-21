@@ -8,6 +8,22 @@ export const TARGET = typeof __TARGET__ !== 'undefined' ? __TARGET__ : 'web';
 export const BUILD_ID = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev';
 export const VERSION = typeof __VERSION__ !== 'undefined' ? __VERSION__ : '0.0.0';
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * The build stamp as the title shows it (0.7.3): "Build 0.7.3, Oct 20, 14:30" from a build id
+ * like "0.7.3+20261020T143000Z" (vite.config.js: the version and the UTC time it was built), the
+ * time in the player's own clock (`utc: true` keeps UTC, for tests). An id of another shape reads
+ * as it is ("Build dev").
+ */
+export function buildStampText(id, { utc = false } = {}) {
+  const m = /^(.+)\+(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(String(id));
+  if (!m) return `Build ${id}`;
+  const d = new Date(Date.UTC(+m[2], +m[3] - 1, +m[4], +m[5], +m[6], +m[7]));
+  const [mo, day, hr, min] = utc ? [d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()] : [d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()];
+  return `Build ${m[1]}, ${MONTHS[mo]} ${day}, ${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 /** The desktop bridge, if the preload script installed one. */
 export function nativeBridge(win = globalThis) {
   return win.lamplightNative && win.lamplightNative.platform === 'desktop' ? win.lamplightNative : null;

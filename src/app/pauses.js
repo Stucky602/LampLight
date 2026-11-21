@@ -4,10 +4,11 @@
 //   controller  the controller in use disconnected (even if a spare pad is still plugged in):
 //               resumes when a controller connects, or when the player actually uses something
 //               else (the keyboard, the mouse, the spare pad). Pulling out a pad nobody was
-//               using doesn't pause anyone.
+//               using doesn't pause anyone. `onControllerLost` is told too (0.7.3: a run opens its
+//               pause menu, so getting going again takes a press of Resume, not the reconnect).
 // Returns a function that removes everything it added.
 
-export function wirePauses({ loop, input, win }) {
+export function wirePauses({ loop, input, win, onControllerLost = null }) {
   const onBlur = () => loop.pause('blur');
   const onFocus = () => loop.resume('blur');
   win.addEventListener('blur', onBlur);
@@ -15,7 +16,11 @@ export function wirePauses({ loop, input, win }) {
   const offs = [
     // Emitted before the prompts fall back, so input.device and input.activePad still describe
     // what was in use.
-    input.on('disconnect', (e) => { if (input.device === 'gamepad' && e.index === input.activePad) loop.pause('controller'); }),
+    input.on('disconnect', (e) => {
+      if (input.device !== 'gamepad' || e.index !== input.activePad) return;
+      loop.pause('controller');
+      onControllerLost?.();
+    }),
     input.on('connect', () => loop.resume('controller')),
     // 'device' fires only for real input (never for the silent fallback when a pad goes away),
     // including picking up a different pad.

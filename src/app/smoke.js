@@ -10,6 +10,7 @@
 //   shot=<name>     stop there instead of playing on: title, levelup, chest, pause, stats, settings,
 //                   tuning, end (the run's end screen)
 //   char=<id>       the character (default: the Lamplighter)
+//   map=<id>        the map (default: the first; the run opens it as `all` does the rest)
 //   jump=<seconds>  start that far into the run (599 shows the first boss arriving)
 //   chase=1         walk at the boss once one is out (to see it up close)
 //   crowd=<n>       n extra enemies around you
@@ -21,6 +22,13 @@
 //   warp=secret     start beside the map's first secret (the wreck and its cache)
 //   give=<id>,...   weapons to start with (the new ones, for a look at their shots)
 //   ember=1         an Ember at the start (the Ascend screen opens)
+// 0.9.0 (W7):
+//   shot=glossary   the glossary from the title (term=<id> opens at that entry, default the lamp)
+//   shot=controls   Settings, Controls (the remap screen)
+//   shot=spoils     a boss chest with an Ember after it: the one Spoils screen; spoils=2 one
+//                   step further (the Ember step)
+//   shot=recap      a run you die in (a crowd, no god mode, a sliver of health): the end screen's recap
+//   shot=tips       a first run beside its first lamp: the tip over it
 // The harbor (Phase 5):
 //   shot=hub | building | gate | results | ceremony | arrival | hubtuning
 //                   stop in the harbor; with a building's panel open (building=<id>, default the
@@ -37,13 +45,15 @@
 
 import { stampName } from '../save/store.js';
 import { currentHalt } from '../sim/world.js';
+import { crowdArrives } from '../sim/tasks.js';
+import { overtimeDecide } from '../sim/director.js';
 import { haltView } from './runlogic.js';
 import { applyRunResult } from '../meta/apply.js';
 import { DATA } from '../data/index.js';
 import { devAddMaterials, devUnlockAll } from '../meta/dev.js';
 import { craftGear } from '../meta/workshop.js';
 
-const HUB_SHOTS = ['hub', 'building', 'gate', 'results', 'ceremony', 'arrival', 'hubtuning', 'loop'];
+const HUB_SHOTS = ['hub', 'building', 'gate', 'results', 'ceremony', 'arrival', 'hubtuning', 'loop', 'orders', 'codex', 'setup', 'menucodex'];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Wait until `ok()` (checked every 50 ms), or fail after `ms` naming what never happened. */
 async function until(ok, ms, what) {
@@ -122,11 +132,12 @@ function sampleResult() {
   return {
     v: 1, seed: 'smoke', map: 'drowned_docks', mode: 'standard', character: 'lamplighter', end: 'died', timeSurvived: 431, ticks: 25860,
     level: 14, kills: { fog_wisp: 210, drowned_sailor: 46 }, totalKills: 256, elitesKilled: 1, bossesKilled: [], cleared: false,
-    weapons: [{ id: 'flare_gun', slot: 0, level: 6, runes: [], damage: 1200 }, { id: 'harpoon_chain', slot: 1, level: 3, runes: [], damage: 500 }],
+    weapons: [{ id: 'flare_gun', slot: 0, level: 6, damage: 1200 }, { id: 'harpoon_chain', slot: 1, level: 3, damage: 500 }],
     weaponLevelMax: { flare_gun: 6, harpoon_chain: 3 }, maxWeaponLevel: 6,
-    passives: [{ id: 'wick_oil', level: 2 }], relics: [], runes: [], evolutions: [], tags: {},
+    passives: [{ id: 'wick_oil', level: 2 }], relics: [], evolutions: [], tags: {},
     materials: { coin: 46, oil: 31, timber: 9, drowned_pages: 7, rope: 4 }, damageTaken: 180, dashKills: 0, revivalsUsed: 0, gems: 400, chests: 1,
     overtimeMinutes: 0, secretsFound: [], rerolls: 0, skips: 0, banished: [],
+    trade: { lamps: 4, lanterns: 1 },   // (C3: the character's ledger line)
   };
 }
 
@@ -170,7 +181,7 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
   // the first living boss instead (so a screenshot can show one up close).
   const chase = params.get('chase') === '1';
   // Warped to a task or the skiff: stand there (the lamp lights, the Ferryman opens his trade).
-  const still = ['lamp', 'bell', 'ferry'].includes(params.get('warp'));
+  const still = ['lamp', 'bell', 'ferry', 'crane', 'cairn', 'held', 'find', 'trade'].includes(params.get('warp')) || shot === 'tips';
   game.input.sampleFrame = () => {
     if (still) return { mx: 0, my: 0, buttons: 0 };
     angle += 0.02;
@@ -188,6 +199,8 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     return { mx: Math.round(Math.cos(angle) * 127), my: Math.round(Math.sin(angle) * 127), buttons: t % 2000 < 100 ? 1 : 0 };
   };
   const unpause = () => { for (const r of loop.pauseReasons()) if (r === 'blur' || r === 'controller') loop.resume(r); };
+  // ts=1.25|1.5: the menus' text size (Settings, Text size), for a look at the larger type.
+  if (Number(params.get('ts')) > 1) ui.setTextScale?.(Number(params.get('ts')));
   unpause();
   const storage = storageRoundTrip(game);
   // A throwaway profile with the building levels asked for (the smoke's saves live in their own space).
@@ -197,27 +210,37 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     game.useProfileForTools(d);
   }
   // rich=1: every building restored, all research done, 2,000 of each material, some mastery, a
-  // few consumables, and a made item (for the harbor's Phase 7 panels in a screenshot).
+  // few run tools, and a made item (for the harbor's Phase 7 panels in a screenshot).
   if (params.get('rich')) {
     let d = devAddMaterials(game.profile, DATA, 2000).doc;
     try { d = devUnlockAll(d, DATA).doc; } catch { /* already */ }
-    d.profile.characters = { lamplighter: { unlocked: true, masteryXp: 60, perks: ['trimmed_wick'] }, harpooner: { unlocked: true, masteryXp: 12, perks: [] } };
-    d.profile.consumables = { tallow_tonic: 2, smelling_salts: 1, 'rune:splitting': 1 };
-    d.profile.tide = { unlocked: 4, selected: 2 };
-    d.profile.bestiary = { fog_wisp: 1200, drowned_sailor: 140, bilge_rat: 30 };
+    d.profile.characters = { lamplighter: { unlocked: true, masteryXp: 60, skills: [] }, harpooner: { unlocked: true, masteryXp: 12, skills: [] } };
+    d.profile.consumables = { gull_bone: 2, smelling_salts: 1, driftwood_token: 1 };
+    d.profile.tides = { drowned_docks: 4 }; d.profile.tide = { selected: 2 };
+    d.profile.bestiary = { fog_wisp: 1200, drowned_sailor: 140, bilge_rat: 30, harbor_maw: 2 };
+    d.profile.tides.salt_marsh = 1;   // the Salt Marsh open (the Maw killed), its Tide 1 too: the gate's map cards
     d = craftGear(d, DATA, 'storm_lantern').doc;
     d = craftGear(d, DATA, 'salt_ring').doc;
+    // 0.9.0 (W5): some Harbor Orders done, a few runs' codex, a Lighthouse part way, for its screens.
+    d.profile.feats = ['maw_slayer', 'dawn', 'lantern_night', 'bell_ringer', 'kit_flare_gun', 'docks_tide_2'];
+    d.profile.codex = ['weapon:flare_gun', 'weapon:lantern_orb', 'weapon:oil_flask', 'passive:wick_oil', 'passive:lamp_glass', 'relic:gull_feather', 'relic:tide_clock'];
+    d.profile.buildings.lighthouse = Number(params.get('lighthouse') ?? 3);
+    d.stats = { ...d.stats, runs: 12 };
     game.useProfileForTools(d);
   }
   const hubShot = HUB_SHOTS.includes(shot);
   let hubSeen = false;
-  if (shot === 'title') { /* stay on the title */ } else if (hubShot) setTimeout(() => hubStop(), 300);
+  if (shot === 'title') { /* stay on the title */ } else if (shot === 'glossary') {
+    setTimeout(() => { game.openGlossaryForTools?.(params.get('term') || 'lamp'); }, 300);
+  } else if (shot === 'controls') {
+    setTimeout(() => { const st = game.openSettingsForTools?.(); st?.openControls?.(); }, 300);
+  } else if (hubShot) setTimeout(() => hubStop(), 300);
   else {
     // Walk the harbor for a moment (it has to draw without errors too), then set out.
     setTimeout(() => {
       game.scenes.go('hub').then(() => setTimeout(() => {
         hubSeen = !!game.hubScene.world && game.hubScene.world.time > 0;
-        game.startRun({ character: params.get('char') || 'lamplighter', seed: 'smoke', all: true, ...(params.get('harbor') ? { harbor: { ferry: 5, lampSpeed: 0.5, bellRing: 0.25, tasksOnMap: 1, secretsOnMap: 1 } } : {}) });
+        game.startRun({ character: params.get('char') || 'lamplighter', seed: 'smoke', all: true, ...(params.get('map') ? { map: params.get('map') } : {}), ...(params.get('harbor') ? { harbor: { ferry: 5, lampSpeed: 0.5, bellRing: 0.25, tasksOnMap: 1, secretsOnMap: 1 } } : {}) });
       }, 1500));
     }, 300);
   }
@@ -233,7 +256,14 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
       await game.scenes.go('hub', { results: { changes: out.changes, result: sampleResult() } });
     } else await game.scenes.go('hub');
     if (shot === 'building') game.hubScene.openBuildingForTools(building);
+    if (shot === 'orders') game.hubScene.openOrdersForTools();
+    if (shot === 'codex') game.hubScene.openCodexForTools();
     if (shot === 'gate') game.hubScene.openGateForTools();
+    // The gate's rows (the sweep, X2: six of them), and the codex from the harbor's menu on its enemy page.
+    if (shot === 'setup') game.hubScene.setOutForTools(params.get('char') || 'lamplighter', params.get('map') || undefined);
+    if (shot === 'menucodex') game.hubScene.openMenuCodexForTools();
+    // focus=<key>: put the focus on a row of the screen on top (a list scrolls to it), for a screenshot.
+    if (params.get('focus')) setTimeout(() => { game.ui.top?.scope.focusKey(params.get('focus')); }, 400);
     if (shot === 'hubtuning') game.hubScene.toggleTuningForTools();
     if (shot === 'ceremony' || shot === 'arrival') {
       const d = structuredClone(game.profile);
@@ -249,7 +279,7 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     const rec = runScene.recorded;
     // A command the sim refuses shows up in the result's errors instead of stopping the run.
     const dev = (d) => { try { rec.decide({ kind: 'dev', ...d }); } catch (e) { errors.add('smoke', `setup: ${e?.message || e}`); } };
-    dev({ cmd: 'god', on: true });
+    if (shot !== 'recap') dev({ cmd: 'god', on: true });
     // jump=<seconds>: start later in the run (a boss arrives at 600 and 1200). busy=1 starts at
     // 14:00 unless jump says otherwise.
     const jump = Number(params.get('jump'));
@@ -263,6 +293,32 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     // warp=lamp|bell|ferry: beside the first Wayside Lamp, the first Fog Bell, or the Ferryman's skiff.
     if (params.get('warp') === 'lamp' || params.get('warp') === 'bell') dev({ cmd: 'warp', task: w.tasks.findIndex((t) => t.kind === (params.get('warp') === 'lamp' ? 1 : 2)) });
     if (params.get('warp') === 'ferry' && w.ferry) dev({ cmd: 'warp', ferry: true });
+    // W4 (0.9.0): act=2|3 begins that act (act 1's lamps lit first); night=1 jumps to overtime and
+    // the Long Night; warp=crane|cairn|find|held stands you by the first of it.
+    const act = Number(params.get('act'));
+    if (act >= 2 || params.get('night')) {
+      for (const t of w.tasks) if (t.kind === 1) t.state = 2;
+      crowdArrives(w, true);
+      if (act >= 3 || params.get('night')) { w.director.eventIdx = w.director.events.length; overtimeDecide(w, { kind: 'stay' }); }
+      if (params.get('night')) { const o = w.director.otOnce.find((x) => x.ev.event === 'long_night'); if (o) o.tick = w.tick + 1; }
+    }
+    if (params.get('warp') === 'crane' || params.get('warp') === 'cairn') dev({ cmd: 'warp', task: w.tasks.findIndex((t) => t.kind === (params.get('warp') === 'crane' ? 3 : 4)) });
+    if (params.get('warp') === 'held') { const i = w.tasks.findIndex((t) => t.twist === 1 && t.state !== 2); if (i >= 0) dev({ cmd: 'warp', task: i }); }
+    // warp=trade (0.9.0, W2): beside the character's own thing on the map: a site (a bog body, a
+    // wreck crew, a sunken crate), a mooring post with a chest in her hook's reach (the Harpooner),
+    // or out on the water (the Punter).
+    if (params.get('warp') === 'trade' && w.trade) {
+      const tr = w.trade, put = (x, y) => { w.player.x = w.player.px = x; w.player.y = w.player.py = y; };
+      if (tr.sites.length) put(tr.sites[0].x - 30, tr.sites[0].y - 6);
+      else if (tr.id === 'hook') { const m = w.ferry?.moorings[0]; if (m) put(m.x - 40, m.y); dev({ cmd: 'reliquary' }); }
+      else if (tr.id === 'pole') {
+        const T = w.terrain, ptx = Math.floor(w.player.x / 16), pty = Math.floor(w.player.y / 16);
+        let best = -1, bd = Infinity;
+        for (let i = 0; i < T.solid.length; i++) { if (T.solid[i] !== 1 || tr.grid[i] !== 0) continue; const d = (i % T.cols - ptx) ** 2 + ((i / T.cols | 0) - pty) ** 2; if (d < bd) { bd = d; best = i; } }
+        if (best >= 0) put((best % T.cols + 0.5) * 16, ((best / T.cols | 0) + 0.5) * 16);
+      }
+    }
+    if (params.get('warp') === 'find') { const i = w.secrets.findIndex((s) => s.gift && !s.open && (s.from ?? 1) <= (w.acts?.act ?? 1)); if (i >= 0) { const sc = w.secrets[i]; w.player.x = w.player.px = sc.x - 40; w.player.y = w.player.py = sc.y - 10; } }
     // glass=<n>: Sea Glass; reliquary=1: a Reliquary's pick now.
     if (Number(params.get('glass')) > 0) dev({ cmd: 'glass', count: Number(params.get('glass')) });
     if (params.get('reliquary')) dev({ cmd: 'reliquary' });
@@ -278,6 +334,9 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
       if (h?.kind === 'ascend') { const v = haltView(w, h, DATA); const wv = v.weapons.at(-1); try { rec.decide({ kind: 'ascend', slot: wv.slot, id: wv.forms.find((f) => !f.taken && !f.why).id }); } catch (e) { errors.add('smoke', `setup: ${e?.message || e}`); } }
     }
     if (shot === 'levelup') dev({ cmd: 'level', count: 1 });
+    // recap: a crowd round you and a sliver of health (the smoke's own change; nothing replays it).
+    if (shot === 'recap') { dev({ cmd: 'spawn', count: 300 }); w.player.hp = Math.min(w.player.hp, 12); }
+    if (shot === 'tips') { dev({ cmd: 'warp', task: w.tasks.findIndex((t) => t.kind === 1) }); w.player.x -= 110; w.player.y += 40; }
     if (shot === 'chest') dev({ cmd: 'give', what: 'weapon', id: 'harpoon_chain' });
     runTicksAt.start = w.tick;
   }
@@ -300,6 +359,15 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     if (shot === 'settings') { shotDone = true; runScene.openSettingsForTools?.(); }
     if (shot === 'end' && w) { shotDone = true; runScene.recorded.decide({ kind: 'leave' }); }
     if (shot === 'chest' && w) { shotDone = true; runScene.openChestForTools?.(); }
+    if (shot === 'spoils' && w) {
+      shotDone = true;
+      const rec = runScene.recorded;
+      rec.decide({ kind: 'dev', cmd: 'give', what: 'weapon', id: 'harpoon_chain' });
+      rec.decide({ kind: 'dev', cmd: 'chest', boss: true });
+      rec.decide({ kind: 'dev', cmd: 'ember' });
+      if (Number(params.get('spoils')) >= 2) setTimeout(() => { ui.top?.scope?.focusKey?.('go'); ui.top?.scope?.press?.(); setTimeout(() => { ui.top?.scope?.focusKey?.('go'); ui.top?.scope?.press?.(); }, 300); }, 1800);
+    }
+    if (shot === 'recap') { shotDone = true; }
   }
 
   const tick = async () => {
@@ -312,8 +380,8 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     if (w && !setupDone && game.scenes.name === 'run') { setupDone = true; setup(w); }
     if (setupDone && now - startWall > 2500) stopOn();
     // Answer menus the way a player would, a few times a second (unless a screenshot wants one).
-    const holdScreen = shot && shot !== 'run' && (shot !== 'levelup' || (ui.top && /levelup/.test(ui.top.el.className)));
-    if (!holdScreen && ui.top && game.scenes.name === 'run' && now - pressAt > 250) {
+    const holdScreen = shot && shot !== 'run' && shot !== 'recap' && shot !== 'tips' && (shot !== 'levelup' || (ui.top && /levelup/.test(ui.top.el.className)));
+    if (!holdScreen && ui.top && game.scenes.name === 'run' && !(shot === 'recap' && runScene.world?.over) && now - pressAt > 250) {
       pressAt = now;
       ui.top.scope?.refresh();
       if (ui.top.scope?.press()) pressed++;
@@ -333,7 +401,7 @@ export function runSmoke(game, { native = null, seconds = 30, params = new URLSe
     const runTicks = w && runTicksAt.start !== null ? w.tick - runTicksAt.start : 0;
     const store = await storage;
     const result = {
-      ok: errors.count === 0 && frames > 0 && store.ok && (shot === 'title' || shot === 'settings' || shot === 'forms' || shot === 'ascend' || (hubShot ? hubSeen : runTicks > 0 && hubSeen)),
+      ok: errors.count === 0 && frames > 0 && store.ok && (['title', 'settings', 'forms', 'ascend', 'glossary', 'controls'].includes(shot) || (hubShot ? hubSeen : runTicks > 0 && hubSeen)),
       hub: hubSeen,
       loop: loopResult,
       seconds: Math.round(wallS * 10) / 10,

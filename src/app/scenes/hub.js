@@ -16,32 +16,36 @@
 import { createHubWorld, stepHub, setPeople, setProps, startCeremony, startArrival, skipTimeline } from '../../hub/world.js';
 import { createHubTuning, setHubTune, resetHubTuning } from '../../hub/tuning.js';
 import { HUB_TERRAIN } from '../../data/hub.js';
-import { revealedFog, hubPeople, shownProps, resolveContent } from '../../meta/state.js';
+import { revealedFog, hubPeople, shownProps, resolveContent, mapsOpen } from '../../meta/state.js';
 import { restoreBuilding, buyUpgrade, startResearch, MetaError } from '../../meta/actions.js';
 import { nextAffordable } from '../../meta/next.js';
 import { devAddMaterials, devUnlockAll } from '../../meta/dev.js';
-import { buildingScreen, gateScreen, resultsScreen, hubMenuScreen, gearScreen, setupScreen } from '../../ui/hubscreens.js';
+import { buildingScreen, gateScreen, mapScreen, resultsScreen, hubMenuScreen, gearScreen, setupScreen, ordersScreen, codexScreen } from '../../ui/hubscreens.js';
 import {
-  craftGear, upgradeGear, rerollGear, equipGear, unequipGear, cutRuneStone, buyConsumable, marketTrade, claimBestiary, trainPerk,
+  craftGear, upgradeGear, rerollGear, equipGear, unequipGear, buyConsumable, marketTrade,
 } from '../../meta/workshop.js';
-import { startChoice, setupRows, applyRow, choiceForRun, rewardText, settleChoice, setsOutAs, checkStone } from '../setup.js';
+import { takeSkill, resetSkills } from '../../meta/skills.js';
+import { skillsScreen } from '../../ui/skillscreen.js';
+import { startChoice, setupRows, applyRow, choiceForRun, rewardText, settleChoice, setsOutAs, whyNotSetRun } from '../setup.js';
 import { runConfigFor } from '../../meta/runconfig.js';
-import { actionLine, rankText } from '../../ui/hubtext.js';
+import { actionLine, rankText, mapCard, ledgerLines } from '../../ui/hubtext.js';
 import { tuningScreen } from '../../ui/tuning.js';
 import { tuningDiff, tuningCopyText } from '../../ui/tuningmodel.js';
 import { createHubHud, onScreen, routeExit } from '../../ui/hubhud.js';
 import { routeTo } from '../../hub/map.js';
 import { TILE } from '../../sim/terrain.js';
-import { levelsOf, levelSetPieces, lineFor, promptFor, runHeading } from '../hublogic.js';
-import { guideStep } from '../../meta/guide.js';
+import { levelsOf, levelSetPieces, lineFor, promptFor, runHeading, runArrivals, retiredNoteText } from '../hublogic.js';
+import { guideStep, newsAt } from '../../meta/guide.js';
 import { VIEW_W, VIEW_H } from '../../render/layout.js';
+import { damageRows, damageTableEl } from '../../render/damagetable.js';
 
 const SPEECH_MS = 4200;
 
 /**
  * deps: { view (render/hubview.js), input, ui, menuCtx, audio, data, profile: { get(), save(doc) },
- * startRun({ character }), onTitle(), onSettings(), onQuit (desktop), onIdle(), hubTuning (the
- * live tuning the view draws with; a fresh one if not given), buildId, copyText(text) }
+ * startRun({ character }), onTitle(), onSettings(), onQuit (desktop), onSaveCode() (the save code
+ * screen), onIdle(), hubTuning (the live tuning the view draws with; a fresh one if not given),
+ * buildId, copyText(text) }
  */
 export function createHubScene(deps) {
   const { view, input, ui, menuCtx, audio, data } = deps;
@@ -53,15 +57,16 @@ export function createHubScene(deps) {
   let pendingBanner = null;  // shown when the ceremony's building is done
   let wasBusy = false;       // last frame had a screen open or a set piece running
   let guide = null;          // the new player's guide: one goal and where it is (meta/guide.js)
+  let newAt = [];            // buildings where the last results opened something (the guide points at the first)
 
   const doc = () => deps.profile.get();
   const sound = (name) => { if (audio.ok) audio.play(name); };
 
   function refreshHud() {
     const d = doc();
-    hud.setMaterials(d.profile.materials);
+    hud.setMaterials(d.profile.materials, mapsOpen(d, data));   // (round 2: a material from a map not open says so)
     hud.setNext(nextAffordable(d, data, 3));
-    guide = guideStep(d, data);
+    guide = guideStep(d, data, newAt);
   }
 
   /** The walk from your tile to the guide's target (gate, or a building's door), kept until either moves. */
@@ -119,7 +124,7 @@ export function createHubScene(deps) {
    * The Phase 7 buildings' purchases (meta/workshop.js), each saved like any other and said on
    * the panel's line (ui/hubtext.js actionLine).
    */
-  const ACTS = { craft: craftGear, upgradeGear, reroll: rerollGear, equip: equipGear, unequip: unequipGear, cutRune: cutRuneStone, buy: buyConsumable, trade: marketTrade, claim: claimBestiary, train: trainPerk };
+  const ACTS = { craft: craftGear, upgradeGear, reroll: rerollGear, equip: equipGear, unequip: unequipGear, buy: buyConsumable, trade: marketTrade, skill: takeSkill, skillReset: resetSkills };
   let gearPanel = null;
   function act(name, ...args) {
     const fn = ACTS[name];
@@ -137,6 +142,15 @@ export function createHubScene(deps) {
     }
   }
 
+  /** A character's skill tree (ruling 15), from the Tavern's Mastery list. */
+  function openSkills(id) {
+    gearPanel = skillsScreen(menuCtx, {
+      data, character: id, get: () => ({ doc: doc() }), onAct: act,
+      onClose: () => { ui.close(gearPanel); gearPanel = null; panel?.refresh(); },
+    });
+    ui.push(gearPanel);
+  }
+
   function openGear(uid) {
     gearPanel = gearScreen(menuCtx, {
       data, uid, get: () => ({ doc: doc() }), onAct: act,
@@ -152,7 +166,7 @@ export function createHubScene(deps) {
    * (a world) keeps where you stand and face, so rebuilding under you (after Unlock everything)
    * doesn't move you; anything that came out where you stand steps you aside.
    */
-  function buildWorld(keep = null) {
+  function buildWorld(keep = null, away = []) {
     const d = doc();
     const avatar = data.characters.find((c) => c.id === data.hub.avatar);
     world = createHubWorld({
@@ -165,7 +179,8 @@ export function createHubScene(deps) {
       world.cam.x = world.cam.px = p.x; world.cam.y = world.cam.py = p.y;
       setProps(world, world.props);
     }
-    setPeople(world, hubPeople(d, data));
+    // (Who a run just brought is still out at sea: `away`, until their boat ties up.)
+    setPeople(world, hubPeople(d, data).filter((p) => !away.includes(p.id)));
     view.attach(world, levelsOf(d, data));
   }
 
@@ -221,6 +236,8 @@ export function createHubScene(deps) {
   // ---------------------------------------------------------------- screens
 
   function openBuilding(building) {
+    // Going in is what the guide's "New at the Smithy" asked for.
+    if (newAt.includes(building)) { newAt = newAt.filter((id) => id !== building); refreshHud(); }
     panel = buildingScreen(menuCtx, {
       data, building, get: () => ({ doc: doc() }),
       onRestore: () => restore(building),
@@ -228,33 +245,80 @@ export function createHubScene(deps) {
       onResearch: (id) => research(id),
       onAct: act,
       onGear: (uid) => openGear(uid),
+      // 0.9.0: the Tavern's Harbor Orders board and the Library's codex, each a screen of its own.
+      onOrders: () => openOrders(),
+      onSkills: (id) => openSkills(id),
+      onCodex: () => { const c = codexScreen(menuCtx, { data, get: () => ({ doc: doc() }), onBack: () => ui.close(c) }); ui.push(c); },
       onClose: () => { ui.close(panel); panel = null; },
     });
     ui.push(panel);
   }
 
+  /**
+   * The Harbor Orders board. A set run (the sweep, ruling 13) starts from its row: checked here as
+   * the run would check it, so a refusal stays on the board.
+   */
+  function openOrders() {
+    const o = ordersScreen(menuCtx, {
+      data, get: () => ({ doc: doc() }), onBack: () => ui.close(o),
+      whyNotSetRun: (f) => whyNotSetRun(doc(), data, f),
+      onSetRun: (f) => {
+        const run = { character: f.rules.character, mode: 'challenge', challenge: f.id };
+        try { runConfigFor(doc(), data, { ...run, seed: 0 }); } catch (e) { if (e instanceof MetaError) { refused(e); return; } throw e; }
+        ui.closeAll();
+        panel = null;
+        deps.startRun(run);
+      },
+    });
+    ui.push(o);
+  }
+
+  /**
+   * The gate. Once a second map is open (0.8.0) it asks where first, a card per map (what drops
+   * there alone, which of Next up's three it moves, the research counting there, its Tides), then
+   * who sets out; with one map, who sets out.
+   */
   function openGate() {
+    const open = mapsOpen(doc(), data);
+    if (open.length < 2) { openCharacters(open[0] ?? data.maps[0].id); return; }
+    const next = nextAffordable(doc(), data, 3);
+    const s = mapScreen(menuCtx, {
+      cards: open.map((id) => mapCard(doc(), data, id, next)),
+      initial: doc().profile.setup?.map || null,
+      onPick: (id) => openCharacters(id),
+      onBack: () => ui.close(s),
+    });
+    ui.push(s);
+  }
+
+  function openCharacters(mapId) {
     const have = new Set(resolveContent(doc(), data).characters);
-    const chars = data.characters.filter((c) => have.has(c.id)).map((c) => ({ ...c, startName: data.weapons.find((w) => w.id === c.start)?.name }));
-    const map = data.maps[0];
+    const dashOf = (c) => (data.dashes || []).find((d) => d.id === c.dash) ?? (data.dashes || []).find((d) => d.character === c.id) ?? null;
+    const chars = data.characters.filter((c) => have.has(c.id)).map((c) => ({ ...c, startName: data.weapons.find((w) => w.id === c.start)?.name, signatureName: data.weapons.find((w) => w.id === c.signature)?.name, dashName: dashOf(c)?.name ?? null, dashDesc: dashOf(c)?.desc ?? null, ledger: ledgerLines(doc(), data, c.id) }));
+    const map = data.maps.find((m) => m.id === mapId) ?? data.maps[0];
     const s = gateScreen(menuCtx, {
-      characters: chars, map: { name: map.name, desc: map.desc },
-      onSetOut: (id) => setOut(id),
+      characters: chars, map: { name: map.name, desc: map.desc }, marsh: mapsOpen(doc(), data).includes('salt_marsh'),
+      onSetOut: (id) => setOut(id, map.id),
       onBack: () => ui.close(s),
     });
     ui.push(s);
   }
 
   /**
-   * After the character: how the run sets out, when the harbor has opened any choice (the kit, a
-   * short or challenge run, a Tide, curses, an arcana, consumables, a rune stone); else at once.
+   * After the character: how the run sets out, when the harbor has opened any choice (the starting
+   * weapon, an Heirloom, run tools, a Tide, curses, a short run); else at once.
    */
-  function setOut(character) {
-    let choice = startChoice(doc(), data, character);
-    if (!setupRows(doc(), data, choice).length) { ui.closeAll(); deps.startRun({ character }); return; }
+  function setOut(character, map = data.maps[0].id) {
+    let choice = startChoice(doc(), data, character, map);
+    if (!setupRows(doc(), data, choice).length) {
+      // Nothing to choose but who sets out: at once, on the map chosen (map 1 says nothing more).
+      ui.closeAll();
+      deps.startRun(map === data.maps[0].id ? { character } : { character, map });
+      return;
+    }
     const s = setupScreen(menuCtx, {
-      // A challenge run sets out as its own character.
-      title: () => data.characters.find((c) => c.id === setsOutAs(data, choice))?.name ?? character,
+      // C3: the heading is the screen's name; the Character row right under it names who (it had said it twice).
+      title: () => 'Start a run',
       rows: () => setupRows(doc(), data, choice),
       summary: () => rewardText(data, choice),
       onChange: (key, value) => { choice = settleChoice(doc(), data, applyRow(choice, key, value)); },
@@ -262,7 +326,7 @@ export function createHubScene(deps) {
         // Checked here as the run would check it, so a refusal stays on this screen (never the
         // error screen), and nothing is used up.
         const run = choiceForRun(choice);
-        try { runConfigFor(doc(), data, { ...run, seed: 0 }); checkStone(doc(), data, choice); } catch (e) {
+        try { runConfigFor(doc(), data, { ...run, seed: 0 }); } catch (e) {
           if (e instanceof MetaError) return e.message;
           throw e;
         }
@@ -279,18 +343,30 @@ export function createHubScene(deps) {
     const s = hubMenuScreen(menuCtx, {
       onResume: () => ui.close(s),
       onSetOut: () => { ui.close(s); openGate(); },
+      // The codex (kill counts on its enemy pages) is there from the first run; before the Library it opens here.
+      onCodex: (Number(doc().stats?.runs) || 0) > 0 ? () => { const c = codexScreen(menuCtx, { data, get: () => ({ doc: doc() }), initialGroup: 'enemy', onBack: () => ui.close(c) }); ui.push(c); } : null,
+      onGlossary: menuCtx.glossary ? () => menuCtx.glossary() : null,
       onSettings: () => deps.onSettings(),
+      onSaveCode: deps.onSaveCode || null,
       onTitle: () => { ui.closeAll(); deps.onTitle(); },
       onQuit: deps.onQuit || null,
     });
     ui.push(s);
   }
 
-  function showResults({ changes, result, runs = 1 }) {
+  function showResults({ changes, result, runs = 1 }, arrivals = []) {
+    // What the run opened at a restored building: the guide points at its door (0.7.3).
+    newAt = newsAt(doc(), data, changes);
+    refreshHud();
+    // Who the run brought comes home by boat once the results close (0.8.0); setting out at once,
+    // they're simply there.
+    const land = (watch) => { for (const a of arrivals) { if (watch) startArrival(world, a); else setPeople(world, a.people); } };
     const s = resultsScreen(menuCtx, {
-      data, changes, next: nextAffordable(doc(), data, 3), summary: runHeading(result, runs, data),
-      onContinue: () => ui.close(s),
-      onSetOut: () => { ui.close(s); openGate(); },
+      data, changes, doc: doc(), next: nextAffordable(doc(), data, 3), summary: runHeading(result, runs, data),
+      // W6's damage by weapon for the last run (0.9.0).
+      extra: (() => { try { const rows = result?.weapons ? damageRows(result, data) : []; if (!rows.length) return null; const box = document.createElement('div'); const head = document.createElement('h2'); head.className = 'dmg-head'; head.textContent = 'Damage by weapon'; box.append(head, damageTableEl(menuCtx, rows)); return box; } catch { return null; } })(),
+      onContinue: () => { ui.close(s); land(true); },
+      onSetOut: () => { ui.close(s); land(false); openGate(); },
     });
     ui.push(s);
   }
@@ -324,17 +400,30 @@ export function createHubScene(deps) {
     get tuning() { return live; },
     // For the smoke and screenshot tools.
     openBuildingForTools: (id) => openBuilding(id),
+    // 0.9.0 (W5): the Harbor Orders board and the codex over their building's panel, for screenshots.
+    openOrdersForTools: () => { openBuilding('tavern'); panel?.el.querySelector('[data-focus="orders"]')?.click(); },
+    openMenuCodexForTools: () => { const c = codexScreen(menuCtx, { data, get: () => ({ doc: doc() }), initialGroup: 'enemy', onBack: () => ui.close(c) }); ui.push(c); },
+    setOutForTools: (character, map) => setOut(character, map),
+    openCodexForTools: () => { openBuilding('library'); panel?.el.querySelector('[data-focus="codex"]')?.click(); },
     toggleTuningForTools: () => toggleTuning(),
     openGateForTools: () => openGate(),
+    openSkillsForTools: (id) => openSkills(id),   // C3: the skill tree screen's checks (tools/shots)
     restoreForTools: (id) => restore(id),
     skipForTools: () => { if (world) for (const e of skipTimeline(world)) onEvent(e); },
     enter(params = {}) {
-      buildWorld();
+      const coming = params.results ? runArrivals(doc(), data, params.results.changes) : { arriving: [], arrivals: [] };
+      buildWorld(null, coming.arriving);
       tuningOpen = null;
       hud = createHubHud({ root: ui.view, icon: menuCtx.icon, glyph: (a) => ui.glyph(a), data, viewW: VIEW_W, viewH: VIEW_H });
       refreshHud();
       wasBusy = false;
-      if (params.results) { showResults(params.results); wasBusy = true; }
+      if (params.results) { showResults(params.results, coming.arrivals); wasBusy = true; }
+      // What the sweep's rulings paid a save back on load (meta/retired.js), said once: a banner, then the note goes.
+      else if (doc().profile.retiredNote) {
+        const note = retiredNoteText(data, doc().profile.retiredNote);
+        hud.showBanner(note.title, note.lines, view.now, 12000);
+        const next = structuredClone(doc()); delete next.profile.retiredNote; commit(next);
+      }
     },
     exit() {
       ui.closeAll();
@@ -355,6 +444,8 @@ export function createHubScene(deps) {
         else if (world.timeline) { if (input.fired('confirm') || input.fired('back')) for (const e of skipTimeline(world)) onEvent(e); }
         else if (input.fired('pause')) openMenu();
         else if (input.fired('confirm') && world.near) use(world.near);
+        // The glossary's button over the harbor (0.9.0): what's in reach, else the guide's goal.
+        else if (input.fired('glossary')) ui.openGlossary?.(`${world.near ? promptFor(data, world.near) : ''} ${guide?.text ?? ''}`);
       } else if (tuningOpen && ui.top === tuningOpen && input.fired('tuning')) toggleTuning();
       view.draw(alpha, frameMs);
       // The DOM over the harbor: the prompt over what's in reach, a keeper's bubble, the banner.

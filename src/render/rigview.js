@@ -22,7 +22,7 @@ export function createRigView(atlas, id) {
   const pose = createPose(rig);
   const at = new Float64Array(rig.parts.length * 2);
   /** What the pose is worked out from; the run view fills it in each frame (rigpose.js rigInput). */
-  const input = { t: 0, state: 0, attack: '', u: 0 };
+  const input = { t: 0, state: 0, attack: '', u: 0, stuck: 0, weak: 0 };
   const light = RIG_LIGHTS[id] || null;
   const lightColor = light ? color(light.color) : 0;
   const local = new Float64Array(2);
@@ -44,6 +44,7 @@ export function createRigView(atlas, id) {
         s.position.set(Math.round(at[k * 2]), Math.round(at[k * 2 + 1]));
         s.rotation = pose[o + 2];
         s.scale.set(P.flip * pose[o + 3], pose[o + 4]);
+        s.visible = pose[o + 3] !== 0;   // a part shown only in action (rigs.js `still: false`)
         s.tint = tint;
       }
     },

@@ -1,7 +1,8 @@
 // The Market's trades (ARCHITECTURE §10.6): a fixed table, deliberately poor, so it fills a gap
 // rather than replacing a run. Common materials trade among themselves `common` for 1; it takes
 // `toRare` commons for 1 rare; a rare gives `fromRare` commons. The rates improve with the
-// Market's level (data/buildings.js market). Later maps' materials join the lists with their maps.
+// Market's level (data/buildings.js market). The lists hold map 1's materials only (ARCHITECTURE
+// §10.6): the Salt Marsh's Marsh Herbs and Salt Glass are not traded here.
 
 export const MARKET = Object.freeze({
   common: Object.freeze(['coin', 'oil', 'timber', 'rope', 'drowned_pages', 'rum']),

@@ -12,6 +12,8 @@
 //   px, py   the pivot inside the frame, in pixels (the part turns around it)
 //   flip     mirrored left to right (a left fin drawn from the right one)
 //   follow   attach to an earlier part's point: [index of that part, x, y in its frame]
+//   still    false: shown only in action (the Old Grey's wings), never in the resting pose: the
+//            atlas's resting frame leaves it out, and its pose keeps it at scale 0 until it's used
 
 export const RIGS = Object.freeze({
   boss_maw: {
@@ -36,6 +38,28 @@ export const RIGS = Object.freeze({
       { name: 'staff', frame: 'boss_tidecaller:staff', x: 14, y: -15, px: 2, py: 24 },
       { name: 'hand', frame: 'boss_tidecaller:hand', x: 0, y: 0, px: 3, py: 2, follow: [6, 2, 22] },
       { name: 'bell', frame: 'boss_tidecaller:bell', x: 0, y: 0, px: 8, py: 1, follow: [6, 9, 7] },
+    ],
+  },
+  // The Salt Marsh's (0.8.0, art/draw/marshbosses.js). The Old Grey: a heron standing, its feet on
+  // the shadow's line, the S of its neck rising from the breast, the head and bill on top; the wings
+  // spread only when it leaps. The Salt Widow: the open cloak, the crown on the hood, an arm each side.
+  boss_old_grey: {
+    parts: [
+      { name: 'wingFar', frame: 'boss_grey:wing', x: 6, y: -24, px: 1, py: 14, still: false },
+      { name: 'legFar', frame: 'boss_grey:leg', x: -3, y: -11, px: 5, py: 0 },
+      { name: 'body', frame: 'boss_grey:body', x: 0, y: -16, px: 16, py: 9 },
+      { name: 'legNear', frame: 'boss_grey:leg', x: 2, y: -11, px: 5, py: 0 },
+      { name: 'neck', frame: 'boss_grey:neck', x: 0, y: 0, px: 3, py: 23, follow: [2, 27, 4] },
+      { name: 'head', frame: 'boss_grey:head', x: 0, y: 0, px: 8, py: 6, follow: [4, 8, 1] },
+      { name: 'wingNear', frame: 'boss_grey:wing', x: 0, y: 0, px: 1, py: 14, follow: [2, 21, 3], still: false },
+    ],
+  },
+  boss_salt_widow: {
+    parts: [
+      { name: 'armBack', frame: 'boss_widow:arm', x: -10, y: -21, px: 4, py: 1 },
+      { name: 'cloak', frame: 'boss_widow:cloak', x: 0, y: 0, px: 18, py: 34 },
+      { name: 'crown', frame: 'boss_widow:crown', x: 0, y: 0, px: 8, py: 7, follow: [1, 18, 3] },
+      { name: 'armFront', frame: 'boss_widow:arm', x: 0, y: 0, px: 4, py: 1, follow: [1, 27, 14] },
     ],
   },
 });

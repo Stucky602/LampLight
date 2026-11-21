@@ -59,6 +59,8 @@ export function createFrameRecorder(initialTicks = 3600) {
     get length() { return count; },
     /** Exactly the recorded bytes (a copy). */
     toBytes() { return buf.slice(0, count * FRAME_BYTES); },
+    /** The recorded bytes from byte `from` on (a copy): what a checkpoint hasn't saved yet. */
+    bytesFrom(from = 0) { return buf.slice(Math.max(0, Math.min(from, count * FRAME_BYTES)), count * FRAME_BYTES); },
     clear() { count = 0; },
   };
 }

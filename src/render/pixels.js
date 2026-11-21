@@ -15,6 +15,8 @@ export const LEGEND = Object.freeze({
   c: 'gem-1', C: 'gem-2', e: 'gem-3', E: 'gem-4',
   m: 'moss-2', M: 'moss-3', h: 'moss-4',
   v: 'violet-2', V: 'violet-3', x: 'violet-4',
+  // C3 (ruling 18 P2): wood, so a shot's shaft or handle needn't borrow the lamp's orange.
+  a: 'wood-3', A: 'wood-4', B: 'skin-2',
 });
 
 const RGB = new Map();

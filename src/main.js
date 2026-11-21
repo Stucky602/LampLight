@@ -9,8 +9,11 @@ import './ui/ui.css';
 import { createLoop } from './app/loop.js';
 import { createSceneManager } from './app/scenes.js';
 import { createErrorLog } from './app/errors.js';
-import { openStore, nativeBridge, TARGET, BUILD_ID } from './app/platform.js';
-import { createVersionCheck, attachVersionCheck, fetchVersionJson, sessionStore } from './app/version-check.js';
+import { openStore, nativeBridge, TARGET, BUILD_ID, buildStampText } from './app/platform.js';
+import { createSaveCodes } from './app/savecode.js';
+import { claimSaves, readOnlyStore, TAB_TEXT } from './app/tabguard.js';
+import { createCheckpointer, createResumeOffer, resumeNote } from './app/resume.js';
+import { createVersionCheck, attachVersionCheck, checkAtSafePoints, fetchVersionJson, sessionStore } from './app/version-check.js';
 import { createUpdateMarker, UPDATE_TEXT } from './ui/update-marker.js';
 import { createRenderer, VIEW_W, VIEW_H } from './render/renderer.js';
 import { createAtlas } from './render/atlas.js';
@@ -22,9 +25,11 @@ import { createHud } from './render/hud.js';
 import { createInput } from './input/input.js';
 import { createDebugOverlay } from './ui/overlay.js';
 import { createUi } from './ui/screens.js';
-import { titleScreen, errorScreen, creditsScreen, confirmScreen } from './ui/menus.js';
+import { titleScreen, errorScreen, creditsScreen, confirmScreen, questionScreen } from './ui/menus.js';
+import { glossaryScreen } from './ui/glossary.js';
 import { CREDITS } from './data/credits.js';
 import { createAudio } from './audio/audio.js';
+import { musicFor } from './audio/cues.js';
 import { createLampyardScene } from './app/scenes/lampyard.js';
 import { createRunScene } from './app/scenes/run.js';
 import { createHubScene } from './app/scenes/hub.js';
@@ -33,15 +38,18 @@ import { createHubTuning } from './hub/tuning.js';
 import { profileFromLoad } from './app/profileboot.js';
 import { createProgressKeeper } from './app/keeper.js';
 import { createGameFlow } from './app/flow.js';
-import { titleStartLabel } from './app/hublogic.js';
+import { titleStartLabel, completionText } from './app/hublogic.js';
 import { createIconFactory } from './app/icons.js';
 import { openSettings } from './app/settings-flow.js';
-import { runSmoke } from './app/smoke.js';
+import { wireCloseQuestion } from './app/closequestion.js';
+import { createRumble } from './app/rumble.js';
+import { RUMBLE } from './data/sfx.js';
 import { wirePauses } from './app/pauses.js';
 import { stampName } from './save/store.js';
 import { encodeReplay, buildReport } from './save/replay.js';
 import { tuningDiff } from './ui/tuningmodel.js';
 import { DATA } from './data/index.js';
+import { seenOn, seenAnywhere, mapsOpen } from './meta/state.js';
 
 const uiRoot = document.getElementById('ui');
 const params = new URLSearchParams(location.search);
@@ -75,7 +83,11 @@ async function boot() {
 
   // The web smoke test (?smoke) uses its own save space so it can never touch the real profile.
   // The desktop smoke test gets a throwaway save folder from the main process instead.
-  const { store, note, loud } = await openStore(window, { namespace: params.has('smoke') && !native ? 'smoke' : null });
+  const opened = await openStore(window, { namespace: params.has('smoke') && !native ? 'smoke' : null });
+  const { note, loud } = opened;
+  // The web build in a second tab saves nothing (0.9.0, app/tabguard.js): the first tab keeps the save.
+  const tab = native ? { owner: true } : await claimSaves({ name: params.has('smoke') ? 'lamplight-smoke-save' : 'lamplight-save' });
+  const store = tab.owner ? opened.store : readOnlyStore(opened.store);
   const settings = await store.loadSettings();
   // The profile, fitted to this build (app/profileboot.js). A save from a newer build stops here.
   const start = profileFromLoad(await store.loadProfile(), DATA);
@@ -87,12 +99,18 @@ async function boot() {
   const drawCalls = countDrawCalls(renderer);
   const atlas = createAtlas({ image: await loadAtlasImage(atlasUrl), json: atlasJson, url: atlasUrl });
   const input = createInput({ settings: settings.controls });
+  // The controller's rumble (0.8.2): the pad in use, by Settings' switch and strength (read live).
+  const rumble = createRumble({ table: RUMBLE, settings: () => settings.controls, activePad: () => input.activePad, device: () => input.device });
   // A scene that can't start (or a listener that throws) goes to the error screen, as a crash does.
   const scenes = createSceneManager({ onError: (e) => { errors.add('scene', e?.message || String(e), e?.stack); showError(e); } });
   const overlay = createDebugOverlay(uiRoot, { build: BUILD_ID, target: TARGET });
   if (!params.has('debug')) overlay.toggle(); // hidden until F3 (the smoke and shot tools show it)
   const marker = createUpdateMarker(uiRoot, document);
   if (note && loud) marker.show(note, 'storage');
+  if (!tab.owner) {
+    marker.show(TAB_TEXT.readOnly, 'tabs');
+    tab.onFree?.(() => marker.show(TAB_TEXT.takeOver, 'tabs'));
+  }
   // The profile in memory, saved at every change; a failed save is shown and never left behind (app/keeper.js).
   // The desktop shell is told while a save fails, so closing its window asks first (desktop/main.cjs).
   const keeper = createProgressKeeper({
@@ -109,12 +127,31 @@ async function boot() {
   input.on('device', unlockAudio);
   const icon = createIconFactory(atlas);
   const menuCtx = { ui, icon, sound: (name) => audio.play(name) };
-  const access = settings.access; // live: the run view reads shake, numbers, and flash settings from it
+  ui.setTextScale(settings.access.textScale);
+  // The glossary (0.9.0): from the title, the pause menu, the harbor's menu, and the glossary
+  // button on any screen that names a term (ui/screens.js). `onClose` runs when it closes.
+  function openGlossary(id = null, onClose = null) {
+    // An entry for a character not played yet, or a map not opened yet, shows grayed (RULING-L1).
+    // (Round 2, the director's call: what the player meets in the run under way counts as seen at once.)
+    const now = scenes.name === 'run' ? runScene?.world : null;
+    const seen = (e) => {
+      const P = keeper?.profile?.profile;
+      if (e.only?.character) return now?.character?.id === e.only.character || (P?.characters?.[e.only.character]?.masteryXp ?? 0) > 0;
+      if (e.only?.map) return now?.map?.id === e.only.map || mapsOpen(keeper?.profile, DATA).includes(e.only.map);
+      return true;
+    };
+    const g = glossaryScreen(menuCtx, { data: DATA, kinds: DATA.glossaryKinds, initial: id, seen, onBack: () => { ui.close(g); onClose?.(); } });
+    ui.push(g);
+    return g;
+  }
+  ui.setGlossary({ data: DATA, open: (id) => openGlossary(id) });
+  menuCtx.glossary = openGlossary;
+  const access = settings.access; // live: the run view reads the numbers and flash settings from it
   const view = createRunView({ renderer, atlas, data: DATA, access });
   // The harbor's live tuning (hub/tuning.js): its tuning panel changes it, the view and the world read it.
   const hubTuning = createHubTuning(DATA.hubTuning);
-  const hubView = createHubView({ renderer, atlas, data: DATA, tuning: hubTuning });
-  const hud = createHud({ renderer, atlas, data: DATA, hudSettings: settings.hud }); // live: the minimap's setting
+  const hubView = createHubView({ renderer, atlas, data: DATA, tuning: hubTuning, access });
+  const hud = createHud({ renderer, atlas, data: DATA, hudSettings: settings.hud, access }); // live: the minimap's setting, the text size
 
   // Settings save a moment after the last change (a slider held down is one save), or at once
   // when asked (before the window is replaced, before quitting, before an update reloads).
@@ -194,6 +231,34 @@ async function boot() {
     }
   }
 
+  /** Put text on the clipboard quietly: resolves to whether it did. */
+  async function toClipboard(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+  }
+
+  // The save code (export and import a save as text), from the title's menu and the harbor's.
+  // An import replaces the profile through the keeper (the old save goes into the backups), and the
+  // screen it came from shows the new one.
+  const saveCodes = createSaveCodes({
+    ui, menuCtx, store, keeper, data: DATA, deliverFile, copy: toClipboard,
+    // Paste code (0.9.0): the desktop reads the clipboard in its main process (a pad can finish
+    // it); the browser asks for it, and a box to paste into is the fallback.
+    readClipboard: () => (native?.readClipboard ? native.readClipboard() : navigator.clipboard.readText()),
+    onImported: () => {
+      // Another profile now: a run left in the middle was the old profile's, and is gone (S4 B4).
+      resumeOffer.drop();
+      if (scenes.name === 'hub') scenes.go('hub');
+      else if (scenes.name === 'title') { ui.closeAll(); showTitle(); }
+    },
+  });
+
+  // The run left in the middle, if there is one (app/resume.js): loaded below, once the scenes exist.
+  const resumeOffer = createResumeOffer({
+    store, buildId: BUILD_ID, owner: tab.owner, runs: () => Number(keeper.profile?.stats?.runs) || 0,
+    note: (m) => errors.note('checkpoint', m),
+  });
+  const checkpointer = createCheckpointer();
+
   /** Ask before leaving with progress a save couldn't keep. Resolves true to leave anyway. */
   function askToLeave(yes) {
     return new Promise((resolve) => {
@@ -224,7 +289,7 @@ async function boot() {
   // ------------------------------------------------------------ scenes
 
   const showSettings = () => openSettings({
-    ui, menuCtx, settings, desktop: !!native, native, input, audio, renderer, save: saveSettings,
+    ui, menuCtx, settings, desktop: !!native, native, input, audio, renderer, save: saveSettings, rumble,
     // Reopening the window (to or from borderless) reloads the page: only at the title or in the
     // harbor, and never over progress that isn't saved.
     atTitleOrHarbor: () => flow.atTitleOrHarbor(),
@@ -248,12 +313,28 @@ async function boot() {
   }
 
   runScene = createRunScene({
-    view, hud, input, get loop() { return loop; }, ui, menuCtx, audio, data: DATA, buildId: BUILD_ID, renderer,
+    beats: true,   // C3: a Legendary's and a Form's pick hold their card for a beat (ruling 14 E); the tests' rigs leave it off
+    view, hud, input, get loop() { return loop; }, ui, menuCtx, audio, rumble, data: DATA, buildId: BUILD_ID, renderer, settings,
     onTitle: () => scenes.go('title'),
     onHarbor: () => flow.toHarbor(),
     configFor: (choice) => flow.configFor(choice),
     isFirstRun: () => (Number(keeper.profile?.stats?.runs) || 0) === 0,
-    onRunSaved: (replay, result) => flow.onRunSaved(replay, result),
+    // What earlier runs have shown (0.8.0): first sightings and the pause menu's Field guide.
+    seen: { on: (map) => seenOn(keeper.profile, map), any: () => seenAnywhere(keeper.profile) },
+    // The profile as it stands (read only): the pause menu's codex for the run's map counts kills from it.
+    profile: () => keeper.profile,
+    // The run's end saved: its checkpoint is done with (0.9.0, app/resume.js).
+    onRunSaved: (replay, result) => Promise.resolve(flow.onRunSaved(replay, result)).then(() => { resumeOffer.clear(); return store.clearCheckpoint?.(); }),
+    // As a run sets out and every minute of it: the run so far, so a crash, a power cut, or a
+    // closed tab can resume it. Each one packs only the frames since the last (app/resume.js).
+    onCheckpoint: (rec, w, choice) => {
+      try {
+        store.saveCheckpoint?.(checkpointer.make(rec, { runs: Number(keeper.profile?.stats?.runs) || 0, map: w.map.id, character: w.character.id, tick: w.tick, choice }))
+          ?.catch?.((e) => errors.add('checkpoint', `Could not save the run's checkpoint: ${e?.message || e}`));
+      } catch (e) { errors.add('checkpoint', e?.message || String(e)); }
+    },
+    // The desktop shell asks before its window closes mid-run (desktop/shell.cjs RUN_DIALOG).
+    onRunLive: (on) => { native?.setInRun?.(on)?.catch?.(() => {}); },
     onError: (e) => { errors.add('run end', e?.message || String(e), e?.stack); showError(e); },
     onSettings: showSettings, saveReport, copyText, startRun,
   });
@@ -262,18 +343,32 @@ async function boot() {
   const hubScene = createHubScene({
     view: hubView, input, ui, menuCtx, audio, data: DATA, hubTuning, buildId: BUILD_ID, copyText,
     profile: { get: () => keeper.profile, save: (doc) => { keeper.keep(doc); } },
-    startRun, onTitle: () => scenes.go('title'), onSettings: showSettings, onQuit: quit,
+    startRun, onTitle: () => scenes.go('title'), onSettings: showSettings, onQuit: quit, onSaveCode: () => saveCodes.open(),
     // The harbor with nothing on screen and no set piece running: a waiting update can load now.
     onIdle: () => versionCheck?.atSafePoint(),
   });
 
+  // A run left in the middle (a crash, a closed tab): the title offers to resume it (app/resume.js).
+  // A tab that doesn't own the save (the read-only second tab) is offered nothing: the slot holds
+  // the first tab's live run (S4 B6).
+  await resumeOffer.load();
+  // A closed tab or window mid-run: the checkpoint now, not just at the last minute.
+  window.addEventListener('pagehide', () => { if (scenes.name === 'run') runScene.checkpointNow(); });
+
   function showTitle() {
     const s = titleScreen(menuCtx, {
-      build: BUILD_ID,
+      build: buildStampText(BUILD_ID),
+      onSaveCode: () => saveCodes.open(),
       startLabel: titleStartLabel(keeper.profile),
-      onStart: () => { ui.close(s); flow.fromTitle(); },
+      completion: completionText(keeper.profile, DATA),
+      // Resume run, when a run was left in the middle: played back to where it stopped, then yours.
+      onResume: resumeOffer.current ? () => { const r = resumeOffer.take(); ui.close(s); scenes.go('run', { resume: r }); } : null,
+      resumeNote: resumeOffer.current ? resumeNote(DATA, resumeOffer.current) : null,
+      // Starting something else instead: the left-over run is gone.
+      onStart: () => { ui.close(s); if (resumeOffer.current) resumeOffer.drop(); flow.fromTitle(); },
       onSettings: showSettings,
       onCredits: () => { const c = creditsScreen(menuCtx, { credits: CREDITS, onBack: () => ui.close(c) }); ui.push(c); },
+      onGlossary: () => openGlossary(),
       onQuit: quit,
       note: audio.ok && audio.state === 'suspended' && !native ? 'Sound starts after your first key press or click.' : null,
     });
@@ -314,6 +409,8 @@ async function boot() {
     step: (dt, tick) => scenes.step(dt, tick),
     render: (alpha, ms) => {
       ui.layout(renderer.place, VIEW_W, VIEW_H);
+      // The music for where you are (W6, 0.9.0): the harbor's, the run's, or a boss's; a no-op when unchanged.
+      audio.setMusic?.(musicFor(scenes.name, runScene?.world));
       // Say why the game stopped when it isn't the player's own doing.
       if (loop.isPaused('controller')) marker.show('Paused: controller disconnected. Reconnect it or press any key.', 'paused');
       else if (loop.isPaused('blur') && scenes.name === 'run') marker.show('Paused: the game is in the background.', 'paused');
@@ -336,7 +433,7 @@ async function boot() {
   });
 
   // Losing focus or the controller pauses the sim. Nothing is lost; rendering continues.
-  wirePauses({ loop, input, win: window });
+  wirePauses({ loop, input, win: window, onControllerLost: () => { if (scenes.name === 'run') runScene.controllerLost(); } });
 
   await scenes.go('title');
   loop.start();
@@ -357,7 +454,8 @@ async function boot() {
     });
     versionCheck = vc;
     attachVersionCheck(vc, window, document);
-    scenes.onChange(() => { if (scenes.isSafePoint()) vc.atSafePoint(); });
+    // Reaching the title or a quiet harbor loads an update already found, and looks for one.
+    checkAtSafePoints(vc, scenes);
   }
 
   // Desktop: F11 or Alt+Enter changes the display mode; keep settings in step so the next launch
@@ -368,16 +466,34 @@ async function boot() {
       store.saveSettings(settings).catch((e) => errors.add('save', `Could not save settings: ${e?.message || e}`));
     });
     native.ready?.();
+    // The window's X or Alt+F4 mid-run, or while a save fails (0.9.0, V5): asked here, on the game's
+    // own screen, so a pad can answer it (desktop/shell.cjs createPageQuestion); the system's dialog
+    // asks only when the page doesn't take the question.
+    wireCloseQuestion({
+      native, ui, loop,
+      inRunNow: () => scenes.name === 'run',
+      saveRun: () => runScene.leaveAndSave(),
+      keepAll: () => keeper.leave({ flush: flushSettings, go: () => {} }),
+      makeScreen: (o) => questionScreen(menuCtx, o),
+      onError: (e) => errors.add('close', e?.message || String(e), e?.stack),
+    });
   }
 
   const game = {
-    loop, scenes, input, store, renderer, errors, settings, ui, audio, atlas, view, runScene, hubScene, hubView,
+    loop, scenes, input, store, renderer, errors, settings, ui, audio, rumble, atlas, view, runScene, hubScene, hubView,
     get profile() { return keeper.profile; }, bootMs: performance.now() - t0, startRun, saveReport, reportText,
+    openGlossaryForTools: (id) => openGlossary(id),
+    openSettingsForTools: () => showSettings(),
     /** The smoke and screenshot tools' throwaway profile (kept in memory, not saved). */
     useProfileForTools(doc) { keeper.useForTools(doc); },
   };
-  window.__lamplight = game; // for tools/shots and the smoke test
-  if (params.has('smoke')) runSmoke(game, { native, seconds: Number(params.get('smoke')) || 30, params });
+  // The tools' hooks (tools/shots, the smoke test) are loaded and exposed only when asked for
+  // (?smoke): the smoke runner is its own chunk, and a player's page has no window.__lamplight.
+  if (params.has('smoke')) {
+    window.__lamplight = game;
+    const { runSmoke } = await import('./app/smoke.js');
+    runSmoke(game, { native, seconds: Number(params.get('smoke')) || 30, params });
+  }
   return game;
 }
 
@@ -407,5 +523,5 @@ boot().catch((e) => {
   bootMessage(`Lamplight couldn't start.\n\n${e?.message || e}\n\nIf it keeps happening, send a screenshot of this screen.`, true);
   const native = nativeBridge(window);
   if (params.has('smoke') && native) native.smokeDone({ ok: false, stage: 'boot', error: String(e?.message || e) });
-  window.__smokeResult = { ok: false, stage: 'boot', error: String(e?.message || e) };
+  if (params.has('smoke')) window.__smokeResult = { ok: false, stage: 'boot', error: String(e?.message || e) };
 });

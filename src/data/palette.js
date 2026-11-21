@@ -36,7 +36,7 @@ export const PALETTE = Object.freeze({
 
 /** Tag colors, for card borders and icon frames. */
 export const TAG_COLORS = Object.freeze({
-  light: 'lamp-5', fire: 'lamp-3', tide: 'sea-5', steel: 'fog-4', echo: 'violet-4', frost: 'gem-3', rot: 'moss-3',
+  light: 'lamp-5', fire: 'lamp-3', sea: 'sea-5', steel: 'fog-4', echo: 'violet-4', frost: 'gem-3', rot: 'moss-3',
 });
 
 /** '#rrggbb' to 0xrrggbb. */

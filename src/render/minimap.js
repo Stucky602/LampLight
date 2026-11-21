@@ -18,12 +18,23 @@ const KIND_RGB = {
   [GROUND.FLOOR]: rgb('night-3'), [GROUND.BRIDGE]: rgb('night-3'), [GROUND.DECK]: rgb('night-3'),
   [GROUND.CRATE]: rgb('night-5'), [GROUND.SHED_ROOF]: rgb('night-5'), [GROUND.SHED_WALL]: rgb('night-5'), [GROUND.SHED_DOOR]: rgb('night-5'),
   [GROUND.WRECK]: rgb('night-5'), [GROUND.WATER]: rgb('sea-1'),
+  // The Salt Marsh's (0.8.0): the flats palest, the mud and peat darker, stumps an obstacle; deep
+  // water, and any tile under the water now (terrain.wet), the water's blue.
+  [GROUND.SALT]: rgb('night-4'), [GROUND.REEDS]: rgb('night-3'), [GROUND.MUD]: rgb('night-2'), [GROUND.PEAT]: rgb('night-2'),
+  [GROUND.STUMP]: rgb('night-5'), [GROUND.DEEP]: rgb('sea-1'), [GROUND.CAUSEWAY]: rgb('night-4'), [GROUND.BOARDWALK]: rgb('night-4'), [GROUND.LANDING]: rgb('night-4'),
 };
+const WATER_RGB = rgb('sea-2');
 // The marks' colors (their shapes: minimapmodel.js MARK_SHAPES).
 const MARK_COL = {
   [MARK.MATERIAL]: pal('fog-3'), [MARK.HEAL]: pal('moss-4'), [MARK.MAGNET]: pal('sea-5'), [MARK.EMBER]: pal('violet-4'),
   [MARK.CHEST]: pal('lamp-5'), [MARK.ELITE]: pal('rot-3'), [MARK.BOSS]: pal('rot-3'), [MARK.PLAYER]: pal('lamp-6'),
-  [MARK.LAMP]: pal('lamp-4'), [MARK.LAMP_LIT]: pal('lamp-6'), [MARK.BELL]: pal('sea-5'), [MARK.FERRY]: pal('wood-4'), [MARK.RELIQUARY]: pal('violet-4'), [MARK.SECRET]: pal('violet-4'),
+  [MARK.LAMP]: pal('lamp-4'), [MARK.LAMP_LIT]: pal('lamp-6'), [MARK.RELIQUARY]: pal('violet-4'), [MARK.SECRET]: pal('violet-4'),
+  [MARK.WELL]: pal('fog-4'),
+  // 0.8.2: each kind in the color its edge arrow wears (render/signview.js SIGN_COLOR): the bell
+  // blue, the Ferryman teal, the vault violet in its own shape.
+  [MARK.LAMP_PART]: pal('lamp-5'), [MARK.BELL]: pal('gem-3'), [MARK.BELL_ON]: pal('gem-3'), [MARK.FERRY]: pal('sea-5'), [MARK.VAULT]: pal('violet-4'),
+  // 0.9.0 (W4): as their edge arrows (render/signview.js SIGN_COLOR).
+  [MARK.CRANE]: pal('wood-4'), [MARK.CAIRN]: pal('fog-5'),
 };
 const RARE_COL = pal('sea-6');
 const FRAME = pal('night-0'), BACK = pal('night-1'), EDGE = pal('night-5');
@@ -47,12 +58,12 @@ export function createMinimap() {
   const marks = createMarks();
   const win = { s: 1, ox: 0, oy: 0 };
   let world = null, canvas = null, tex = null, rgba = null, img = null, seen = null, cols = 0, rows = 0, rare = null, litSeen = null;
-  let lastKey = NaN, lastKey2 = NaN, dirty = false, flushedAt = -Infinity, lastBox = null, lastMode = '';
+  let lastKey = NaN, lastKey2 = NaN, dirty = false, flushedAt = -Infinity, lastBox = null, lastMode = '', groundVersion = 0;
 
   const paint = (i) => {
     const T = world.terrain;
     const k = T.kinds ? T.kinds[i] : (T.solid[i] ? GROUND.CRATE : GROUND.FLOOR);
-    const c = KIND_RGB[k] ?? KIND_RGB[GROUND.FLOOR];
+    const c = T.wet[i] === 1 ? WATER_RGB : KIND_RGB[k] ?? KIND_RGB[GROUND.FLOOR];
     rgba[i * 4] = c[0]; rgba[i * 4 + 1] = c[1]; rgba[i * 4 + 2] = c[2]; rgba[i * 4 + 3] = 255;
   };
 
@@ -68,7 +79,7 @@ export function createMinimap() {
       seen = new Uint8Array(cols * rows);
       litSeen = new Uint8Array((w.tasks || []).length);
       rare = Uint8Array.from(w.materialDefs ?? [], (m) => (m.rare ? 1 : 0));
-      lastKey = lastKey2 = NaN; dirty = true; flushedAt = -Infinity; lastBox = null;
+      lastKey = lastKey2 = NaN; dirty = true; flushedAt = -Infinity; lastBox = null; groundVersion = T.version;
       canvas = canvasFrom(cols, rows, rgba);
       tex?.destroy(true);
       tex = textureFrom(canvas);
@@ -83,7 +94,7 @@ export function createMinimap() {
     draw(box, mode, camera, nowMs) {
       if (!world) { root.visible = false; return; }
       if (camera) {
-        // Only when the tiles under the view change (not every shake or sub-tile step).
+        // Only when the tiles under the view change (not every sub-tile step).
         const t = world.terrain.tile;
         const key = Math.floor((camera.x - VIEW_W / 2) / t) * 4096 + Math.floor((camera.y - VIEW_H / 2) / t);
         const key2 = Math.floor((camera.x + VIEW_W / 2 - 1e-6) / t) * 4096 + Math.floor((camera.y + VIEW_H / 2 - 1e-6) / t);
@@ -92,8 +103,17 @@ export function createMinimap() {
           if (revealView(seen, cols, rows, t, camera.x, camera.y, VIEW_W, VIEW_H, paint) > 0) dirty = true;
         }
       }
+      // The Marsh's water moved (terrain.version): the tiles already seen are painted again, so the
+      // creeks show as water at high water and as mud at low.
+      if (world.terrain.version !== groundVersion) {
+        groundVersion = world.terrain.version;
+        for (let i = 0; i < seen.length; i++) if (seen[i]) paint(i);
+        dirty = true;
+      }
       // A lit Wayside Lamp uncovers the map around it (tuning.tasks.lamp.reveal tiles), once.
       const tasks = world.tasks || [];
+      // The acts add lamps as the run goes on (0.9.0, W4): the record grows with them.
+      if (litSeen.length < tasks.length) { const g = new Uint8Array(tasks.length + 16); g.set(litSeen); litSeen = g; }
       for (let k = 0; k < tasks.length; k++) {
         const tk = tasks[k];
         if (tk.kind !== TASK.LAMP || tk.state !== TASK_STATE.DONE || litSeen[k]) continue;

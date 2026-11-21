@@ -7,9 +7,15 @@
 // The Tidecaller's robe sways and its tentacles curl; its bell swings hard while it rings up a
 // fan or a summon, the robe rises before a slam, the tentacles reach out before its pools (and
 // further, with the staff raised, before its tide lanes), and it leans the staff into a charge.
+// The Old Grey (0.8.0) stalks, its legs stepping in turn; draws its neck back into the S before it
+// stabs and thrusts it out after; leaps with its wings spread (its only time they show), neck
+// folded and legs trailing; calls its summons with its bill up; and stuck in the mud, sinks to its
+// knees with its head down. The Salt Widow sways; raises her arm toward you as her lightning
+// marches, sweeps it as she throws, lifts both to summon, rises before a slam, and kneels, low and
+// still, while she's weak.
 
 import { RIGS } from './rigs.js';
-import { BOSS_STATE, warnTime } from '../sim/bosses.js';
+import { BOSS_STATE, warnTime, bossWeak } from '../sim/bosses.js';
 import { TPS } from '../sim/constants.js';
 
 /** The boss states, straight from the sim (a rig reads them; it never keeps its own copy). */
@@ -24,6 +30,7 @@ export const RIG_STATE = BOSS_STATE;
 export const RIG_LIGHTS = Object.freeze({
   boss_maw: Object.freeze({ part: 6, radius: 44, color: 'lamp-5' }),                   // the lure's bulb, warm like a lamp (it's a lure)
   boss_tidecaller: Object.freeze({ part: 5, radius: 36, at: [19, 13], color: 'sea-6' }), // the eyes, a cold green in the hood
+  boss_salt_widow: Object.freeze({ part: 1, radius: 34, at: [18, 11], color: 'gem-4' }),  // her pale eyes in the hood
 });
 
 /**
@@ -84,6 +91,10 @@ export function rigPose(id, s, pose) {
     // The bulb glows; while luring it swells and flickers fast (the lure is what draws you in).
     const glow = (1 + 0.12 * Math.sin(t * 4)) * lure;
     put(pose, 6, 0, 0, 0, glow, glow);                                   // the bulb
+  } else if (id === 'boss_old_grey') {
+    greyPose(s, t, u, warn, pose);
+  } else if (id === 'boss_salt_widow') {
+    widowPose(s, t, u, warn, pose);
   } else {
     let bell = 0.14 * Math.sin(t * 2), rise = Math.sin(t * 2) * 0.8, staffUp = 0, staffRot = 0.03 * Math.sin(t * 1.5), reach = 0;
     if (warn) {
@@ -105,18 +116,68 @@ export function rigPose(id, s, pose) {
   return pose;
 }
 
+/** The Old Grey's pose (parts: wingFar, legFar, body, legNear, neck, head, wingNear). */
+function greyPose(s, t, u, warn, pose) {
+  const step = Math.sin(t * 4);
+  let legF = 0.14 * step, legN = -0.14 * step, legS = 1, rise = 0.6 * Math.sin(t * 8);
+  let neckR = 0.05 * Math.sin(t * 1.5), neckS = 1, headR = 0.04 * Math.sin(t * 1.1), wing = 0, wingR = 0, lean = 0;
+  if (s.stuck) {
+    // Stuck fast in the mud: sunk to its joints, still, head hung.
+    legF = 0; legN = 0; legS = 0.55; rise = 8; neckR = 0.25; headR = 0.35;
+  } else if (warn && s.attack === 'leap') {
+    // In the air: wings spread and beating, neck folded back, legs trailing behind.
+    wing = 1; wingR = -0.35 + 0.55 * Math.sin(t * 11); legF = 1.1; legN = 1.0; neckR = -0.45; neckS = 0.55; headR = 0.15; lean = 0.12;
+  } else if (warn && s.attack === 'stab_line') {
+    // Drawing the neck back into a tight S, the bill held level at you.
+    neckR = -0.4 * u; neckS = 1 - 0.18 * u; headR = 0.35 * u; lean = -0.05 * u; legF = 0; legN = 0;
+  } else if (s.state === RIG_STATE.RECOVER && s.attack === 'stab_line') {
+    // The stab: the neck thrust out forward, the bill driven along it (not raised).
+    neckR = 1.05; neckS = 1.2; headR = 0.25; lean = 0.1; legF = 0; legN = 0;
+  } else if (warn && s.attack === 'summon_wave') {
+    // Calling: the bill raised.
+    neckR = -0.12; headR = -0.7 - 0.1 * Math.sin(t * 9); legF = 0; legN = 0;
+  } else if (warn) { neckR = -0.2 * u; legF = 0; legN = 0; }
+  put(pose, 0, 0, rise - 2, wingR - 0.3, wing, wing);   // the far wing, a little behind and higher
+  put(pose, 1, 0, 0, legF, 1, legS);
+  put(pose, 2, 0, rise, lean, 1, 1);
+  put(pose, 3, 0, 0, legN, 1, legS);
+  put(pose, 4, 0, 0, neckR, 1, neckS);
+  put(pose, 5, 0, 0, headR, 1, 1);
+  put(pose, 6, 0, 0, wingR, wing, wing);
+}
+
+/** The Salt Widow's pose (parts: armBack, cloak, crown, armFront). */
+function widowPose(s, t, u, warn, pose) {
+  let rise = Math.sin(t * 2) * 0.8, sway = 0.03 * Math.sin(t * 1.6), squash = 1;
+  let front = 0.08 * Math.sin(t * 1.3), back = -0.06 * Math.sin(t * 1.3 + 1);
+  if (s.weak) {
+    // Kneeling: lower and shorter, arms hanging, still.
+    rise = 6; squash = 0.86; sway = 0; front = 0.1; back = -0.05;
+  } else if (warn && s.attack === 'lightning_march') { front = -1.45 * u; back = -0.4 * u; }
+  else if (warn && s.attack === 'projectile_fan') { front = -1.1 + 0.5 * Math.sin(t * 7); back = -0.2; }
+  else if (warn && s.attack === 'summon_wave') { front = -2.5 * u; back = -2.2 * u; }
+  else if (warn && s.attack === 'slam_ring') { rise = -3 * u; front = -0.7 * u; back = 0.5 * u; }
+  else if (warn) front = -0.5 * u;
+  put(pose, 0, 0, rise, back, 1, 1);
+  put(pose, 1, 0, rise, sway, 1, squash);
+  put(pose, 2, 0, 0, -sway, 1, 1);
+  put(pose, 3, 0, 0, front, 1, 1);
+}
+
 /**
  * What a rig is posed from, read off the sim's boss (world.bosses[k]). `u` uses the sim's own
  * warning time, so the Maw's jaw is fully open on the tick its slam lands.
  * @param {object} world
  * @param {object} b      the boss's state (world.bosses[k])
  * @param {number} phase  0..1, the enemy's own animation offset
- * @param {object} out    { t, state, attack, u }, written in place
+ * @param {object} out    { t, state, attack, u, stuck, weak }, written in place
  */
 export function rigInput(world, b, phase, out) {
   out.t = world.tick / TPS + phase * 10;
   out.state = b.state;
   out.attack = b.attack ? b.attack.type : '';
   out.u = b.state === BOSS_STATE.WARN && b.attack ? 1 - b.timer / warnTime(world, b.attack) : 0;
+  out.stuck = world.tick < b.stuckUntil ? 1 : 0;   // the Old Grey stuck in the mud
+  out.weak = bossWeak(world, b) ? 1 : 0;           // a weak window (the Salt Widow kneels)
   return out;
 }

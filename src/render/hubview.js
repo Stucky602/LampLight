@@ -5,7 +5,8 @@
 //   the sea (three frames of swell, drifting) · the ground (one texture, drawn once) · everything
 //   that stands up, sorted by where its feet are: trees, fences, props, the buildings at their
 //   stages (a scaffold over a ruin; during a ceremony the new stage rises over the old), the lamps,
-//   the keepers and the characters waiting, and you · chimney smoke and building dust · the light
+//   the bunting at the gate, the keepers and the characters waiting, the town's life (townsfolk
+//   out walking, animals, boats at their moorings), and you · chimney smoke and building dust · the light
 //   map (multiplied: the night, and the lamps' pools) · the fog over the regions not yet clear,
 //   thick, soft at its edge, drifting, thinning as a region peels back · a boat coming in, and
 //   whoever is in it (over the fog: a lantern out in the mist).
@@ -26,10 +27,13 @@ import { Container, Graphics, Sprite, Texture, TilingSprite, RenderTexture, Rect
 import { VIEW_W, VIEW_H, MARGIN, splitCamera } from './layout.js';
 import { color as pal } from '../data/palette.js';
 import {
-  groundFrame, objectFrame, buildingDraw, harborLights, cameraAt, arrivalLook, appearsAt, hopPhase, clampCamera, fogDensity, lookColor, ambientLight,
+  groundFrame, objectFrame, buildingDraw, harborLights, BEAM, cameraAt, arrivalLook, appearsAt, hopPhase, clampCamera, fogDensity, lookColor, ambientLight,
   ANCHORS, drawnAt, flickerAt, boatBobAt, fogAtPoint, fogPixels, fogRedraw, newcomerTint, boatTint, clearOfBoat, steppingAlpha, scaffoldAt,
+  ambientLook, buntingAt, propFrame, BUNTING_TIE,
 } from './hubtiles.js';
 import { PLAYER_FEET_ROOM } from './playerframe.js';
+import { ROOF_ROOM } from './buildingframe.js';
+import { brightnessLift } from './brightness.js';
 import { stepHop } from './viewstate.js';
 
 const TILE = 16;
@@ -58,7 +62,7 @@ function canvasTexture(owned, w, h, paint, { repeat = false, linear = false } = 
  * tuning: the harbor's live tuning ({ timing, look }, the shape of data/tuning.js HUB_TUNING; the
  * app's copy the tuning panel changes), read every frame. Defaults to the data's.
  */
-export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }) {
+export function createHubView({ renderer, atlas, data, tuning = data.hubTuning, access = {} }) {
   const hub = data.hub;
   let LOOK = tuning.look;          // this frame's look (draw() reads it again each frame)
   const avatar = data.characters.find((c) => c.id === hub.avatar)?.sprite;
@@ -131,7 +135,11 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
   const boatGlow = named(new Sprite(atlas.glow), 'boat-halo');
   boatGlow.anchor.set(0.5);
   boatGlow.blendMode = 'add';
-  root.addChild(water, ground, actors, dustLayer, lightSprite, fogSprite, boatLayer);
+  // C3: the Lighthouse's beam at its last stage, a still shaft of light in the air over the fog
+  // (added light, never a sweep: nothing moves the view).
+  const beamG = named(new Graphics(), 'lighthouse-beam');
+  beamG.blendMode = 'add';
+  root.addChild(water, ground, actors, dustLayer, lightSprite, fogSprite, beamG, boatLayer);
 
   // ---------------------------------------------------------------- what stands up
 
@@ -148,21 +156,25 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
   const plots = hub.plots.map((p) => {
     const lower = feet(named(new Sprite(), `stage-below:${p.building}`), (p.y + p.h) * TILE - 0.02);
     const upper = feet(named(new Sprite(), `stage:${p.building}`), (p.y + p.h) * TILE - 0.01);
-    const scaffold = feet(named(new Sprite(T('hub_scaffold_5x4')), `scaffold:${p.building}`), (p.y + p.h) * TILE);
+    const scaffold = feet(named(new Sprite(T(p.w === 3 ? 'hub_scaffold_3x4' : 'hub_scaffold_5x4')), `scaffold:${p.building}`), (p.y + p.h) * TILE);
     const mask = named(new Graphics(), `rise-mask:${p.building}`);
     mask.visible = false;
     root.addChild(mask);
     return { p, lower, upper, scaffold, mask, maskEdge: NaN, maskH: 0, smoke: 0 };
   });
   const lampPlot = hub.plots.find((p) => p.building === 'lamp_post');
-  /** A stage's frame on its plot: the Lamp Post's lamp stands on its tile; a building fills its plot. */
+  /**
+   * A stage's frame on its plot: the Lamp Post's lamp stands on its tile; a building fills its plot,
+   * stood by its foot (its frame's room above the roof reaches into the tile above, buildingframe.js).
+   */
   const place = (s, p, id) => {
     s.texture = T(id);
-    if (p === lampPlot) { s.anchor.set(0.5, 1); s.position.set(p.x * TILE + 8, (p.y + 1) * TILE); } else s.position.set(p.x * TILE, p.y * TILE);
+    if (p === lampPlot) { s.anchor.set(0.5, 1); s.position.set(p.x * TILE + 8, (p.y + 1) * TILE); } else { s.anchor.set(0, 1); s.position.set(p.x * TILE, (p.y + p.h) * TILE); }
   };
   for (const r of hub.ruins) {
     const s = named(new Sprite(T(`bld_${r.id}_ruin`)), `ruin:${r.id}`);
-    s.position.set(r.x * TILE, r.y * TILE);
+    s.anchor.set(0, 1);
+    s.position.set(r.x * TILE, (r.y + r.h) * TILE);
     feet(s, (r.y + r.h) * TILE);
   }
   // Small lamps: the gate's (on the sea wall) and the pier's end.
@@ -174,8 +186,9 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
     s.position.set(x * TILE + 8, (y + 1) * TILE - ANCHORS.smallLampLift);
     feet(s, (y + 1) * TILE);
   }
-  const propSprites = new Map();     // prop id -> { sprite, born, seen }
+  const propSprites = new Map();     // prop id -> { sprite, flags (its bunting), frames, fps, born, seen }
   const people = new Map();          // person id -> { sprite, born, seen }
+  const ambient = new Map();         // the town's life: id -> { sprite, born, seen, phase }
   /** A person's sprite, stood by their feet (the frame keeps a little room below them). */
   const standUp = (s, tex) => { s.texture = tex; s.anchor.set(0.5, (tex.frame.height - PLAYER_FEET_ROOM) / tex.frame.height); return s; };
   const makePerson = (tex, label) => {
@@ -256,7 +269,7 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
       // The new stage rises from the ground up over the old one, with dust along the line.
       if (d.reveal > 0 && d.reveal < 1) {
         const h = b.upper.texture.frame.height, w = b.upper.texture.frame.width;
-        const top = p === lampPlot ? (p.y + 1) * TILE - h : p.y * TILE;
+        const top = p === lampPlot ? (p.y + 1) * TILE - h : (p.y + p.h) * TILE - h;
         const left = p === lampPlot ? p.x * TILE + 8 - w / 2 : p.x * TILE;
         const edge = top + h * (1 - d.reveal);
         if (b.maskEdge !== edge || b.maskH !== h) { b.mask.clear().rect(left - 1, edge - 1, w + 2, h * d.reveal + 2).fill(0xffffff); b.maskEdge = edge; b.maskH = h; }
@@ -286,14 +299,52 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
         s.anchor.set(0.5, 1);
         s.position.set(pr.at[0] * TILE + 8, (pr.at[1] + 1) * TILE);
         feet(s, (pr.at[1] + 1) * TILE);
-        e = { sprite: s, born: world.time, seen: 0 };
+        // A prop strung back to a lamp (the gate's second lamp) brings its bunting with it.
+        const def = hub.props.find((q) => q.id === pr.id);
+        let flags = null;
+        if (def?.strung) {
+          const b = buntingAt(hub, def);
+          flags = named(new Sprite(T('hub_bunting')), `bunting:${pr.id}`);
+          flags.position.set(b.x, b.y);
+          feet(flags, Math.max(b.left.y, b.right.y) + BUNTING_TIE + 0.5);   // over what stands between the posts
+        }
+        e = { sprite: s, flags, frames: atlas.frames(pr.sprite), fps: atlas.anim(pr.sprite).fps, born: world.time, seen: 0 };
         propSprites.set(pr.id, e);
       }
       e.seen = frameNo;
+      if (e.frames.length > 1) e.sprite.texture = e.frames[propFrame(e.frames.length, e.fps, world.time)];
       const t = (world.time - e.born) / LOOK.popSec;
       e.sprite.scale.set(t >= 1 ? 1 : Math.max(0, easeOutBack(t, LOOK.popOvershoot)));
+      if (e.flags) e.flags.alpha = Math.min(1, Math.max(0, t));
     }
-    for (const [id, e] of propSprites) if (e.seen !== frameNo) { e.sprite.destroy(); propSprites.delete(id); }
+    for (const [id, e] of propSprites) if (e.seen !== frameNo) { e.sprite.destroy(); e.flags?.destroy(); propSprites.delete(id); }
+  }
+
+  /**
+   * The town's life (hubtiles.js ambientLook): townsfolk walking their loops, animals, and boats at
+   * their moorings, none of them solid. During a ceremony, what the new level brings waits until
+   * its stage is up, then fades in as a keeper does.
+   */
+  function drawAmbient() {
+    const tl = world.timeline;
+    const shown = tl && tl.kind === 'ceremony' && !(tl.build >= 1) ? { ...levels, [tl.building]: tl.from } : levels;
+    for (const a of ambientLook(hub, shown, world.time, LOOK)) {
+      let e = ambient.get(a.id);
+      if (!e) {
+        const s = named(new Sprite(T(a.sprite)), `ambient:${a.id}`);
+        if (a.sprite.startsWith('npc_')) standUp(s, T(a.sprite)); else s.anchor.set(0.5, 1);
+        actors.addChild(s);
+        e = { sprite: s, born: world.time, seen: 0, phase: hopPhase(a.id, LOOK.hopStepsPerSec) };
+        ambient.set(a.id, e);
+      }
+      e.seen = frameNo;
+      const hop = a.moving ? stepHop(true, world.time + e.phase, LOOK.hopStepsPerSec) : 0;
+      e.sprite.position.set(Math.round(a.x), Math.round(a.y) - hop);
+      e.sprite.scale.x = a.facing < 0 ? -1 : 1;
+      e.sprite.zIndex = a.y;
+      e.sprite.alpha = Math.min(1, (world.time - e.born) / LOOK.popSec);
+    }
+    for (const [id, e] of ambient) if (e.seen !== frameNo) { e.sprite.destroy(); ambient.delete(id); }
   }
 
   function drawPeople(alpha) {
@@ -403,18 +454,32 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
     const tl = world.timeline;
     const p = world.player;
     const [yx, yy] = drawnAt(p, alpha);
-    const lights = harborLights({ hub, levels, cer: tl && tl.kind === 'ceremony' ? tl : null, look: LOOK, you: { x: yx, y: yy }, arrival });
+    const lights = harborLights({ hub, levels, cer: tl && tl.kind === 'ceremony' ? tl : null, look: LOOK, you: { x: yx, y: yy }, arrival, props: world.props });
     for (const L of lights) n = light(n, L.x, L.y, L.r * (L.steady ? 1 : flick), L.color, L.alpha);
     for (let i = n; i < lightPool.length; i++) lightPool[i].visible = false;
     stats.lights = n;
     const [ar, ag, ab] = ambientLight(LOOK);
     app.render({ container: lightRoot, target: lightRT, clear: true, clearColor: [ar, ag, ab, 1] });
+    drawBeam(flick);
     lightSprite.position.set(origin.x, origin.y);
     // The boat and its newcomer, drawn over the light map, are lit as it would light them
     // (hubtiles.js boatTint and newcomerTint).
     if (arrival) {
       boat.tint = hull.tint = boatTint(arrival, lights, fogAt, LOOK, flick);
       passenger.tint = stepping.tint = newcomerTint(arrival, lights, fogAt, LOOK, flick) ?? 0xffffff;
+    }
+  }
+
+  /** The Lighthouse's still beam (C3), from its lantern out to sea: three soft wedges, widest faintest. */
+  function drawBeam(flick) {
+    beamG.clear();
+    const lh = hub.plots.find((q) => q.building === 'lighthouse');
+    if (!lh || levelOf('lighthouse') < 10) return;
+    const gx = lh.x * 16 + lh.w * 8, gy = lh.y * 16 - 7, d = Math.hypot(BEAM.dx, BEAM.dy), ux = BEAM.dx / d, uy = BEAM.dy / d;
+    const len = LOOK.lighthouseBeamReach * BEAM.length, col = pal('lamp-5');
+    for (const [half, a] of [[0.34, 0.05], [0.2, 0.07], [0.09, 0.1]]) {
+      const w = len * half;
+      beamG.poly([gx - uy * 2, gy + ux * 2, gx + ux * len - uy * w, gy + uy * len + ux * w, gx + ux * len + uy * w, gy + uy * len - ux * w, gx + uy * 2, gy - ux * 2]).fill({ color: col, alpha: a * flick });
     }
   }
 
@@ -450,16 +515,19 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
     attach(w, lv) {
       world = w;
       levels = { ...lv };
-      for (const [, e] of propSprites) e.sprite.destroy();
+      for (const [, e] of propSprites) { e.sprite.destroy(); e.flags?.destroy(); }
       propSprites.clear();
       for (const [, e] of people) e.sprite.destroy();
       people.clear();
+      for (const [, e] of ambient) e.sprite.destroy();
+      ambient.clear();
       arrivalId = null;
       // What's already there at the start doesn't pop in.
       frameNo++;
-      drawProps(); drawPeople(1);
+      drawProps(); drawPeople(1); drawAmbient();
       for (const e of propSprites.values()) e.born = -Infinity;
       for (const e of people.values()) e.born = -Infinity;
+      for (const e of ambient.values()) e.born = -Infinity;
       renderer.world.addChild(root);
       fogState = null;
     },
@@ -474,6 +542,10 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
       now += frameMs;
       frameNo++;
       LOOK = tuning.look;
+      // The Brightness setting (render/brightness.js) moves the night's ambient, as in a run; the
+      // look is copied only while the setting is off its middle.
+      const lift = brightnessLift(access.brightness);
+      if (lift !== 0) LOOK = { ...LOOK, ambientBoost: LOOK.ambientBoost + lift };
       // Camera: the world's (you, or a set piece), between its last two ticks, kept inside the map.
       const [fx, fy] = cameraAt(world, alpha);
       [camX, camY] = clampCamera(fx, fy - LOOK.cameraLift, mapW, mapH, VIEW_W, VIEW_H);
@@ -486,6 +558,7 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
       drawBuildings(dt);
       drawProps();
       drawPeople(alpha);
+      drawAmbient();
       drawArrival(alpha);
       drawPuffs(dt);
       const app = renderer.app.renderer;
@@ -501,7 +574,7 @@ export function createHubView({ renderer, atlas, data, tuning = data.hubTuning }
       if (near.kind === 'door') {
         const pl = hub.plots.find((q) => q.building === near.id);
         if (!pl) return null;
-        return pl === lampPlot ? { x: pl.x * TILE + 8, y: (pl.y + 1) * TILE - 48 } : { x: (pl.x + pl.w / 2) * TILE, y: pl.y * TILE - 4 };
+        return pl === lampPlot ? { x: pl.x * TILE + 8, y: (pl.y + 1) * TILE - 48 } : { x: (pl.x + pl.w / 2) * TILE, y: pl.y * TILE - ROOF_ROOM - 2 };
       }
       if (near.kind === 'gate') return { x: hub.gate.at[0] * TILE + 8, y: hub.gate.at[1] * TILE - 20 };
       const person = world.people.find((q) => q.id === near.id);

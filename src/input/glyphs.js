@@ -34,15 +34,15 @@ export function promptStyle(override, lastDevice, controllerType) {
 export const GLYPHS = Object.freeze({
   playstation: Object.freeze({
     confirm: '✕', back: '○', reroll: '□', banish: '△', skip: 'Hold L1', dash: 'R1',
-    pause: 'Options', tuning: 'Hold Create', move: 'Left stick', sides: '◀ ▶',
+    pause: 'Options', tuning: 'Hold Create', move: 'Left stick', sides: '◀ ▶', glossary: 'L2',
   }),
   xbox: Object.freeze({
     confirm: 'A', back: 'B', reroll: 'X', banish: 'Y', skip: 'Hold LB', dash: 'RB',
-    pause: 'Menu', tuning: 'Hold View', move: 'Left stick', sides: '◀ ▶',
+    pause: 'Menu', tuning: 'Hold View', move: 'Left stick', sides: '◀ ▶', glossary: 'LT',
   }),
   keyboard: Object.freeze({
     confirm: 'Enter', back: 'Esc', reroll: 'R', banish: 'B', skip: 'Hold Tab', dash: 'Space',
-    pause: 'Esc', tuning: 'F1', move: 'WASD', sides: '← →',
+    pause: 'Esc', tuning: 'F1', move: 'WASD', sides: '← →', glossary: 'G',
   }),
 });
 
