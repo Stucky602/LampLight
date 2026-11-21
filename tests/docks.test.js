@@ -57,9 +57,10 @@ test('docks: the wharf is the same every time, every open tile is reachable, and
   // Every kind shows up, and the wharf is mostly open.
   const count = new Map();
   for (const k of a.kinds) count.set(k, (count.get(k) || 0) + 1);
-  for (const k of Object.values(GROUND)) assert.ok(count.get(k) > 0, `kind ${k} appears`);
+  for (const k of Object.values(GROUND)) if (k <= GROUND.SHED_DOOR) assert.ok(count.get(k) > 0, `kind ${k} appears`); // (9 on are the Salt Marsh's)
   const open = a.solid.length - a.solid.reduce((s, v) => s + v, 0);
-  assert.ok(open / a.solid.length > 0.85 && open / a.solid.length < 0.95, `open share ${(open / a.solid.length).toFixed(2)}`);
+  // (0.9.0, W4: the breakwater's harbor mouth and the dry dock are water, so a little less is open.)
+  assert.ok(open / a.solid.length > 0.78 && open / a.solid.length < 0.95, `open share ${(open / a.solid.length).toFixed(2)}`);
   // No sealed pockets: every open tile is reachable from the start, the cache's tile among them.
   const seen = reach(a.solid, COLS, ROWS);
   for (let i = 0; i < a.solid.length; i++) if (!a.solid[i]) assert.equal(seen[i], 1, `open tile ${i % COLS},${Math.floor(i / COLS)} is reachable`);
@@ -75,14 +76,18 @@ test('docks: the wharf is the same every time, every open tile is reachable, and
   for (let y = 128 - 10; y <= 128 + 10; y++) for (let x = 128 - 10; x <= 128 + 10; x++) {
     if ((x - 128) ** 2 + (y - 128) ** 2 < 100) assert.notEqual(a.kinds[y * COLS + x], GROUND.CRATE);
   }
+  // (Outside the districts: the breakwater's harbor mouth and the dry dock are water by design.)
+  const inDistrict = (x, y) => (DOCKS.layout.districts || []).some(({ rect: [dx, dy, dw, dh] }) => x >= dx - 2 && y >= dy - 2 && x < dx + dw + 2 && y < dy + dh + 2);
   for (let x = 0; x < COLS; x++) {
     let run = 0, longest = 0;
-    for (let y = 0; y < ROWS; y++) { if (a.kinds[y * COLS + x] === GROUND.WATER) { run++; longest = Math.max(longest, run); } else run = 0; }
+    for (let y = 0; y < ROWS; y++) { if (a.kinds[y * COLS + x] === GROUND.WATER && !inDistrict(x, y)) { run++; longest = Math.max(longest, run); } else run = 0; }
     assert.ok(longest <= DOCKS.layout.slips.bridgeOver, `column ${x}: water runs ${longest} tiles at most`);
   }
   assert.throws(() => buildMap({ ...DOCKS.layout, wreck: { at: [3, 3], size: [14, 8] } }, COLS, ROWS), /6 tiles inside/);
   // Every slip and shed asked for is there, each shed with one door in its front wall.
-  const doors = count.get(GROUND.SHED_DOOR);
+  // (The districts' halls and the ropewalk have doors of their own, 0.9.0.)
+  let doors = 0;
+  for (let i = 0; i < a.kinds.length; i++) if (a.kinds[i] === GROUND.SHED_DOOR && !inDistrict(i % COLS, Math.floor(i / COLS))) doors++;
   assert.equal(doors, DOCKS.layout.sheds.count, 'one door a shed');
   for (let i = 0; i < a.kinds.length; i++) {
     if (a.kinds[i] !== GROUND.SHED_DOOR) continue;
@@ -93,6 +98,39 @@ test('docks: the wharf is the same every time, every open tile is reachable, and
   const colHull = (x) => [...Array(ROWS).keys()].filter((y) => [GROUND.WRECK, GROUND.DECK].includes(a.kinds[y * COLS + x])).length;
   const w0 = DOCKS.layout.wreck.at[0] - Math.floor(DOCKS.layout.wreck.size[0] / 2);
   assert.ok(colHull(w0 + DOCKS.layout.wreck.size[0] - 1) < colHull(w0) / 2, 'a pointed bow, a square stern');
+});
+
+test('docks: the districts are built where they say, and nothing else is built on them (0.9.0, W4)', () => {
+  const a = buildMap(DOCKS.layout, COLS, ROWS);
+  const K = (x, y) => a.kinds[y * COLS + x];
+  const of = (kind) => DOCKS.layout.districts.find((d) => d.kind === kind).rect;
+  // The crane yard: stacks of containers in rows, and its north strip open for the cranes.
+  const [cx, cy, cw] = of('crane_yard');
+  let stacks = 0;
+  for (let y = cy + 9; y < cy + 40; y++) for (let x = cx; x < cx + cw; x++) if (K(x, y) === GROUND.CRATE) stacks++;
+  assert.ok(stacks > 150, `the yard's stacks (${stacks} tiles)`);
+  for (const [tx, ty] of DOCKS.cranes.slice(0, 2)) assert.equal(a.solid[ty * COLS + tx], 0, 'a crane in the yard stands on open ground');
+  // The breakwater: water across the mouth, an arm of planks out to its point.
+  const [bx, by, bw, bh] = of('breakwater');
+  assert.equal(K(bx + 1, by + 1), GROUND.WATER);
+  let planks = 0;
+  for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) if (K(x, y) === GROUND.BRIDGE) planks++;
+  assert.ok(planks > 300, 'the arm');
+  const point = DOCKS.secrets.find((s) => s.id === 'breakwater_point');
+  assert.equal(K(point.at[0], point.at[1]), GROUND.BRIDGE, 'the character secret on the breakwater\'s point');
+  // The ropewalk: one long shed with a door every 20 tiles.
+  const [rx, ry, rw, rh] = of('ropewalk');
+  for (let x = rx; x < rx + rw; x++) assert.equal(K(x, ry), GROUND.SHED_ROOF);
+  assert.equal(K(rx + 10, ry + rh - 1), GROUND.SHED_DOOR);
+  // The fish market's halls and the dry dock's water and ship's frame.
+  const [fx, fy] = of('fish_market');
+  assert.equal(K(fx + 2, fy + 1), GROUND.SHED_ROOF);
+  const [dx, dy, dw] = of('dry_dock');
+  assert.equal(K(dx + (dw >> 1), dy + 10), GROUND.WRECK, 'the keel');
+  assert.equal(K(dx, dy + 1), GROUND.WATER);
+  // A district that doesn't fit, or names a kind there isn't, says so.
+  assert.match(checkDocks({ ...DOCKS.layout, districts: [{ kind: 'castle', rect: [10, 10, 20, 20] }] }, COLS, ROWS), /kind must be one of/);
+  assert.match(checkDocks({ ...DOCKS.layout, districts: [{ kind: 'ropewalk', rect: [250, 10, 20, 3] }] }, COLS, ROWS), /2 tiles inside/);
 });
 
 test('docks: a layout that is wrong or can\'t fit says so plainly', () => {
@@ -164,12 +202,12 @@ test('secret: the cache opens once, when you reach it, and gives its relic', () 
   assert.equal(h.kind, 'chest');
   assert.equal(h.chestKind, 3);
   assert.deepEqual(h.items, [{ kind: 'relic', id: 'wreck_lantern' }]);
-  assert.equal(noticeFor(w.events, w.events.type.indexOf(EV.SECRET), w), 'Secret found: Wreck Cache');
+  assert.equal(noticeFor(w.events, w.events.type.indexOf(EV.SECRET), w), 'Secret found: Wreck Hold');
   // The reel says it's the secret cache.
   const view = haltView(w, h, w.data);
   assert.equal(view.secret, true);
   assert.equal(view.boss, false);
-  assert.match(readFileSync(new URL('../src/ui/menus.js', import.meta.url), 'utf8'), /secret \? 'Secret cache'/, 'the reel is titled Secret cache');
+  assert.match(readFileSync(new URL('../src/ui/menus.js', import.meta.url), 'utf8'), /dawn \|\| boss \? 'Boss chest' : 'Chest'/, 'a secret\'s reel is titled Chest (round 3: six names for a box)');
   assert.match(readFileSync(new URL('../src/app/scenes/run.js', import.meta.url), 'utf8'), /secret: v\.secret/, 'the run scene passes it on');
   decide(w, { kind: 'ok' });
   stepWorld(w, IDLE);
@@ -214,31 +252,23 @@ test('secret: the cache opens when you reach its edge, not from further off', ()
   }
 });
 
-test('Wreck Lantern: every 5th kill leaves burning oil where it fell', () => {
+test('Wreck Lantern: on its own clock, burning oil under the nearest enemy (W4: nothing from kills)', () => {
   const w = makeWorld();
   addRelic(w, w.relicDefs.find((r) => r.id === 'wreck_lantern'));
-  give(w, 'flare_gun', { level: 8 });
-  const zones = () => [...Array(w.zones.count).keys()].filter((i) => w.zones.kind[i] === ZONE.GROUND).length;
-  for (let k = 0; k < 4; k++) { const e = spawnAt(w, 'fog_wisp', 200 + k * 10, 200); w.enemies.hp[e] = 0.1; w.enemies.flags[e] |= EF.DEAD; }
-  stepWorld(w, IDLE);
-  assert.equal(zones(), 0, 'four kills: nothing yet');
-  const e = spawnAt(w, 'fog_wisp', 220, 220); w.enemies.flags[e] |= EF.DEAD;
-  stepWorld(w, IDLE);
-  assert.equal(zones(), 1, 'the fifth leaves a pool');
-  for (let k = 0; k < 4; k++) { const x = spawnAt(w, 'fog_wisp', -200, 200 + k * 10); w.enemies.flags[x] |= EF.DEAD; }
-  stepWorld(w, IDLE);
-  assert.equal(zones(), 1, 'kills 6 to 9: nothing more');
-  const t = spawnAt(w, 'fog_wisp', -220, -220); w.enemies.flags[t] |= EF.DEAD;
-  stepWorld(w, IDLE);
-  assert.equal(zones(), 2, 'the tenth leaves the second');
-  // The oil hurts what stands in it, once each interval.
   const P = DATA.relics.find((r) => r.id === 'wreck_lantern').params;
+  const zones = () => [...Array(w.zones.count).keys()].filter((i) => w.zones.kind[i] === ZONE.GROUND).length;
+  stepWorld(w, IDLE);
+  assert.equal(zones(), 0, 'no enemy near: nothing');
+  const t = spawnAt(w, 'drowned_sailor', 60, 0); w.enemies.speed[t] = 0; w.enemies.hp[t] = w.enemies.maxHp[t] = 1e6;
+  for (let k = 0; k < Math.round(P.every * 60) * 2 + 2; k++) stepWorld(w, IDLE);
+  assert.ok(zones() >= 2 && zones() <= 3, `one every ${P.every}s (${zones()})`);
+  // The oil hurts what stands in it, once each interval.
   const z = [...Array(w.zones.count).keys()].find((i) => w.zones.kind[i] === ZONE.GROUND);
   const crab = spawnAt(w, 'drowned_bosun', w.zones.x[z] - w.player.x, w.zones.y[z] - w.player.y);
   w.enemies.speed[crab] = 0;
   // (The relic slot's hits: the oil's pulses at its damage, and its burn's ticks, smaller.)
   const hits = runCollect(w, Math.round(P.interval * 60 * 3) + 1, EV.HIT).filter((x) => x.b === w.enemies.handle(crab) && x.d === RELIC_SLOT && Math.round(x.a) === P.damage);
-  assert.ok(hits.length >= 3 && hits.length <= 4, `${hits.length} pulses in three intervals`);
+  assert.ok(hits.length >= 3 && hits.length <= 8, `${hits.length} pulses in three intervals (two pools lie on one spot)`);
 });
 
 test('muster: the Bosun comes with his crew, and pays a boss chest', () => {
@@ -257,7 +287,7 @@ test('muster: the Bosun comes with his crew, and pays a boss chest', () => {
   const w2 = makeWorld({ invulnerable: true }, { events: [ev] });
   stepWorld(w2, IDLE);
   const i = w2.events.type.indexOf(EV.MUSTER);
-  assert.equal(noticeFor(w2.events, i, w2), "Bosun's Muster");
+  assert.equal(noticeFor(w2.events, i, w2), "Bosun's Muster and crew. Kill the captain for a chest");
   // The captain drops a boss chest; an ordinary elite an elite chest.
   E.flags[captain] |= EF.DEAD;
   stepWorld(w, IDLE);
@@ -279,9 +309,17 @@ test('muster: the timeline check names what a muster needs', () => {
   assert.throws(() => checkTimeline(map({ count: 0 }), idx, DATA.enemies), /whole-number count/);
   assert.throws(() => checkTimeline(map({ radius: 400 }), idx, DATA.enemies), /under 120/);
   assert.throws(() => checkTimeline(map({ name: '' }), idx, DATA.enemies), /needs a name/);
-  // The Drowned Docks has its muster at 15:00, in place of the old sailor ring.
-  const m = DOCKS.timeline.events.find((e) => e.event === 'muster');
-  assert.equal(m.at, 900);
+  // 0.9.0: a champion's data is checked too (sim/champions.js checkChampion).
+  const champ = (attack, more = {}) => map({ champion: { name: 'The X', attack, ...more } });
+  assert.doesNotThrow(() => checkTimeline(champ({ type: 'anchor', name: 'anchor', warn: 1, every: 5, reach: 200, radius: 30, damage: 10 }), idx, DATA.enemies));
+  assert.throws(() => checkTimeline(champ({ type: 'bite', name: 'bite', warn: 1, every: 5, reach: 200 }), idx, DATA.enemies), /needs a type/);
+  assert.throws(() => checkTimeline(champ({ type: 'anchor', name: 'anchor', warn: 1, every: 5, reach: 200, damage: 10 }), idx, DATA.enemies), /radius must be above 0/);
+  assert.throws(() => checkTimeline(champ({ type: 'anchor', warn: 1, every: 5, reach: 200, radius: 30, damage: 10 }), idx, DATA.enemies), /attack needs a name/);
+  assert.throws(() => checkTimeline(champ({ type: 'anchor', name: 'anchor', warn: 1, every: 5, reach: 200, radius: 30, damage: 10 }, { chest: 'gold' }), idx, DATA.enemies), /chest is 'elite' or 'boss'/);
+  // The Drowned Docks has its champions' musters at 5:00 (the First Mate) and 15:00 (the Bosun's,
+  // in place of the old sailor ring).
+  const ms = DOCKS.timeline.events.filter((e) => e.event === 'muster');
+  assert.deepEqual(ms.map((m) => [m.at, m.champion.name]), [[300, 'The First Mate'], [900, 'The Bosun'], [1050, 'The Quartermaster']]);   // (17:30: ruling 17 W7)
 });
 
 /** A world with the Maw right there, about to use its `name` attack. */
@@ -361,10 +399,10 @@ test('secret meta: finding the cache records it, unlocks its relic, and the resu
   assert.ok(after.profile.codex.includes('secret:wreck_cache'));
   assert.ok(resolveContent(after, DATA).relics.includes('wreck_lantern'), 'in the pool from now on');
   const texts = changeLines(DATA, changes).map((l) => l.text);
-  assert.ok(texts.includes('Secret found: Wreck Cache'));
+  assert.ok(texts.includes('Secret found: Wreck Hold'));
   assert.ok(texts.includes('New relic: Wreck Lantern'));
   assert.ok(!texts.includes('Discovered: Wreck Lantern'), 'said once, under the secret');
-  assert.ok(texts.indexOf('Secret found: Wreck Cache') < texts.indexOf('New relic: Wreck Lantern'));
+  assert.ok(texts.indexOf('Secret found: Wreck Hold') < texts.indexOf('New relic: Wreck Lantern'));
   // Found again: nothing new.
   const again = applyRunResult(after, result, DATA);
   assert.ok(!changeLines(DATA, again.changes).some((l) => /Secret/.test(l.text)));

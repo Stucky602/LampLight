@@ -18,7 +18,8 @@ const nodeFs = require('fs');
 const path = require('path');
 
 const BACKUPS = 5;
-const KINDS = new Set(['profile', 'settings']);
+// checkpoint (0.9.0): the run under way, every minute, so a crash can resume it.
+const KINDS = new Set(['profile', 'settings', 'checkpoint']);
 const NAME_RE = /^[A-Za-z0-9._-]{1,80}$/;
 const MAX_TEXT = 32 * 1024 * 1024;
 const RETRY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
@@ -31,8 +32,14 @@ const READ_WAITS_MS = [50];
 function checkKind(kind) {
   if (!KINDS.has(kind)) throw new Error(`Unknown save kind: ${kind}`);
 }
+// Names Windows keeps for devices, with or without an extension ("aux", "con.txt"): never a file's.
+const DEVICE_RE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/i;
 function checkName(name) {
-  if (typeof name !== 'string' || !NAME_RE.test(name) || name.includes('..')) throw new Error(`Bad file name: ${name}`);
+  if (typeof name !== 'string' || !NAME_RE.test(name) || name.includes('..') || DEVICE_RE.test(name) || /[. ]$/.test(name)) throw new Error(`Bad file name: ${name}`);
+}
+/** A blob's kind: its name without the time stamp in front ("20260902-101500-report.json" -> "report.json"). */
+function blobKind(name) {
+  return name.replace(/^[0-9]{6,8}(-[0-9]{4,9})*-/, '');
 }
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -148,7 +155,10 @@ function create(fs = nodeFs, sleep = sleepSync) {
     fs.mkdirSync(sub, { recursive: true });
     const file = path.join(sub, name);
     writeAtomic(file, data);
-    const names = fs.readdirSync(sub).filter((n) => !n.endsWith('.tmp')).sort(); // timestamped: oldest first
+    // Only files of the same kind are trimmed: the 21st bug report never deletes a save code or a
+    // tuning file that was written to the same folder (the sweep, S4 E4).
+    const kind = blobKind(name);
+    const names = fs.readdirSync(sub).filter((n) => !n.endsWith('.tmp') && blobKind(n) === kind).sort(); // timestamped: oldest first
     for (let i = 0; i < names.length - keep; i++) {
       try { fs.unlinkSync(path.join(sub, names[i])); } catch { /* best effort */ }
     }

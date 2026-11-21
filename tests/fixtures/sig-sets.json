@@ -1,0 +1,72 @@
+{
+ "stamp": {
+  "lamplighter": "[[\"kindle\",\"kindle\",{\"fx\":{\"kindle\":{\"every\":8,\"sec\":1,\"areaAdd\":0.6,\"lull\":-0.2}}}],[\"hot_wick\",\"hot_wick\",{\"stats\":{\"damageMul\":2.5,\"areaMul\":0.8},\"fx\":{\"hot_wick\":{}}}],[\"lamp_wake\",\"lamp_wake\",{\"stats\":{\"areaMul\":0.85},\"fx\":{\"lamp_wake\":{\"every\":0.5,\"life\":2,\"radiusMul\":0.6,\"damageMul\":0.38,\"interval\":0.5}}}],[\"standing_light\",\"standing_light\",{\"stats\":{\"cooldownMul\":1.15},\"fx\":{\"standing_light\":{\"still\":0.5,\"areaAdd\":0.5,\"moveAdd\":0.25}}}],[\"wardlight\",\"wardlight\",{\"stats\":{\"hitCooldownMul\":1.1},\"fx\":{\"wardlight\":{\"life\":4,\"radius\":16,\"damageMul\":0.35,\"interval\":0.5,\"every\":0.5,\"max\":4}}}],[\"dread_light\",\"dread_light\",{\"stats\":{\"areaMul\":0.9,\"damageMul\":1.6},\"fx\":{\"dread_light\":{\"amp\":0.2,\"sec\":0.9}}}]]",
+  "harpooner": "[[\"cast_net\",\"cast_net\",{\"stats\":{\"cooldownMul\":1.15},\"fx\":{\"cast_net\":{\"every\":4,\"radius\":50,\"pull\":2.4,\"daze\":0.6}}}],[\"twin_hooks\",\"twin_hooks\",{\"stats\":{\"amount\":1,\"cooldownMul\":1.2},\"fx\":{\"twin_hooks\":{}}}],[\"long_line\",\"long_line\",{\"stats\":{\"durationMul\":1.6,\"speedMul\":0.8},\"fx\":{\"long_line\":{\"radius\":16,\"damageMul\":0.5}}}],[\"short_gaff\",\"short_gaff\",{\"stats\":{\"cooldownMul\":0.5,\"durationMul\":0.75},\"fx\":{\"short_gaff\":{}}}],[\"flense\",\"flense\",{\"stats\":{\"cooldownMul\":1.1},\"fx\":{\"flense\":{\"radius\":30,\"damageMul\":0.5,\"knockback\":0.8,\"perSec\":6}}}],[\"keelhaul\",\"keelhaul\",{\"stats\":{\"cooldownMul\":1.1,\"damageMul\":1.3},\"fx\":{\"keelhaul\":{\"amp\":0.6,\"sec\":3}}}]]",
+  "punter": "[[\"long_jab\",\"long_jab\",{\"stats\":{\"areaMul\":1.2,\"damageMul\":0.8},\"fx\":{\"long_jab\":{\"tip\":0.7}}}],[\"pin\",\"pin\",{\"stats\":{\"damageMul\":1.5,\"knockbackMul\":0.01},\"fx\":{\"pin\":{\"daze\":0.8}}}],[\"long_sweep\",\"long_sweep\",{\"fx\":{\"long_sweep\":{\"radius\":1.25,\"every\":1}}}],[\"eddy\",\"eddy\",{\"fx\":{\"eddy\":{\"life\":2,\"pull\":1.2,\"damageMul\":0.9}}}],[\"bow_wave\",\"bow_wave\",{\"stats\":{\"cooldownMul\":1.1},\"fx\":{\"bow_wave\":{\"radius\":26,\"damageMul\":0.3,\"knockback\":1.8,\"every\":0.6}}}],[\"breakwater\",\"breakwater\",{\"stats\":{\"knockbackMul\":0.6},\"fx\":{\"breakwater\":{\"life\":3,\"damageMul\":0.3,\"interval\":0.5,\"slow\":0.4}}}]]",
+  "bog_warden": "[[\"mire_ring\",\"mire_ring\",{\"stats\":{\"cooldownMul\":1.15},\"fx\":{\"mire_ring\":{\"every\":6,\"radius\":80,\"damageMul\":1,\"rot\":3,\"amp\":0.25}}}],[\"grave_reach\",\"grave_reach\",{\"stats\":{\"damageMul\":0.9},\"fx\":{\"grave_reach\":{\"n\":3,\"range\":60,\"rot\":3,\"amp\":0.25,\"daze\":0.5}}}],[\"mire_grip\",\"mire_grip\",{\"stats\":{\"damageMul\":0.8},\"fx\":{\"mire_grip\":{\"life\":1.5,\"damageMul\":0.04,\"interval\":0.5,\"radius\":1}}}],[\"deep_hold\",\"deep_hold\",{\"stats\":{\"cooldownMul\":1.15},\"fx\":{\"deep_hold\":{\"daze\":1.5,\"amp\":0.5,\"squeeze\":0.25,\"interval\":0.5}}}],[\"bog_kin\",\"bog_host\",{\"stats\":{\"damageMul\":0.75},\"fx\":{\"bog_host\":{\"secMul\":1.6,\"rot\":3,\"amp\":0.25}}}],[\"peat_fire\",\"peat_fire\",{\"fx\":{\"peat_fire\":{\"radius\":32,\"bites\":2,\"rot\":3,\"amp\":0.25,\"sec\":-1}}}]]",
+  "drowned_man": "[[\"full_purse\",\"full_purse\",{\"stats\":{\"damageMul\":0.9},\"fx\":{\"full_purse\":{}}}],[\"paid_in_advance\",\"paid_in_advance\",{\"stats\":{\"damageMul\":0.85},\"fx\":{\"paid_in_advance\":{\"per\":0.08,\"max\":15}}}],[\"heads_or_tails\",\"heads_or_tails\",{\"stats\":{\"damageMul\":0.8},\"fx\":{\"heads_or_tails\":{\"every\":2}}}],[\"paid_passage\",\"paid_passage\",{\"stats\":{\"cooldownMul\":1.2,\"amount\":2,\"set\":{\"pierce\":-1}},\"fx\":{\"paid_passage\":{}}}],[\"pennies_on_the_eyes\",\"eyes_paid\",{\"stats\":{\"cooldownMul\":1.1},\"fx\":{\"eyes_paid\":{\"below\":0.3,\"range\":90,\"mul\":0.5,\"every\":0.5}}}],[\"weighed_down\",\"weighed_down\",{\"stats\":{\"cooldownMul\":1.1},\"fx\":{\"weighed_down\":{\"slow\":0.12,\"amp\":0.12,\"max\":5,\"sec\":3}}}]]",
+  "tide_priest": "[[\"tide_table\",\"tide_table\",{\"stats\":{\"damageMul\":0.85},\"fx\":{\"tide_table\":{\"cutPerHit\":0.1,\"maxCut\":0.33}}}],[\"spring_neap\",\"spring_neap\",{\"fx\":{\"spring_neap\":{\"big\":1,\"bigArea\":0.5,\"small\":-0.5}}}],[\"spring_tide\",\"spring_tide\",{\"stats\":{\"damageMul\":0.8},\"fx\":{\"spring_tide\":{\"reach\":2,\"width\":18,\"sec\":0.6,\"damageMul\":0.6}}}],[\"neap_pull\",\"neap_pull\",{\"stats\":{\"knockbackMul\":0.01},\"fx\":{\"neap_pull\":{\"reach\":2,\"daze\":0.5}}}],[\"high_water_mark\",\"high_water_mark\",{\"stats\":{\"hitCooldownMul\":1.1},\"onHit\":[{\"type\":\"zone\",\"radius\":20,\"duration\":4,\"damage\":6,\"interval\":0.5,\"every\":0.25,\"status\":{\"status\":\"slow\",\"pct\":0.3,\"duration\":1}}],\"fx\":{\"high_water_mark\":{}}}],[\"drowning_tide\",\"drowning_tide\",{\"fx\":{\"drowning_tide\":{\"amp\":1}}}]]"
+ },
+ "sets": {
+  "drowned_man": {
+   "full_purse+heads_or_tails+pennies_on_the_eyes": 7128,
+   "full_purse+heads_or_tails+weighed_down": 8094,
+   "full_purse+paid_passage+pennies_on_the_eyes": 32033,
+   "full_purse+paid_passage+weighed_down": 34696,
+   "paid_in_advance+heads_or_tails+pennies_on_the_eyes": 6829,
+   "paid_in_advance+heads_or_tails+weighed_down": 8348,
+   "paid_in_advance+paid_passage+pennies_on_the_eyes": 26430,
+   "paid_in_advance+paid_passage+weighed_down": 28871
+  },
+  "tide_priest": {
+   "tide_table+spring_tide+high_water_mark": 24614,
+   "tide_table+spring_tide+drowning_tide": 11819,
+   "tide_table+neap_pull+high_water_mark": 38944,
+   "tide_table+neap_pull+drowning_tide": 11406,
+   "spring_neap+spring_tide+high_water_mark": 32548,
+   "spring_neap+spring_tide+drowning_tide": 11951,
+   "spring_neap+neap_pull+high_water_mark": 41266,
+   "spring_neap+neap_pull+drowning_tide": 11110
+  },
+  "harpooner": {
+   "cast_net+long_line+flense": 114489,
+   "cast_net+long_line+keelhaul": 72655,
+   "cast_net+short_gaff+flense": 94246,
+   "cast_net+short_gaff+keelhaul": 47731,
+   "twin_hooks+long_line+flense": 149503,
+   "twin_hooks+long_line+keelhaul": 117261,
+   "twin_hooks+short_gaff+flense": 118684,
+   "twin_hooks+short_gaff+keelhaul": 82731
+  },
+  "lamplighter": {
+   "kindle+lamp_wake+wardlight": 46338,
+   "kindle+lamp_wake+dread_light": 11300,
+   "kindle+standing_light+wardlight": 45832,
+   "kindle+standing_light+dread_light": 24658,
+   "hot_wick+lamp_wake+wardlight": 47878,
+   "hot_wick+lamp_wake+dread_light": 16353,
+   "hot_wick+standing_light+wardlight": 45334,
+   "hot_wick+standing_light+dread_light": 10597
+  },
+  "bog_warden": {
+   "mire_ring+mire_grip+bog_kin": 67297,
+   "mire_ring+mire_grip+peat_fire": 58972,
+   "mire_ring+deep_hold+bog_kin": 68772,
+   "mire_ring+deep_hold+peat_fire": 102037,
+   "grave_reach+mire_grip+bog_kin": 69058,
+   "grave_reach+mire_grip+peat_fire": 71081,
+   "grave_reach+deep_hold+bog_kin": 87681,
+   "grave_reach+deep_hold+peat_fire": 82625
+  },
+  "punter": {
+   "long_jab+long_sweep+bow_wave": 71105,
+   "long_jab+long_sweep+breakwater": 119454,
+   "long_jab+eddy+bow_wave": 46132,
+   "long_jab+eddy+breakwater": 112176,
+   "pin+long_sweep+bow_wave": 52878,
+   "pin+long_sweep+breakwater": 71978,
+   "pin+eddy+bow_wave": 48955,
+   "pin+eddy+breakwater": 49196
+  }
+ }
+}

@@ -1,97 +1,109 @@
 # Lamplight: Handoff
 
-Updated Oct 16 2026. Version 0.7.0: 0.6.2 (Kevin's notes on 0.6.1: Forms) and Phase 7 (every building's system). The six Phase 7 buildings come out of the fog as the Lamp Post rises. Runs have Wayside Lamps, Fog Bells, Sea Glass, the Ferryman, and relics in three tiers that come from Reliquaries instead of level-ups and chests. Next is the **gate on all of it**: Kevin plays it and says what's fun and what isn't.
+Updated Nov 20 2026. Version 0.9.0, work in progress (`package.json` still says 0.8.2; the release bumps it). 0.8.2 is the last version shipped (Nov 8). Since then the game has been through Kevin's veteran-player round, a sweep of the whole game, a rebuild of the characters and weapons, and a language pass. The gate is green except the golden run's hash, which is refrozen at release. Next: Kevin plays it (the first watched play since 0.8.1), then the release steps below.
+
+Read this, then `BRIEF.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `WRITING.md`, and `SCORECARD.md`, all of them, before touching anything. ARCHITECTURE was checked against the code on Nov 20; where it and the code disagree, the code is how the game stands.
+
+## Where things are
+- **The repo:** `/home/claude/lamplight`. No git: the history is the docs, the builders' logs, and the zips.
+- **The mirror:** `/mnt/user-data/outputs/work/lamplight`, a copy that survives the container being replaced. Run `bash /mnt/user-data/outputs/work/mirror.sh` after every meaningful change. To restore: copy the mirror to `/home/claude/lamplight`, `npm ci`, `npm i --no-save pngjs`, and unzip the art packs from the chat's attachments to `/home/claude/packs/<pack name>/` (kenney_tiny-dungeon, kenney_tiny-town, kenney_1-bit-pack).
+- **The session's notes:** `/mnt/user-data/outputs/work/RESUME.md` (the lead's running log, newest last). The rulings: `work/veteran/PLAN-R2.md` (1 to 9), `work/veteran/W1b-RULING.md` (10), `work/sweep/ROADMAP.md` (11 to 13 and the sweep's batches), `work/cw/RULING-14.md` (14 to 22), `work/lang/RULING-L1.md`. The contracts: `work/cw/C1-CONTRACT.md` (the weapon format, upgrades, Forms, the Dash slot) and `work/cw/C2-DESIGN.md` (characters; its later sections log the numbers' changes). The builders' logs: `work/cw/C1.md`, `C2.md`, `C3.md`, `work/sweep/X1.md` to `X6.md`, `work/lang/FIXES-1.md` to `FIXES-4.md`. The judges' reports: `work/veteran/reports/`, `work/cw/CW#-r#.md`, `work/lang/L#-r#.md`. The map 3 proposal: `work/design/MAP3.md`.
+- **Snapshots:** the builders measure on copies of the tree under `/home/claude/` (`snapc2b-*`, `snapcw*`, `snaplang*`) and in their scratchpads, because other builders keep editing the live one. A snapshot is disposable.
+- **The zip baseline:** GitHub is still at 0.7.0 (Kevin's repo zip, unpacked at `/home/claude/base070`), because Kevin hasn't said "delta the repo" since. Every zip carries every file that differs from it (`R=<tree> bash /mnt/user-data/outputs/work/mkzips.sh <version>`, at most 100 files a zip, src first). Two files deleted since 0.7.0 must be deleted by hand in GitHub at the next push: `src/data/arcana.js` and `src/data/runes.js`. The last delivery was 0.9.0-wip.1 (Nov 9, three zips, built from `/home/claude/snap09w1`).
 
 ## Where things stand
-- **Phases 1 to 7 are done** (see `SCORECARD.md`).
-- **0.6.2, Kevin's notes on 0.6.1:**
-  - **Forms replace ascensions.** Each weapon has three Forms, one for each part of how it works: how it fires, how its shots fly, and what a hit leaves. All three stack on one weapon, and the evolution keeps them.
-  - **An Ember is two steps:** pick a weapon, then its Form.
-  - **Stats shows each weapon's DPS and Total Damage** (no more "dealt this run").
-  - **Materials are off the run HUD.** They're in the pause menu and Stats.
-- **Phase 7, in a run (Kevin's design):**
-  - **Wayside Lamps** (5 on the Docks). Stand by one until it's lit. There's no timer: it waits when you walk off, and costs more and pays more the later you start it. Each lit lamp gives Kindled (+6% XP and Area for the run), uncovers the minimap around it, and gives Sea Glass.
-  - **Lantern Night.** Light all five and it falls for 40 s: the fog lifts, your light burns everything in it, and a vault opens with a pick of 3 relics, a tier better.
-  - **Fog Bells** (3). Walk into the ring to wake one. Every kill inside the ring counts from then on, wherever you are: 20 kills plus 4 a minute. It pays Sea Glass and a chest.
-  - **Sea Glass** is the run's own money. It comes from tasks, elites, and bosses, and is spent with the **Ferryman**. Stand still by his skiff near the start to trade. He sells relics, food, a reroll, and a pricey Ember, and his stock gets better every 5 minutes. What's left at the end is lost, unless the Market buys it.
-  - **Relics** come in three tiers: Trinket, Charm, and Relic. You carry every one you find, and they never come from level-ups or chests. They come from Reliquaries (a rare drop, at least 2.5 minutes apart, certain after 1,800 kills), the vault, and the Ferryman. Early offers are Trinkets; Relics come late. 12 relics in all, with actives on a dash (Spark Flint), a hit taken (Barnacle Shell), a kill streak (Bloodied Hook), and every 30th kill (Drowned Bell).
-- **Phase 7, in the harbor:**
-  - **Docks** (from the start): the Ferryman, better each level.
-  - **Smithy:** gear in six slots, the brief's Lantern, Coat, Boots, and Charm, plus a Ring and a Pendant. Every piece's own affix changes the build: +1 Projectile on Fire weapons, dash leaves burning oil, level-ups offer 4 cards, and so on. You raise an item's tier, and re-roll an affix by choosing one of three. Rune stones put a rune of your choice in your first weapon at 0:00.
-  - **Chapel:** Tides 1 to 10 (clear the map at your highest to open the next) and 5 curses, each paying more materials.
-  - **Market:** trades at a poor rate and buys leftover Sea Glass.
-  - **Apothecary:** consumables you take into a run (a revival, XP, rerolls, banishes, skips, starting Sea Glass).
-  - **Cartographer:** tasks on the minimap from the start, bestiary rewards, challenge runs, short runs, and the secrets on the minimap.
-  - **Tavern:** the feat list (9 feats, some hidden until found), and mastery. A character's runs rank them up; perks are trained here, and rank 4 opens a second starting kit.
-  - **The gate:** once any of this is open, picking a character leads to a second step that lists only what's open. A line under it says what the focused choice does.
-- **Judged:** 0.6.2 Forms 91 and its screens 94; Phase 7's run side 95, meta side 95, and harbor screens 91 (two rounds; see `SCORECARD.md`).
-- **Gate:** 645 tests in about 73 s. The web build and `wrangler deploy --dry-run` pass. The whole loop plays through the real screens and saves in the browser. The desktop smoke test passes on the packaged build, and Electron reproduced the golden run hash (db237aa0, new in 0.7.0: the sim changed).
-- **Soaks:** the Harpooner's 30-minute soak passes (p99 1.9, 3.6, and 6.0 ms by crowd size, against 2, 4, and 6). The Lamplighter's sits just over the lines (2.0 to 2.1 ms and 7.1 to 7.2 ms). This machine is slower again: the 0.6.1 code you already have, run here back to back, fails the same lines (2.05, 4.1, and 7.2 to 7.4 ms), so the new code isn't the cause. Your frame rate in a busy run (F3) is the real check.
-- **Pacing** (`node tools/pacing/pacing.mjs`): the MVP harbor in 9.4 hours (6.8 to 10.8), now that the simulated player also spends on the six new buildings. The whole harbor of nine takes about 13.5 hours, with the Chapel last. A fresh profile's pools hold 12 of the 35 weapons, passives, relics, and runes (34%).
+- **0.9.0 so far** (DECISIONS.md has every ruling, with why; ARCHITECTURE §5.16 to §5.24, §10.9, §10.10 how each is built):
+  - The veteran round (Kevin, Nov 8; rulings 1 to 9, batches W1 to W7): evolutions gone, Forms the only transformation; slots and relic slots that grow with the harbor; bosses with phase gates; three acts a run with tasks at sites drawn per run, a map event deck, overtime ending in the Long Night and the dawn; music made in code; the glossary; remapping, a mid-run checkpoint, the death recap; the Harbor Orders board, the codex, the Lighthouse's ten stages.
+  - Kevin's ruling 10 (Nov 8): weapons have no max level; each card is one upgrade rolled at a rarity.
+  - The sweep (Nov 9 to 20; rulings 11 to 13, batches X1 to X6): one name and one description a thing; arcana became relics and the Heirloom; 42 consumables became 8 run tools; one board for challenge runs and Hunts; the gate down to six rows; sim seams fixed; saves and the desktop shell hardened; the economy (overtime pays less, level gates stagger what the harbor hands over); the screens at 150% text and the A/B swap.
+  - Characters and weapons rebuilt (Kevin, Nov 16; rulings 14 to 22, builders C1, C2, C3, then C1b, C2b, C3b): about 35 level-ups a cleared run, each card a real change (now and after, never under 8%); Rare and Epic upgrades are behavior (runes folded in); two or three Legendaries a weapon; Forms as three choices of two, the last opened by a goal done in the run; signature weapons outside the draft, growing on their own track from the character's trade and the clock; skill trees in place of mastery perks; a Dash slot, and nothing fires from the dash.
+  - The language pass (Kevin, Nov 18; RULING-L1 and four rounds of fixes): the genre's words for the genre's mechanics, fewer made-up terms, each explained where met, the glossary rebuilt. Every judge called it done at 97 to 98 for text read on the page.
+- **The gate:** 1,062 tests, 1,061 pass on Nov 20; the golden hash is the only red, as expected until the release freeze. It took 5 min 12 s with other builders' runs loading the machine (load average 7). Whether it still fits ARCHITECTURE §1's "about 60 s" on a quiet machine is unchecked.
+- **Judging** (SCORECARD.md): the characters-and-weapons judges' round 5 scored 74 to 94 against a bar of 97 (rulings 21 and 22 are built since; round 6 hasn't run). The veteran round 2 hasn't run. The language judges are done.
+- **Who is working (Nov 20):** the characters builder (C2b: numbers in `src/sim` and `src/data`), the screens builder (X6: two leftovers: the glossary's corner box over a panel's corner, and the relic swap 4 px wider than its panel at 150%), and the language builder (C3b) on standby for fixes from Kevin's play. Each claims the files it edits in its log; read the claims before editing a shared file.
+
+## How to run things
+All from `/home/claude/lamplight` unless a path says otherwise.
+- **The gate:** `npm test` (Node's `node:test` over `tests/**/*.test.js`). The Cloudflare build runs it first and won't deploy on a red. During work the golden hash is the one red allowed.
+- **The golden run** (release only, after the last sim change): `node tools/golden/freeze.mjs` if the test says the frozen data lacks a field, then set `GOLDEN.hash` in `tests/helpers/golden.js` to the hash the determinism test reports.
+- **Pacing** (ARCHITECTURE §10.3, §10.10, §14.3): `node tools/pacing/pacing.mjs` prints the report on the committed yields (about 3 s). `npm run pacing:check` says whether the yields were measured on today's sim and data (exit 1 names the stale sets). `node tools/pacing/pacing.mjs --remeasure --jobs 2` measures all three players again (the practiced player who leaves, the ordinary one, and the one who stays to the dawn): about an hour on 2 cores. The committed yields are stale since the rebuild; the release remeasure is due.
+- **Runaways** (ruling 19 RA, 21 WB): `node tools/bots/runaway.mjs --tide 0 --maps drowned_docks,salt_marsh --seeds 2 --jobs 2 --out rows.jsonl`, and again with `--tide 5`. Careful runs to 20:00 on fixed seeds, every character; it prints each run's top weapon over the next and fails a weapon and set over 4x in more than one run. `--option 0|1|both` picks the Form options, `--chars` limits it, `--mortal 1` lets the bot die.
+- **The joint careful-against-random check** (Ruling 22; `tools/balance/`, run from the repo root):
+  1. Snapshot the tree first: `cp -r /home/claude/lamplight /home/claude/snapX` (both pickers must read the same code).
+  2. For each character: `TREE=/home/claude/snapX node tools/balance/runc1.mjs --chars <id> --seeds 12 --tide 0 --pick careful --out t0c.jsonl`, the same with `--pick random --out t0r.jsonl`, then `--seeds 9 --tide 5` into `t5c.jsonl` and `t5r.jsonl`. `--pick plain` is the plain picker (for signature shares). `bash tools/balance/resume.sh TREE out.jsonl <tide> <seeds> <pick>` runs every character and skips seeds already in the file (it reads and writes `out.jsonl` where you run it; `-` for TREE benches this repo; machine restarts are common). Without TREE every tool reads the repo it sits in.
+  3. `node tools/balance/pair.mjs t0c.jsonl t0r.jsonl` lists the split seeds (careful only, random only) with what each run held and what hurt it. `node tools/balance/top.mjs rows.jsonl` counts the runs whose top weapon is over 3x the next; `node tools/balance/held.mjs rows.jsonl` compares what cleared runs and dead runs held.
+  4. A signature's share is its real damage over the run's at 20:00, read from each row's `permin[19].real`.
+  `PATCH='<js using DATA>'` tries a data change on fixed seeds without editing the tree. A change re-rolls every draft after it, so an A/B on two trees compares medians, not seeds.
+- **The signature benches** (`tools/balance/`, run from the repo root): `node tools/balance/sigsets.mjs --seeds 3 --out sigsets.jsonl` benches every whole option set of each signature; the option-B share runs come from `node tools/balance/run-cw2.mjs --sigopt 1`; then `node tools/balance/sigfixture.mjs sigsets.jsonl B.jsonl` writes `tests/fixtures/sig-sets.json` and `sig-bshare.json`. `tests/sig-balance.test.js` fails when a signature's options change after its bench, so any change to a signature Form needs this rerun. The drafted weapons' benches: `node tools/balance/bench.mjs` (`--sets 1` for whole option sets, read by `setstable.mjs`), then `node tools/balance/formfixture.mjs kite.jsonl plant.jsonl tank.jsonl circle.jsonl --sets sets.json > tests/fixtures/form-bench.json` (sets.json from `node tools/balance/setstable.mjs kite-sets.jsonl plant-sets.jsonl --json > sets.json`) for `tests/forms-balance.test.js`. `tests/balance-tools.test.js` checks that each tool loads from the repo (no bench run).
+- **Screens at every text size:** `npx vite build`, then `node tools/shots/hint-check.mjs [shots folder]` (24 screens at 100, 125, and 150% text, 1280x720; fails when a title or hint row leaves the view, a panel is wider than itself, or the glossary's line lies over a panel). `tools/shots/gate-check.mjs` and `skills-check.mjs` do the gate and the skill trees. `node tools/shots/shot.mjs --query "shot=levelup&busy=1"` and friends take single shots (ARCHITECTURE §14.2).
+- **Other checks before a zip** (ARCHITECTURE §19): the production build, `npx wrangler deploy --dry-run`, `tools/soak` for both maps, `node tools/marsh/rule8.mjs`, and for an .exe `tools/pack-desktop.mjs` and `tools/smoke`. `node tools/atlas/build.mjs --check` says whether the committed atlas is current (a rebuild needs the packs).
+
+## How we measure (Ruling 22, Nov 20)
+- **Clears:** 72 runs a picker at Docks Tide 0 (12 a character) and 54 at Tide 5 (9 a character), careful and random on the same seeds. Targets: careful at least 58 of 72; random at most 55 of 72.
+- **Careful ahead:** count only the split seeds (exactly one picker cleared). Across both Tides together, careful must win at least twice as many as random. C1b's stricter test (a lead of 1.65 times the square root of the split count, each Tide) is reported beside it, not required.
+- **Runaways:** careful runs whose top weapon does over 3x the next: at most 2 of 72 at Tide 0 and 2 of 54 at Tide 5. The Drowned Man is the exception (two fewer slots concentrate his build by design): for him, a top drafted weapon at most 70% of his damage.
+- **Signature shares at 20:00:** each character's median 20 to 35%, the 10th percentile at least 12%, under both the careful and the plain picker, on both maps.
+- **Why these numbers:** at 24 runs a picker's 90% range is about 7 clears wide, so the older 24-run targets couldn't be told from noise; pairing on seeds removes each seed's own luck.
+- **Rules that go with them:** measure on a snapshot; compare an A and a B on the same snapshot; three times the seeds before calling a change; report counts and ranges, not one number; machine restarts kill background runs, so write rows as you go and resume.
+- **Where the numbers stood** (two builders, two snapshots of Nov 19, before the last changes):
+
+  | | Careful | Random | Split seeds, careful : random | Target |
+  |---|---|---|---|---|
+  | C1b (snapshot 22:04) | T0 61/72, T5 45/53 | T0 55/72, T5 43/53 | T0 12 : 6, T5 8 : 6 (20 : 12) | 58+, at most 55, 2 : 1 |
+  | C2b (snapshot 17:34) | T0 63/72, T5 46/54 | T0 56/72, T5 42/54 | T0 12 : 5, T5 8 : 4 (20 : 9) | |
+
+  On C1b's rows careful wins 1.7 times as many split seeds, short of 2; on C2b's, 2.2 times. Ruling 22's text cites both as met; only C2b's is. Runaways (C1b): careful over 3x in 6 of 72 at Tide 0 and 6 of 53 at Tide 5 (three are the Drowned Man, one the Tide Priest's Candles at 7.2x, two signatures); the Drowned Man over 70% in 5 of 42 runs (his Oil Flask and drafted Candles). C2b's later Grapnel fix took its 5.1x seed to 1.4x. Shares (C2b, careful | plain medians): Lamplighter 37 | 44 (over the band), Harpooner 26 | 27, Punter 26 | 27, Bog Warden 35 | 42, then 34 | 35 with her dead's bite at 30%, Drowned Man 20 | 21 (plain p10 11), Tide Priest 27 | 23. The next joint check, on the final tree, says where it stands now.
+
+## Standing rules
+- **Kevin's:** a PC game played with a controller (keyboard as backup), never a phone game; auto-fire only, the dash the one active button, and nothing fires from the dash (ruling 16); no screen shake; plain UI (dark panels, square corners, palette colors only; no gradients, cream, serif, small caps, or pills); the words as `docs/WRITING.md` says (`tests/voice.test.js` checks it); fewer, slower, stronger enemies (`tuning.pace`); nothing to read mid-fight; no countdown on any run task; nothing grows, fires, or speeds up from a kill, and every refund of anything has its own clock, stated as a loop check on every design line; no idle progress; no GitHub Actions.
+- **Delivery:** every test passes before a zip; at most 100 files a zip and 25 MB a file; one zip delivery, the newest; the .exe as a split zip tested with 7-Zip; deletions listed for Kevin to do by hand.
+- **Saves never lose progress:** ids are permanent; a renamed thing keeps its id; a moved unlock key gets a `MOVED_UNLOCKS` row; a retired system is mapped once in `meta/retired.js`; a fixture save from every schema version stays in `tests/fixtures/saves/`.
+- **Text:** one thing, one name, one description (the glossary entry, WRITING.md §7.5); a number in a character, signature, or Form line is a `data/textnum.js` placeholder, never typed; a glossary entry is 40 words or fewer.
+- **Art:** Kevin's render-and-look rule (ARCHITECTURE §16.5): a pass counts only if it names one concrete comparison with a real reference, and each drawing names its reference. The warm rule: characters warm, enemies cool.
+- **Working beside other builders:** claim files in your log before editing a shared one; text-only edits by exact-match scripts; measure on a snapshot; mirror after every meaningful change.
+- **Talking to Kevin** (his rule, Nov 18): short plain sentences; no builder names, ruling numbers, file names, stats shorthand (p10, median, share, 3x), or game terms without saying what they are. Say what happened, what it means for the game, and what's next.
+- **Sources:** check a source for AI-written text before learning from it (WRITING.md).
+
+## What's open
+For the builders:
+1. **The release steps** for 0.9.0: the last joint check on a quiet tree; the golden freeze; the pacing remeasure (three players; whether both practiced players land inside 6 to 10 hours with overtime's `dropMul` at 0.45); version 0.9.0 in `package.json` and `desktop/package.json`; zips against the 0.7.0 baseline with the two deletions listed; the .exe and its smoke test.
+2. **Targets not met** (Ruling 22, above): careful's split-seed lead on C1b's rows; runaways (the Drowned Man's drafted weapons and the Corpse Candles under the Tide Priest; the Punt Pole at 3.1x in 1 of 9 Tide 5 runs, where the trim that fixed it cost the Punter's share); the Lamplighter's share over the band (C2b proposed trimming her Watch Light, not done); the Drowned Man's low tail; the Bog Warden's Tide 5 contact deaths (5 or 6 of 9 at every setting tried).
+3. **The judges' next rounds:** characters and weapons round 6 after the targets; the veteran round 2 after Kevin's play.
+4. **The balance tools live outside the repo** (`runc1.mjs`, `resume.sh`, `pair.mjs`, `top.mjs`, `held.mjs`, `bench.mjs`, `formfixture.mjs`, `sigsets.mjs`, `run-cw2.mjs`, `sigfixture.mjs`). A zip doesn't carry them, and the gate's two balance fixtures can't be rebuilt from the repo alone. Move them into `tools/bots/`.
+5. **The gate's time:** 5 min under load; time it on a quiet machine against the 60 s budget, and trim if needed.
+6. **Where the code and the contract part ways** (the code is right; the contract is out of date): Tempering is the start weapon of every run once the Smithy is at Lv 4 (C1-CONTRACT §12 planned one weapon chosen at the Smithy, `profile.tempered`, never built); the Whetstone makes every 2nd upgrade Rare (the contract: Rare lines one milestone sooner); the Salt Ledger gives a Reroll with every elite's or boss's chest (the contract: one at each boss); the contract's Lost Light relic was never made.
+7. **Stale comments in the code:** `sim/weapons.js`'s header still calls runes patches; `sim/world.js`'s decision list names a `rune` halt; `sim/stats.js` and `sim/build.js` mention runes in comments; `data/signatures.js` keeps `upgrades` and a flat copy of each key's numbers "for the tree before C1's growth core", which only the tools read.
+8. **Small things still flagged:** the Level 50 order is reachable only with XP Gain (a plain run to the dawn reaches 42 to 49); the glossary grays the Lamplighter's own Fuel and spare flames as unseen on a first run, because "seen" comes from the profile (the run's own character and map now count as seen at once; check the rest); `tests/pacing.test.js`'s fingerprint test can fail once under load and passes alone.
+9. **Map 3** (the Sunken Chapel): a proposal (`work/design/MAP3.md`), waiting on Kevin's decisions.
 
 ## What Kevin needs to do
-1. **Upload to GitHub, then let Cloudflare build.** Upload the zip parts in the order the delivery message gives, into the same `lamplight` repo. Each part only adds and replaces files. The build after an early part may fail; the build after the last part is the one that counts.
-2. **Play it.** Use the web build with the DualSense, then the .exe. The .exe comes as split pieces (`Lamplight-win-x64-v0.7.0.zip` plus `.z01`, `.z02`, ...).
-   - Put all the pieces in one folder, right-click the `.zip`, choose 7-Zip, then "Extract Here". On Windows 11 the 7-Zip entry may be under "Show more options".
-   - Then run `Lamplight-win32-x64\Lamplight.exe`. If SmartScreen appears, choose "More info", then "Run anyway".
-   - Your save carries over: it moves to the new version on its own, and nothing is lost.
-3. Tell Claude what feels or looks wrong, in plain words, with the time in the run or the place in the harbor.
-   - For numbers: open the tuning panel (hold Create for 1 second, or F1), change them live, press "Copy tuning", and paste the text into the chat.
-   - If something breaks: pause, choose "Save bug report", and attach the file.
-4. Read ARCHITECTURE.md §10.6 and §10.8 (Phase 7 as built), §20 calls 74 to 88, and DECISIONS.md, and overturn anything you don't like.
+1. **Play 0.9.0** when the release is built, with the DualSense: the web build, then the .exe. Watch first: the Form choice, the Ferryman's shop, the death recap, and a relic choice (the language judges couldn't see those screens in play). Tell Claude what feels, looks, or reads wrong, with the time in the run or the place in the harbor.
+2. **Push the zips** in the order the delivery message gives, delete `src/data/arcana.js` and `src/data/runes.js` in GitHub, then say "delta the repo".
+3. **Overturn anything in DECISIONS.md you don't like.** Rulings 11 to 22 and the language rulings were made under your "use your best judgement".
 
-## Questions for this gate
-1. The tasks: are the lamps worth walking to, and the bells worth fighting in? Does "no timer, but later costs more" read, or does it feel like nothing happens?
-2. Lantern Night: does it feel like a payoff?
-3. The Ferryman: is standing still by the skiff a natural way to open his trade? Are his prices right? (Ember 70, a Relic 50, a Charm 28, a Trinket 14; `ferry` on the run's tuning panel.)
-4. Relics: too rare, or too common? (A Reliquary is a 0.06% chance a kill, at least 150 s apart, certain after 1,800 kills: `relics` on the run's tuning panel.) Do the late Relics feel overpowered in the good way?
-5. Gear: do the affixes change how you build? Any you'd never take?
-6. The six new buildings use the pack's house with their own sign and keeper. Do they read as different places, or do you want them drawn apart?
-7. Tides and curses: is each Tide a fair step up for its materials?
-8. The gate's second step: too many rows once everything's open?
-9. Still open from the MVP gate: is a 20-minute run fun, where does it drag, and are the Forms right?
+## Questions waiting for Kevin
+None of these block work.
+1. **Staying to the dawn** pays about 2.1 times a leaving run's materials for 1.5 times the minutes, so about 1.4 times as much an hour. One dial can't put both kinds of player inside 6 to 10 hours, so overtime's drops were trimmed. Is staying meant to pay more an hour, the same, or less?
+2. **The Lamplighter's own weapon** does more of her damage than the target (about 40% where the others sit at 20 to 35). Leave her as the character whose light carries the run, or trim it?
+3. **The Tide Priest's colors:** she wears a pale robe with a sea-blue stole. A sea-blue cowl was drawn as an option, but it breaks the rule that characters are warm and enemies cool. Keep the rule?
+4. **Map 3,** the Sunken Chapel: the proposal asks about graves that spawn near you (a break with "never spawn on screen"), when it comes, and some name clashes.
+5. **The Creek Eel's reach:** its lunge carries 24 px onto the bank. The threat you want, more, or none?
+6. **The Docks' gull wall** (3:15): keep it, or flocks like the Marsh's?
+7. **Salt Glass at the Market:** the Marsh's contract said it trades as a rare; the Market doesn't list it. Add it, or keep the Marsh's materials off the Market?
+8. **The art: switch to Minifantasy?** Two searches put Krishna Palacio's Minifantasy bundle first ($69.99, 8x8 tiles, so the world would render at 320x180). Nothing has been bought (`work/assets/search-A.md`, `search-B.md`).
+9. **A newer player's pace:** the pacing measures practiced players who clear. Bots that play worse could measure a newer player. Wanted?
 
-## Kevin's Harpooner idea: what was tried, and what shipped
-Kevin suggested buffs for standing still, to offset her pulling enemies onto herself, and said to drop it if it didn't work in practice or fought the reasons to move. It was built and tested with bots: 12 runs of up to 24 minutes for each version of her kit, on the same seeds. "Holding her ground" means she stands in the crowd she reels in, takes its bites, and steps only for a warned attack, a shot, a pool, or when her health drops below 40%. "Standing still only when nothing is near" means she stops whenever no enemy is within 36 px and nothing is warning. `node tools/bots/harpooner-trials.mjs` plays all of it again and prints this table.
+Answered since the last handoff: the minimum fight (bosses now have phase gates, ruling 5); the relic tiers (rarity names, the language ruling); gear, consumables, and perk prices (repriced, run tools, skill trees); area weapons and early XP (the rebuild's growth and XP curve replaced both); the salt flats and the harbor at night (a Brightness setting, the run's ground lifted, the harbor darker: tell Claude in play if they still read wrong).
 
-| Her kit, how she's played | Average time alive | Died | Damage taken per minute |
-|---|---|---|---|
-| As in Phase 3, kiting | 14.5 min | 9 of 12 | 36 |
-| Holding her ground, no bonus | 10.5 min | 9 of 12 | 40 |
-| Holding her ground, +4 armor while still | 11.9 min | 11 of 12 | 34 |
-| Holding her ground, +8 armor while still | 12.3 min | 9 of 12 | 31 |
-| Holding her ground, +1 HP a second while still | 11.7 min | 8 of 12 | 43 |
-| Holding her ground, +30% damage while still | 10.2 min | 9 of 12 | 39 |
-| Standing still only when nothing is near, no bonus | 11.0 min | 11 of 12 | 25 |
-| Standing still only when nothing is near, +30% damage while still | 13.2 min | 10 of 12 | 30 |
-| Kiting, twice the armor per nearby enemy | 13.6 min | 9 of 12 | 28 |
-| **Kiting, what she hits is dazed 0.4 s (shipped)** | **21.3 min** | **3 of 12** | **19** |
-
-No standing-still version beat plain kiting, so it was scrapped. What shipped answers the fault itself: what her weapons reel in arrives dazed for 0.4 s. It can't walk or hurt her, and it reels (a quick sway). Bosses are immune, and so is anything in the middle of a warned attack, so an attack never lands after its warning has gone.
-
-## Open minors (none block anything)
-- Sound: a boss's charge line and hazard pools share the ordinary rate-limited warning beep, so one can be silent if an ordinary charger beeped in the 0.4 s before.
-- The run view: some effect sizes (explosion and revive spark counts, flash-light radii) are still in code rather than in `tuning.feel`.
-- Elites are drawn at 2x while their body is 1.6x, so the drawing overhangs its body a little (a deliberate trade for square pixels, §20 call 40).
-- The pause menu shows an item's base description, not what its levels added (the stats screen shows each weapon's numbers).
-- Replays are about 100 KB for a 20-minute run. Harmless.
-- The minimap and the materials fade by your position on the tick, not the drawn position between ticks, so for a frame at the edge they can stay solid over the top pixel of your head.
-- The Stats screen's weapon list scrolls (the d-pad moves through it) but nothing shows there's more below; with three or more weapons the Items are below the fold.
-- Words: the enemy, material, and research descriptions (the flavor lines) show nowhere yet; a codex screen is where they'll appear. A cost in the harbor names its materials only on a mouse hover over the icon, so a controller player learns them from the "Need 10 Drowned Pages" line.
-- Phase 7: the guide's goal box and the materials bar can touch when counts reach four digits (the guide shows only before the Lamp Post is restored, when counts are small). The Docks' "sells 2 relics" is written in, not read from the sim's stock rule. The pacing model doesn't spend on gear, perks, or consumables. The Cartographer's hints are on the minimap until there's a map select.
-- The harbor: the pacing model replays a measured run's haul times its greed, so a percent of greed from the upgrades slightly overstates what the game gives (it multiplies the greed the bot found in the run too). The Lighthouse's plot is 3 tiles wide and the scaffold is drawn for 5 x 4 plots; Phase 10 draws its own.
-
-## Next
-- **Kevin's gate on 0.7.0.** Then **Phase 8a** (ARCHITECTURE §18): the design list for map 2, the Salt Marsh (its roster, materials, boss, and new weapons, relics, and runes), for Kevin to approve before it's built. With map 2, the Docks get their first boat, and the Phase 7 buildings' costs move onto the Marsh's materials (§20 calls 79 and 80).
-- The atlas is rebuilt with `node tools/atlas/build.mjs` (needs the packs); `--check` says whether the committed one is current. `node tools/atlas/hub-preview.mjs` draws the harbor at any building levels, by day or night, with `--boat` for an arrival.
-- `node tools/pacing/pacing.mjs` prints the pacing report from the committed yields in a few seconds; `--remeasure` plays the bots again (minutes).
+## Earlier versions, in short
+- **0.8.2** (Nov 8, shipped): the interactables. Lamps light into a pool of light (Kindled gone), the bell calls its crew and pays a pick, Lantern Night waits for a crowd, the Ferryman rows in at moorings, edge arrows and minimap marks from 0:00, rings that mean one thing each, rewards shown before the walk, sounds and rumble, Sea Glass renamed Pearls (ARCHITECTURE §5.18).
+- **0.8.1** (Nov 7): the combat's pace, at Kevin's word that it was too fast: about a third as many enemies (at most 450 alive), 20% slower, 2.5 times the health, 30% harder touches, 3.5 times the XP and drops a kill; everything counted in kills set again; seven dials under Pace on the tuning panel (ARCHITECTURE §5.6, §18).
+- **0.8.0** (rebuilt Nov 4 to 7 after the workspace that held it was lost): the Salt Marsh, map 2: flooding creeks and rule 8, the storm and the Eye, the Old Grey and the Salt Widow, the Salt Well, the Punter and the Bog Warden, Tides per map (ARCHITECTURE §5.17, §10.6.1).
+- **0.7.3** (rebuilt Nov 4): the gamer pass: elites spaced so no chest is far, dry level-ups paid, levels past 40 dearer, boss health from your level, overtime's repeats, time pay, the Market's row, Next up, save codes, the quiet notice line.
+- **0.7.2:** the Forms toned down; the economy set against a player who clears; the Salt Marsh's design approved. **0.7.1:** the words explain themselves (WRITING.md §2.5); no screen shake. **0.7.0, Phase 7:** every building's system. **0.6.x:** the Drowned Docks fully built, the guide, the minimap, Stats, Forms in place of ascensions. Phases 1 to 5: the foundation, the combat core, feel, art, and the harbor (SCORECARD.md).
 
 ## Confirmed in Phase 1
 - Workers static assets honor `_headers` when the file sits in the assets folder (ours: `public/_headers`, copied to `dist/`).
 - A failed build can't replace the live version: the deploy command stops before `wrangler deploy` if the tests or the build fail.
 - Electron packaging works in the workspace (Electron 44 via @electron/packager), and the .exe icon is written without Wine.
-- Files sent in the chat are capped at 30 MB (found in Phase 3). The .exe zip is about 150 MB, so it goes as a split zip in 25 MB pieces. The workspace checks it with 7-Zip before sending.
-
-## Open questions for Kevin (none block work)
-1. The brief disagrees with itself on characters: §5.4 says "8 at launch, 16+ by v1.0", while the §7 table says MVP 2, v0.5 6, v1.0 16. The plan follows the table. Is "launch" something else, like a public release between v0.5 and v1.0?
-2. The builder's calls in ARCHITECTURE.md §20, especially 16 (building the art and hub before the feel gate), 44 (the Harpooner's daze instead of a standing-still bonus), and 59 and 60 (the first costs and the fresh profile's share).
+- Files sent in the chat are capped at 30 MB. The .exe zip is about 150 MB, so it goes as a split zip in 25 MB pieces, checked with 7-Zip before sending.

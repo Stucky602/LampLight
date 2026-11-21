@@ -4,23 +4,25 @@
 // three-tone shading. Shots point right; the renderer turns them to face where they fly.
 
 import { fromText, outlined, blank, setPx, fillRect, fillEllipse } from '../../src/render/pixels.js';
-import { FONT, FONT_W, FONT_H, DIGITS, DIGIT_W, DIGIT_H } from '../../src/render/font.js';
+import { FONT, FONT_H, DIGITS, DIGIT_W, DIGIT_H } from '../../src/render/font.js';
 
-// Shots. Warm and light (§16.4), brightest at the head. Each note names what it was checked
+// Shots. Warm and light (§16.4), brightest at the head. C3 (ruling 18 P2): no player shot uses the
+// lamp's orange (lamp-3), which sat beside the enemies' red-orange tells: a flare is an illumination
+// flare (white head, yellow tail), shafts and handles are wood, coins are gold. Each note names what it was checked
 // against, as §16.5 asks.
 const SHOTS = {
   // A signal flare in flight: a white-hot burning head, and a short trail behind it that cools
   // from yellow to orange (a flare's trail is the burning compound falling away, so it trails).
   proj_flare: [
     '..yY...',
-    'LyYWWW.',
+    'yyYWWW.',
     '..yY...',
   ],
   proj_flare_big: [
     '...yY....',
-    '.LyYWW...',
-    'LyYWWWWW.',
-    '.LyYWW...',
+    '.yyYWW...',
+    'yyYWWWWW.',
+    '.yyYWW...',
     '...yY....',
   ],
   // A lamp flame seen through its glass: round, a white core inside a yellow halo, no trail
@@ -52,12 +54,12 @@ const SHOTS = {
   // arrowhead, which is what an arrow looks like, not a harpoon.)
   proj_harpoon: [
     '..........W...',
-    'lLLLLLLLLgYWWW',
+    'lAAAAAAAAgYWWW',
   ],
   proj_harpoon_big: [
     '...........WW...',
-    'lLLLLLLLLLggYWWW',
-    'lLLLLLLLLLggYWW.',
+    'lAAAAAAAAAggYWWW',
+    'lAAAAAAAAAggYWW.',
   ],
   // Signal Mirror: the flash where the beam leaves the glass, a four-point glint (sunlight off a
   // mirror shows as a star of light, brightest in the middle).
@@ -75,10 +77,10 @@ const SHOTS = {
   proj_oil_flask: [
     '..WY..',
     '..yb..',
-    '.LllL.',
-    'LlYYlL',
-    'LlYyLL',
-    '.LLLL.',
+    '.AllA.',
+    'AlYYlA',
+    'AlYyAA',
+    '.AAAA.',
   ],
   // Lightning Rod: the bright spot where the bolt lands (the bolt itself is drawn as a line,
   // render/runview.js drawBolts): a white center in a yellow flare.
@@ -98,6 +100,76 @@ const SHOTS = {
     'yWWWy',
     '.YWY.',
     '.xVx.',
+  ],
+  // The Salt Marsh's (0.8.0). Ice Picks: a pick thrown point first (a short round handle, a ferrule,
+  // a long steel spike), the steel catching the lamp.
+  proj_ice_pick: [
+    '.AA........',
+    'AAAyWWWWWWW',
+    '.AA........',
+  ],
+  // Fulgurite and Storm Glass: a shard of lightning glass flying point first (long, narrow, jagged,
+  // white-hot along its spine).
+  proj_glass_shard: [
+    '....yW...',
+    'yYWWWWWWW',
+    '..yWy....',
+  ],
+  // Eel Pot and Conger Pot: an eel lunging, head first, its body still in its wave behind it, pale
+  // with the lamp on it, one unbroken body through its wave (a stepped one read as pieces).
+  proj_eel: [
+    '......yYYWW.',
+    'yyY..YY...WW',
+    '..YYYY......',
+  ],
+  // Anchor Chain and Sea Anchor: the anchor itself (ring, stock, shank, arms up into the flukes), its
+  // iron hot in the lamplight.
+  proj_anchor: [
+    '....Y....',
+    '...Y.Y...',
+    '....Y....',
+    '.YYYYYYY.',
+    '....Y....',
+    '....Y....',
+    'y...Y...y',
+    '.yy.Y.yy.',
+    '...yyy...',
+  ],
+  // Glass Caltrops: a caltrop of glass on the ground, one point up, three legs out.
+  proj_caltrop: [
+    '..W..',
+    '..W..',
+    '.YWY.',
+    'Y.Y.Y',
+  ],
+  // 0.9.0 (W2): the signature weapons'. Grapnel in flight, claws first: the shank, its claws curving
+  // back from the head, the line trailing off the ring behind (sprites point right and turn).
+  proj_grapnel: [
+    '.....FG...',
+    '......G...',
+    'lllllFgGGG',
+    '......G...',
+    '.....FG...',
+  ],
+  // Grave Pennies: a penny spinning (a round copper coin, lit on its top left, a dark rim).
+  proj_penny: [
+    '.yy.',
+    'yWyy',
+    'yyyy',
+    '.yy.',
+  ],
+  // Bog Hands: a hand out of the mire where it grasps (peat-tanned, leathery brown as bog bodies are,
+  // lit amber by the lamp; fingers spread, the palm, mud heaped round the wrist).
+  fx_mire_hand: [
+    '...y...',
+    '.y.B.B.',
+    '.B.B.B.',
+    '.yBBBB.',
+    'y.BBBB.',
+    '.BBlB..',
+    '..BB...',
+    'llllll.',
+    '.llll..',
   ],
   // Enemy shot: red-orange, the hazard color, with a hot middle.
   proj_hostile: [
@@ -146,12 +218,13 @@ export function particles() {
   return out;
 }
 
-/** The 5 x 7 font (plain and outlined) and the 3 x 5 digits for damage numbers (outlined). */
+/** The HUD's font, Jersey 10 on its own grid (plain and outlined), and the 3 x 5 digits for damage numbers (outlined). */
 export function font() {
   const out = [];
   for (const [ch, rows] of Object.entries(FONT)) {
-    const g = blank(`glyph:${ch}`, FONT_W, FONT_H);
-    rows.forEach((r, y) => { for (let x = 0; x < FONT_W; x++) if (r[x] === '1') setPx(g, x, y, 'white'); });
+    const w = rows[0].length;
+    const g = blank(`glyph:${ch}`, w, FONT_H);
+    rows.forEach((r, y) => { for (let x = 0; x < w; x++) if (r[x] === '1') setPx(g, x, y, 'white'); });
     out.push(g);
     out.push(outlined(g, 'night-0', `glyph_o:${ch}`));
   }

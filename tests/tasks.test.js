@@ -1,15 +1,19 @@
-// Phase 7 in a run (ARCHITECTURE §10.8): Wayside Lamps and Fog Bells, Lantern Night and its
-// vault, Reliquaries and the relic pick, Sea Glass, the Ferryman; and what the harbor's gate sends
-// into a run: a Tide, curses, an arcana, a rune stone, a kit, the bestiary's bonus, gear's hooks.
+// Phase 7 in a run (ARCHITECTURE §10.8), as 0.8.2 reworked it (§5.18): Wayside Lamps that light
+// into wards, Lantern Night banked for the crowd and its vault ahead of you, the fog taking the
+// lamps back at a boss, Fog Bells that call their crew and pay a pick, Reliquaries and the relic
+// pool, Pearls, the Ferryman on his schedule; and what the harbor's gate sends into a run: a Tide,
+// curses, an arcana, a rune stone, a kit, the bestiary's bonus, gear's hooks.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeWorld, spawnAt, give, run, runCollect, DATA, IDLE } from './helpers/simworld.js';
-import { createWorld, stepWorld, decide, currentHalt, hashWorld } from '../src/sim/world.js';
+import { makeWorld, spawnAt, give, givePassive, run, runCollect, eventsOf, DATA, IDLE } from './helpers/simworld.js';
+import { createWorld, stepWorld, decide, currentHalt, hashWorld, buildRunResult } from '../src/sim/world.js';
 import { damageEnemy } from '../src/sim/enemies.js';
-import { maybeReliquary, drawRelics, glassFor, FERRY_KINDS } from '../src/sim/relics.js';
+import { maybeReliquary, drawRelics, glassFor, relicPool, FERRY_KINDS } from '../src/sim/relics.js';
 import { hurtPlayer } from '../src/sim/player.js';
 import { spawnGem, spawnPickup } from '../src/sim/pickups.js';
-import { taskRadius, isNight } from '../src/sim/tasks.js';
+import { taskRadius, isNight, nightBanked, ward, crowdArrives, mapHolds, runLedger } from '../src/sim/tasks.js';
+import { collectRings, collectArrows, rewardOf, RING, ARROW, REWARD } from '../src/sim/signs.js';
+import { CHEST_BELL } from '../src/sim/chests.js';
 import { EV } from '../src/sim/events.js';
 import { TPS, PK, TASK, TASK_STATE, EF } from '../src/sim/constants.js';
 import { TILE } from '../src/sim/terrain.js';
@@ -18,20 +22,25 @@ import { addRelic } from '../src/sim/build.js';
 const T = DATA.tuning;
 /** The tile the player stands on, offset by (dx, dy) tiles. */
 const tileAt = (w, dx = 0, dy = 0) => [Math.floor(w.player.x / TILE) + dx, Math.floor(w.player.y / TILE) + dy];
-/** A test field with tasks; the player at its middle. */
+/** A test field with tasks; the player at its middle. With the Docks (config.harbor.ferry), a mooring 30 tiles east. */
 function field(tasks, config = {}) {
   const probe = makeWorld();
   const [cx, cy] = tileAt(probe);
-  return makeWorld({ invulnerable: true, ...config }, { mapExtra: { tasks: tasks.map(([kind, dx, dy]) => ({ kind, at: [cx + dx, cy + dy] })) } });
+  const ferry = config.harbor?.ferry ? { ferry: { at: [cx + 30, cy] } } : {};
+  return makeWorld({ invulnerable: true, ...config }, { mapExtra: { tasks: tasks.map(([kind, dx, dy]) => ({ kind, at: [cx + dx, cy + dy] })), ...ferry } });
 }
 const goTo = (w, x, y) => { w.player.x = x; w.player.y = y; };
 const kill = (w, e) => { damageEnemy(w, e, 1e9, 0); };
 const pickupsOf = (w, kind) => { const P = w.pickups, out = []; for (let i = 0; i < P.count; i++) if (P.kind[i] === kind) out.push(i); return out; };
+/** An enemy that stands still and won't die of a stray hit. */
+const post = (w, id, x, y, opts = null) => { const e = spawnAt(w, id, x - w.player.x, y - w.player.y, opts); w.enemies.speed[e] = 0; return e; };
+/** Stand in a bell's start ring until it tolls. */
+const toll = (w, bell) => { goTo(w, bell.x, bell.y); return runCollect(w, Math.ceil(T.tasks.bell.openSec * TPS) + 1, EV.TASK, IDLE, { halts: 'pass' }); };
 
-// ---------------------------------------------------------------- Wayside Lamps
+// ---------------------------------------------------------------- Wayside Lamps and their wards
 
-test('tasks: a Wayside Lamp lights only while you stand by it, waits when you leave, and gives Kindled, Sea Glass, and a look around', () => {
-  const w = field([['lamp', 0, 0], ['lamp', 30, 0]]);
+test('tasks: a Wayside Lamp lights only while you stay in its ring, waits when you leave, and lights into a ward with Pearls', () => {
+  const w = field([['lamp', 0, 0], ['lamp', 30, 0]], { harbor: { ferry: 1 } });
   const lamp = w.tasks[0];
   assert.equal(lamp.kind, TASK.LAMP);
   assert.equal(lamp.state, TASK_STATE.IDLE);
@@ -42,7 +51,7 @@ test('tasks: a Wayside Lamp lights only while you stand by it, waits when you le
   const started = runCollect(w, 1, EV.TASK);
   assert.deepEqual(started.map((e) => [e.a, e.b]), [[TASK.LAMP, 1]], 'it wakes when you step in');
   assert.ok(Math.abs(lamp.need - T.tasks.lamp.baseSec) < 0.01, `at 0:00 it takes ${T.tasks.lamp.baseSec}s`);
-  run(w, TPS);   // a second by it
+  for (let k = 0; k < TPS; k++) stepWorld(w, { mx: k % 12 < 6 ? 127 : -127, my: 0, buttons: 0 });   // a second in it, walking: moving is fine
   goTo(w, lamp.x + 300, lamp.y);
   run(w, 10 * TPS);
   assert.ok(Math.abs(lamp.progress - 1 - 1 / TPS) < 0.02 && lamp.state === TASK_STATE.ACTIVE, `held where it was: ${lamp.progress}`);
@@ -50,28 +59,57 @@ test('tasks: a Wayside Lamp lights only while you stand by it, waits when you le
   const done = runCollect(w, Math.ceil(TPS * lamp.need), EV.TASK).filter((e) => e.b === 2);
   assert.equal(done.length, 1, 'lit');
   assert.equal(lamp.state, TASK_STATE.DONE);
-  assert.equal(w.kindled, 1);
-  assert.equal(w.glass, lamp.glass, 'its Sea Glass');
+  assert.equal(w.glass, lamp.glass, 'its Pearls');
+  assert.ok(lamp.glass > 0);
   assert.equal(w.result.lampsLit, 1);
-  assert.ok(w.mods.some((m) => m.stat === 'growth' && Math.abs(m.value - T.tasks.lamp.kindledXp) < 1e-9), 'Kindled: XP');
-  assert.ok(w.mods.some((m) => m.stat === 'area' && Math.abs(m.value - T.tasks.lamp.kindledArea) < 1e-9), 'Kindled: Area');
-  assert.ok(!isNight(w), 'one of two: no Lantern Night yet');
-  // Standing by a lit one does nothing more.
-  run(w, 2 * TPS);
-  assert.equal(w.kindled, 1);
-  // A second lamp: Kindled stacks.
+  assert.ok(!w.mods.some((m) => m.stat === 'growth' || m.stat === 'area'), 'no Kindled (0.8.2): a lamp is a ward');
+  assert.equal(ward(w, 0), T.tasks.ward.radius);
+  assert.ok(!isNight(w) && !nightBanked(w), 'one of two: no Lantern Night yet');
+  // A second lamp: the most lit at once.
   const second = w.tasks[1];
   goTo(w, second.x, second.y);
   run(w, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.5)), IDLE, { halts: 'pass' });
-  assert.equal(w.kindled, 2);
-  assert.ok(w.mods.some((m) => m.stat === 'growth' && Math.abs(m.value - 2 * T.tasks.lamp.kindledXp) < 1e-9), 'two stacks of XP');
+  assert.equal(w.result.lampsMost, 2);
+  // Without the Ferryman, a lamp pays no Pearls (none drop before the Docks).
+  const bare = field([['lamp', 0, 0]]);
+  goTo(bare, bare.tasks[0].x, bare.tasks[0].y);
+  run(bare, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.5)), IDLE, { halts: 'pass' });
+  assert.equal(bare.tasks[0].state, TASK_STATE.DONE);
+  assert.deepEqual([bare.tasks[0].glass, bare.glass], [0, 0]);
+});
+
+test('tasks: a lit lamp\'s ward burns what stands in it: an ordinary enemy in about killSec, an elite at its share; nothing outside', () => {
+  const w = field([['lamp', 0, 0]]);
+  const lamp = w.tasks[0];
+  goTo(w, lamp.x, lamp.y);
+  run(w, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.2)), IDLE, { halts: 'pass' });
+  goTo(w, lamp.x + 600, lamp.y);   // (you away: the ward burns on its own)
+  const W = T.tasks.ward;
+  const e = post(w, 'drowned_sailor', lamp.x + W.radius * 0.6, lamp.y);
+  const elite = post(w, 'drowned_sailor', lamp.x - W.radius * 0.6, lamp.y, { elite: true });
+  const out = post(w, 'drowned_sailor', lamp.x, lamp.y + W.radius + 20);
+  const max = w.enemies.maxHp[e], eliteMax = w.enemies.maxHp[elite];
+  run(w, TPS, IDLE, { halts: 'pass' });
+  const lost = max - w.enemies.hp[e];
+  assert.ok(lost >= max * (1 / W.killSec) * 0.9 && lost <= max * (1 / W.killSec) * 1.6, `a second: ${(lost / max).toFixed(3)} of its health`);
+  const eliteLost = (eliteMax - w.enemies.hp[w.enemies.resolve(w.enemies.handle(elite))]) / eliteMax;
+  assert.ok(Math.abs(eliteLost - (lost / max) * W.eliteShare) < 0.01, `an elite at its share: ${eliteLost.toFixed(4)}`);
+  assert.equal(w.enemies.hp[out], w.enemies.maxHp[out], 'outside the light: untouched');
+  const killed = runCollect(w, Math.ceil((W.killSec + 0.5) * TPS), EV.KILL, IDLE, { halts: 'pass' });
+  assert.ok(killed.length >= 1, 'the ordinary one died in its light');
+  // What drops in a lit lamp's light is marked: the lamp watches the ground.
+  w.events.clear();
+  spawnPickup(w, PK.CHEST, lamp.x + 10, lamp.y, 1, 0);
+  spawnPickup(w, PK.CHEST, lamp.x + 400, lamp.y, 1, 0);
+  assert.deepEqual(eventsOf(w, EV.DROP).map((d) => [d.a, d.b]), [[PK.CHEST, 1], [PK.CHEST, 0]]);
 });
 
 test('tasks: one put off costs more and pays more, by the minute it starts', () => {
-  const early = field([['lamp', 0, 0], ['bell', 0, 20]]);
-  const late = field([['lamp', 0, 0], ['bell', 0, 20]]);
+  const early = field([['lamp', 0, 0], ['bell', 0, 20]], { harbor: { ferry: 1 } });
+  const late = field([['lamp', 0, 0], ['bell', 0, 20]], { harbor: { ferry: 1 } });
   late.tick = 10 * 60 * TPS;
-  for (const w of [early, late]) { goTo(w, w.tasks[0].x, w.tasks[0].y); run(w, 1); goTo(w, w.tasks[1].x, w.tasks[1].y); run(w, 1); }
+  late.ferry.nextCall = 1e9; early.ferry.nextCall = 1e9;   // (the Ferryman stays away)
+  for (const w of [early, late]) { goTo(w, w.tasks[0].x, w.tasks[0].y); run(w, 1); toll(w, w.tasks[1]); }
   const m = 10;   // (a tick or two past 10:00)
   assert.ok(Math.abs(late.tasks[0].need - (T.tasks.lamp.baseSec + T.tasks.lamp.perMinSec * m)) < 0.01);
   assert.equal(late.tasks[0].glass, Math.round(T.tasks.lamp.glass[0] + T.tasks.lamp.glass[1] * m));
@@ -85,33 +123,85 @@ test('tasks: one put off costs more and pays more, by the minute it starts', () 
   assert.ok(Math.abs(quick.tasks[0].progress - 1.5) < 0.05, `${quick.tasks[0].progress}`);
 });
 
-test('tasks: lighting every lamp brings Lantern Night: the light burns, a vault opens, and it ends', () => {
+// ---------------------------------------------------------------- Lantern Night
+
+test('tasks: every lamp lit banks Lantern Night; it falls when the crowd closes in; it burns, ends, and the vault drops ahead of you', () => {
   const w = field([['lamp', 0, 0]]);
   const lamp = w.tasks[0];
   goTo(w, lamp.x, lamp.y);
-  const nights = runCollect(w, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.2)), EV.NIGHT, IDLE, { halts: 'stop' });
-  assert.deepEqual(nights.map((e) => e.a), [1]);
-  assert.ok(isNight(w) && w.result.lanternNight);
-  // The vault opens where the last lamp stood (here, at your feet: its pick comes up at once).
-  run(w, 3, IDLE, { halts: 'stop' });
-  assert.deepEqual([currentHalt(w)?.kind, currentHalt(w)?.source], ['relic', 'vault']);
-  decide(w, { kind: 'pick', index: 0 });
+  const banked = runCollect(w, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.2)), EV.NIGHT, IDLE, { halts: 'stop' });
+  assert.deepEqual(banked.map((e) => e.a), [2], 'banked');
+  assert.ok(nightBanked(w) && !isNight(w), 'it waits');
+  run(w, 2 * TPS);
+  assert.ok(!isNight(w), 'an empty screen: still waiting');
+  // The crowd: enough enemies close enough.
+  const N = T.tasks.night;
+  for (let k = 0; k < N.crowd; k++) { const e = spawnAt(w, 'drowned_sailor', 40 + (k % 5) * 12, -40 + Math.floor(k / 5) * 20); w.enemies.speed[e] = 0; w.enemies.hp[e] = w.enemies.maxHp[e] = 1e6; }
+  const falls = runCollect(w, 8, EV.NIGHT, IDLE, { halts: 'stop' });
+  assert.deepEqual(falls.map((e) => [e.a, e.b, e.c]), [[1, 1, 1]], 'it falls on the crowd');
+  assert.ok(isNight(w) && !nightBanked(w) && w.result.lanternNight);
+  assert.equal(pickupsOf(w, PK.VAULT).length, 0, 'no vault yet: it comes at the end');
   // The light burns what stands in it, every pulse.
   const e = spawnAt(w, 'drowned_sailor', 60, 0);
   w.enemies.speed[e] = 0; w.enemies.hp[e] = w.enemies.maxHp[e] = 1e6;
-  const far = spawnAt(w, 'drowned_sailor', T.tasks.night.light + 120, 0);
+  const far = spawnAt(w, 'drowned_sailor', N.light + 120, 0);
   w.enemies.speed[far] = 0; w.enemies.hp[far] = w.enemies.maxHp[far] = 1e6;
   run(w, TPS);
-  const pulses = Math.round(1 / T.tasks.night.every);
-  assert.ok(1e6 - w.enemies.hp[e] >= T.tasks.night.burn * (pulses - 1), `burned ${1e6 - w.enemies.hp[e]}`);
+  const pulses = Math.round(1 / N.every);
+  assert.ok(1e6 - w.enemies.hp[e] >= w.night.burn * (pulses - 1), `burned ${1e6 - w.enemies.hp[e]}`);
+  assert.ok(Math.abs(w.night.burn - N.burn * w.tuning.pace.hp) < N.burn * 0.02, 'its burn: the tuning\'s times the pace dial\'s health (near 0:00)');
   assert.equal(w.enemies.hp[far], 1e6, 'beyond the light: untouched');
-  // It ends on time.
-  const ends = runCollect(w, Math.ceil(T.tasks.night.sec * TPS), EV.NIGHT);
+  // It ends on time; the vault drops a moment later, ahead of you.
+  w.player.fx = 0; w.player.fy = 1;
+  const ends = [];
+  for (let k = 0; k < N.sec * TPS && isNight(w); k++) { stepWorld(w, IDLE); ends.push(...eventsOf(w, EV.NIGHT)); }
   assert.deepEqual(ends.map((x) => x.a), [0]);
   assert.ok(!isNight(w));
+  const drops = runCollect(w, Math.ceil(N.vaultDelay * TPS) + 1, EV.DROP, IDLE, { halts: 'stop' });
+  assert.deepEqual(drops.map((d) => d.a), [PK.VAULT]);
+  assert.ok(Math.abs(drops[0].x - w.player.x) < 2 && Math.abs(drops[0].y - w.player.y - N.vaultAhead) < TILE, `ahead of you: ${drops[0].x - w.player.x}, ${drops[0].y - w.player.y}`);
+  // A muster or a boss arriving sets a banked night off too.
+  const m = field([['lamp', 0, 0]]);
+  goTo(m, m.tasks[0].x, m.tasks[0].y);
+  run(m, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.2)), IDLE, { halts: 'stop' });
+  m.events.clear();
+  crowdArrives(m, false);
+  assert.deepEqual(eventsOf(m, EV.NIGHT).map((x) => [x.a, x.b]), [[1, 2]]);
 });
 
-test('tasks: the vault offers three relics a tier better; a Reliquary offers three for the minute; the pick takes one', () => {
+test('tasks: lamps stay lit when a boss comes (ruling 6); on a map in acts its first boss begins act 2 with new lamps', () => {
+  const w = field([['lamp', 0, 0], ['lamp', 30, 0]], { harbor: { ferry: 1 } });
+  w.ferry.nextCall = 1e9;
+  for (const t of w.tasks) { goTo(w, t.x, t.y); run(w, Math.ceil(TPS * (T.tasks.lamp.baseSec + 0.2)), IDLE, { halts: 'pass' }); }
+  crowdArrives(w, false);   // (the first night falls)
+  run(w, Math.ceil((T.tasks.night.sec + 2) * TPS), IDLE, { halts: 'pass' });
+  assert.equal(w.night.count, 1);
+  w.tick = 10 * 60 * TPS;
+  crowdArrives(w, true);    // the 10:00 boss
+  const outs = runCollect(w, 3 * TPS, EV.TASK, IDLE, { halts: 'pass' }).filter((e) => e.b === 3);
+  assert.equal(outs.length, 0, 'none goes out');
+  assert.ok(w.tasks.every((t) => t.state === TASK_STATE.DONE) && ward(w, 0) === T.tasks.ward.radius, 'still lit, still wards');
+  // The Docks: the first boss's arrival is act 2, with its own lamps at new sites.
+  const d = createWorld({ seed: 3, character: 'lamplighter', invulnerable: true }, DATA);
+  const docks = DATA.maps.find((m) => m.id === 'drowned_docks');
+  const act1 = d.tasks.filter((t) => t.kind === TASK.LAMP);
+  assert.equal(act1.length, docks.acts[0].lamps);
+  assert.equal(d.acts.act, 1);
+  for (const t of act1) t.state = TASK_STATE.DONE;
+  crowdArrives(d, true);
+  assert.equal(d.acts.act, 2);
+  const lamps = d.tasks.filter((t) => t.kind === TASK.LAMP);
+  assert.equal(lamps.length, docks.acts[0].lamps + docks.acts[1].lamps);
+  assert.ok(act1.every((t) => t.state === TASK_STATE.DONE), 'act 1\'s stay lit');
+  const key = (t) => `${Math.round(t.x)},${Math.round(t.y)}`;
+  assert.equal(new Set(lamps.map(key)).size, lamps.length, 'every lamp at its own place');
+  crowdArrives(d, true);
+  assert.equal(d.acts.act, 2, 'the last boss begins nothing (act 3 is overtime)');
+});
+
+// ---------------------------------------------------------------- the vault and the relic pick
+
+test('tasks: the vault offers three relics a tier better; a Reliquary offers three for the minute; the pick takes one; an empty vault gives an Ember', () => {
   const w = field([]);
   // At 0:00 a Reliquary's three are Trinkets (and a Charm or two at most).
   const tiers = (list) => list.map((r) => r.tier);
@@ -135,51 +225,102 @@ test('tasks: the vault offers three relics a tier better; a Reliquary offers thr
   decide(w, { kind: 'pick', index: 1 });
   assert.equal(currentHalt(w), null);
   assert.ok(w.build.relics.some((r) => r.id === want));
-  // Carrying every relic there is: Sea Glass instead, and no screen.
+  // Every relic carried: a vault gives an Ember instead, and says so.
   for (const r of DATA.relics) if (!w.build.relics.includes(r)) addRelic(w, r);
-  const g = w.glass;
   const r2 = w.pickups.alloc();
-  w.pickups.x[r2] = w.pickups.px[r2] = w.player.x; w.pickups.y[r2] = w.pickups.py[r2] = w.player.y; w.pickups.kind[r2] = PK.RELIQUARY;
-  run(w, 2, IDLE, { halts: 'stop' });
-  assert.equal(currentHalt(w), null);
-  assert.equal(w.glass, g + T.relics.emptyGlass);
+  w.pickups.x[r2] = w.pickups.px[r2] = w.player.x; w.pickups.y[r2] = w.pickups.py[r2] = w.player.y; w.pickups.kind[r2] = PK.VAULT;
+  const said = runCollect(w, 2, EV.VAULT_EMPTY, IDLE, { halts: 'stop' });
+  assert.deepEqual(said.map((e) => e.a), [1]);
+  assert.equal(w.result.embers + w.build.embers + pickupsOf(w, PK.EMBER).length > 0, true, 'an Ember');
+  assert.equal(w.glass, 0, 'no Pearls in its place');
 });
 
-test('tasks: a Fog Bell wakes when you walk in; kills inside its ring ring it, wherever you are; Sea Glass and a chest', () => {
-  const w = field([['bell', 0, 0]]);
-  const bell = w.tasks[0];
-  // A kill in the ring before it's awake doesn't count.
-  const e0 = spawnAt(w, 'fog_wisp', bell.x - w.player.x + 10, bell.y - w.player.y);
-  goTo(w, bell.x + 400, bell.y);
-  kill(w, e0); run(w, 1);
-  assert.equal(bell.progress, 0);
+// ---------------------------------------------------------------- Fog Bells
+
+test('tasks: a Fog Bell tolls from its small ring; its crew gathers, then walks in; kills in its ring count down; rung, it dazes and drops a chest', () => {
+  const w = field([['bell', 0, 0]], { harbor: { ferry: 1 } });
+  w.ferry.nextCall = 1e9;
+  const bell = w.tasks[0], B = T.tasks.bell, r = taskRadius(w, bell);
+  // Walking through the kill ring doesn't wake it, and a kill there before it tolls doesn't count.
+  goTo(w, bell.x + r * 0.7, bell.y);
+  const e0 = post(w, 'fog_wisp', bell.x + 10, bell.y);
+  kill(w, e0); run(w, TPS);
+  assert.deepEqual([bell.state, bell.progress], [TASK_STATE.IDLE, 0]);
+  // Its start ring fills while you're in it (moving is fine), and empties when you leave.
   goTo(w, bell.x, bell.y);
-  run(w, 1);
+  run(w, Math.floor(B.openSec * TPS / 2));
+  assert.ok(bell.touch > 0 && bell.state === TASK_STATE.IDLE);
+  goTo(w, bell.x + 100, bell.y); run(w, 1);
+  assert.equal(bell.touch, 0, 'left: empty again');
+  const tolled = toll(w, bell);
+  assert.deepEqual(tolled.map((e) => [e.a, e.b]), [[TASK.BELL, 1]], 'tolled');
   assert.equal(bell.state, TASK_STATE.ACTIVE);
-  assert.equal(bell.need, T.tasks.bell.baseKills);
-  goTo(w, bell.x + 400, bell.y);   // walk away: it keeps counting kills in its ring
-  const r = taskRadius(w, bell);
-  for (let k = 0; k < bell.need - 1; k++) { const e = spawnAt(w, 'fog_wisp', bell.x - w.player.x + (k % 2 ? 1 : -1) * r * 0.5, bell.y - w.player.y); w.enemies.speed[e] = 0; kill(w, e); }
-  const out = spawnAt(w, 'fog_wisp', bell.x - w.player.x + r + 30, bell.y - w.player.y);
-  w.enemies.speed[out] = 0; kill(w, out);
-  run(w, 1);
+  assert.equal(bell.need, B.baseKills);
+  assert.equal(bell.crewN, bell.need, 'a crew as big as the kills it needs');
+  for (let k = 0; k < bell.crewN; k++) { const d = Math.hypot(bell.crewX[k] - bell.x, bell.crewY[k] - bell.y); assert.ok(d > B.crewRadius * 0.55 && d < B.crewRadius * 1.25, `gathers in the fog round it: ${d}`); }
+  const before = w.enemies.count;
+  const walk = runCollect(w, Math.ceil(B.gatherSec * TPS) + 1, EV.TASK, IDLE, { halts: 'pass' }).filter((e) => e.b === 4);
+  assert.equal(walk.length, 1, 'then walks in');
+  assert.equal(w.enemies.count - before, bell.crewN);
+  // Kills in the ring count down; one outside doesn't.
+  w.enemies.count = 0;
+  for (let k = 0; k < bell.need - 1; k++) kill(w, post(w, 'fog_wisp', bell.x + (k % 2 ? 1 : -1) * r * 0.5, bell.y));
+  kill(w, post(w, 'fog_wisp', bell.x + r + 30, bell.y));
+  const counts = runCollect(w, 1, EV.BELL_COUNT);
   assert.equal(bell.progress, bell.need - 1, 'one outside the ring didn\'t count');
-  const last = spawnAt(w, 'fog_wisp', bell.x - w.player.x, bell.y - w.player.y);
-  w.enemies.speed[last] = 0; kill(w, last);
+  assert.equal(counts.at(-1).a, 1, 'one left, said');
+  const inside = post(w, 'drowned_sailor', bell.x + 30, bell.y);
+  w.enemies.hp[inside] = w.enemies.maxHp[inside] = 1e6;
+  goTo(w, bell.x - r * 0.6, bell.y);   // (in its ring, clear of where the chest lands)
+  kill(w, post(w, 'fog_wisp', bell.x, bell.y));
   const rung = runCollect(w, 1, EV.TASK);
   assert.deepEqual(rung.map((x) => [x.a, x.b]), [[TASK.BELL, 2]]);
   assert.equal(bell.state, TASK_STATE.DONE);
   assert.equal(w.glass, bell.glass);
   assert.equal(w.result.bellsRung, 1);
-  assert.equal(pickupsOf(w, PK.CHEST).length, 1, 'and a chest under it');
-  // The Chapel widens the ring.
+  assert.ok(w.enemies.dazeT[w.enemies.resolve(w.enemies.handle(inside))] > 0, 'what\'s inside is dazed');
+  const chests = pickupsOf(w, PK.CHEST);
+  assert.equal(chests.length, 1, 'and a chest at the bell');
+  assert.equal(w.pickups.a[chests[0]], CHEST_BELL);
+  assert.ok(Math.hypot(w.pickups.x[chests[0]] - bell.x, w.pickups.y[chests[0]] - bell.y) < r, 'inside its ring');
+  // The Chapel widens the kill ring.
   const wide = field([['bell', 0, 0]], { harbor: { bellRing: 0.25 } });
   assert.equal(taskRadius(wide, wide.tasks[0]), T.tasks.bell.radius * 1.25);
 });
 
-// ---------------------------------------------------------------- Reliquaries and Sea Glass
+test('tasks: the bell\'s chest is a pick: a weapon or passive gains 2 levels (a weapon\'s rolled); with nothing to level, Coin or food', () => {
+  const open = (w) => { spawnPickup(w, PK.CHEST, w.player.x, w.player.y, CHEST_BELL, 0); run(w, 1, IDLE, { halts: 'stop' }); return currentHalt(w); };
+  const w = field([]);
+  give(w, 'flare_gun', { level: 2 });
+  givePassive(w, 'wick_oil', 4);
+  const h = open(w);
+  assert.equal(h?.kind, 'bellpick');
+  assert.deepEqual(h.options.map((o) => [o.kind, o.id, o.from, o.to]), [['weapon', 'flare_gun', 2, 4], ['passive', 'wick_oil', 4, 5]]);
+  assert.throws(() => decide(w, { kind: 'ok' }), /expected "pick"/);
+  assert.throws(() => decide(w, { kind: 'pick', index: 7 }), /no option 7/);
+  decide(w, { kind: 'pick', index: 0 });
+  assert.equal(currentHalt(w), null);
+  assert.equal(w.slots[0].level, 4);
+  assert.equal(w.result.chests, 1);
+  assert.equal(w.slots[0].ups.length, 3, 'a weapon\'s levels are rolled upgrades (ruling 10)');
+  // A well-levelled weapon has no top (ruling 10): 2 more levels.
+  const evo = field([]);
+  give(evo, 'flare_gun', { level: 8 });
+  const he = open(evo);
+  assert.equal(he?.kind, 'bellpick');
+  assert.deepEqual(he.options.map((o) => [o.kind, o.id, o.from, o.to]), [['weapon', 'flare_gun', 8, 10]]);
+  decide(evo, { kind: 'pick', index: 0 });
+  assert.equal(evo.slots[0].level, 10);
+  // Nothing to level: a chest's fallback.
+  const max = field([]);
+  const h2 = open(max);
+  assert.equal(h2?.kind, 'chest');
+  assert.ok(['coin', 'heal'].includes(h2.items[0].kind), h2.items[0].kind);
+});
 
-test('relics: a Reliquary needs the gap since the last; the pity count makes one certain; never with nothing left to find', () => {
+// ---------------------------------------------------------------- Reliquaries and Pearls
+
+test('relics: a Reliquary needs the gap since the last; the pity count makes one certain; none with nothing left to find, said once', () => {
   const w = makeWorld({ invulnerable: true, tuning: { relics: { reliquaryChance: 0 } } });
   const n = () => pickupsOf(w, PK.RELIQUARY).length;
   for (let k = 0; k < T.relics.reliquaryPity - 1; k++) maybeReliquary(w, w.player.x, w.player.y);
@@ -196,22 +337,52 @@ test('relics: a Reliquary needs the gap since the last; the pity count makes one
   const sure = makeWorld({ invulnerable: true, tuning: { relics: { reliquaryChance: 1 } } });
   maybeReliquary(sure, 0, 0);
   assert.equal(sure.result.reliquaries, 1);
-  // Nothing left to find: Sea Glass where it would have dropped.
+  // Nothing left to find: nothing drops, and the run says so once.
   const all = makeWorld({ invulnerable: true, tuning: { relics: { reliquaryChance: 1 } } });
   for (const r of DATA.relics) addRelic(all, r);
+  all.events.clear();
+  maybeReliquary(all, all.player.x + 100, all.player.y);
   maybeReliquary(all, all.player.x + 100, all.player.y);
   assert.equal(all.result.reliquaries, 0);
-  assert.equal(pickupsOf(all, PK.RELIQUARY).length, 0);
-  assert.deepEqual(pickupsOf(all, PK.GLASS).map((i) => all.pickups.a[i]), [T.relics.emptyGlass]);
-  // Only ordinary kills count: an elite drops Sea Glass instead.
-  const g = makeWorld({ invulnerable: true });
+  assert.equal(all.pickups.count, 0, 'not a Reliquary, and no Pearls in its place');
+  assert.equal(eventsOf(all, EV.RELIC_POOL).length, 1);
+  // Only ordinary kills count: an elite drops Pearls instead (with the Ferryman in the run).
+  const g = makeWorld({ invulnerable: true, harbor: { ferry: 1 } }, { mapExtra: { ferry: { at: [70, 64] } } });
   assert.equal(glassFor(g, 0), 0);
   assert.equal(glassFor(g, EF.BOSS), T.glass.boss);
   for (let k = 0; k < 20; k++) { const v = glassFor(g, EF.ELITE); assert.ok(v >= T.glass.elite[0] && v <= T.glass.elite[1]); }
+  assert.equal(glassFor(makeWorld(), EF.BOSS), 0, 'no Pearls before the Docks');
 });
 
-test('relics: Sea Glass from an elite flies to you; what was earned and the most held are on the result', () => {
-  const w = makeWorld({ invulnerable: true });
+test('relics: a small pool is spread over the run; a Reliquary from a far kill lands nearer you, toward it, and says so', () => {
+  const four = ['gull_feather', 'brass_button', 'spark_flint', 'tide_clock'];
+  const w = createWorld({ seed: 1, character: 'lamplighter', invulnerable: true, tuning: { relics: { reliquaryChance: 1 } }, pools: { weapons: ['flare_gun'], passives: [], relics: four, runes: [] } }, DATA);
+  const pool = {};
+  assert.equal(relicPool(w, pool), 4);
+  assert.deepEqual(pool, { total: 4, found: 0 });
+  w.tick = 1;
+  maybeReliquary(w, w.player.x + 400, w.player.y);
+  assert.equal(w.result.reliquaries, 1);
+  const drops = eventsOf(w, EV.DROP).filter((d) => d.a === PK.RELIQUARY);
+  assert.equal(drops.length, 1);
+  assert.equal(drops[0].c, 1, 'pulled in');
+  assert.ok(Math.abs(Math.hypot(drops[0].x - w.player.x, drops[0].y - w.player.y) - T.relics.pullTo) < TILE && drops[0].x > w.player.x, 'toward the kill');
+  // The next waits for the time left to the last boss over the relics still to find after it plus one: past the tuning's gap.
+  const last = w.director.events[w.director.lastBossEvent].at;
+  const spread = (last - w.tick / TPS) / 4;
+  assert.ok(Math.abs(w.reliquary.wait - spread) < 1e-6);
+  assert.ok(spread > T.relics.reliquaryGap);
+  w.tick += Math.floor((spread - 5) * TPS);
+  maybeReliquary(w, w.player.x, w.player.y);
+  assert.equal(w.result.reliquaries, 1, 'not yet');
+  w.tick += 10 * TPS;
+  maybeReliquary(w, w.player.x, w.player.y);
+  assert.equal(w.result.reliquaries, 2, 'then');
+});
+
+test('relics: Pearls from an elite fly to you; what was earned and the most held are on the result', () => {
+  // (Skips pay nothing here: the passed drafts would pay Pearls, 0.9.0.)
+  const w = makeWorld({ invulnerable: true, harbor: { ferry: 1 }, tuning: { draft: { skipPays: false } } }, { mapExtra: { ferry: { at: [70, 64] } } });
   const e = spawnAt(w, 'drowned_sailor', 12, 0, { elite: true });
   w.enemies.speed[e] = 0;
   kill(w, e);
@@ -254,36 +425,70 @@ function ferryWorld(level, config = {}) {
   const [cx, cy] = tileAt(probe);
   return makeWorld({ invulnerable: true, harbor: { ferry: level }, ...config }, { mapExtra: { ferry: { at: [cx + 6, cy] } } });
 }
+/** The world on his first call, tied up, with you away from him. */
+function called(w) { w.tick = w.ferry.nextCall; run(w, 1); w.tick = w.ferry.tiedTick; return w; }
 
-test('ferry: none without the Docks; his stock by the Docks\' level, turning over on its clock', () => {
+test('ferry: none without the Docks; not there at 0:00; he calls on his schedule with stock by the Docks\' level', () => {
   assert.equal(makeWorld({}, { mapExtra: { ferry: { at: [60, 60] } } }).ferry, null, 'no Docks, no Ferryman');
   assert.equal(makeWorld({ harbor: { ferry: 1 } }).ferry, null, 'a map without a mooring: no Ferryman');
   const one = ferryWorld(1);
   run(one, 1);
+  assert.equal(one.ferry.moored, false, 'not at 0:00');
+  assert.deepEqual(one.ferry.offers, []);
+  assert.equal(one.ferry.nextCall, T.ferry.firstCall * TPS);
+  one.tick = one.ferry.nextCall - 1;
+  const calls = runCollect(one, 2, EV.FERRY);
+  assert.deepEqual(calls.map((e) => e.a), [1, 3], 'a new stock as he calls');
+  assert.ok(one.ferry.moored && one.ferry.calls === 1);
+  assert.equal(one.ferry.tiedTick - one.ferry.callTick, T.ferry.rowSec * TPS, 'rowing in');
   const kinds = (w) => w.ferry.offers.map((o) => o.kind);
   assert.deepEqual(kinds(one), [FERRY_KINDS.relic, FERRY_KINDS.food, FERRY_KINDS.reroll, FERRY_KINDS.ember]);
   const P = T.ferry.prices;
   assert.deepEqual(one.ferry.offers.slice(1).map((o) => o.price), [P.food, P.reroll, P.ember]);
-  const two = ferryWorld(2); run(two, 1);
+  const two = called(ferryWorld(2));
   assert.equal(kinds(two).filter((k) => k === FERRY_KINDS.relic).length, 2, 'two relics from the Docks\' level 2');
-  const three = ferryWorld(3); run(three, 1);
+  const three = called(ferryWorld(3));
   assert.equal(three.ferry.offers.at(-1).price, Math.round(P.ember * (1 - T.ferry.discount)), 'cheaper from level 3');
-  // A new stock every restockSec (faster from level 4).
-  const ev = runCollect(one, T.ferry.restockSec * TPS + 2, EV.FERRY).filter((e) => e.a === 1);
-  assert.deepEqual(ev.map((e) => e.b), [1]);
-  const four = ferryWorld(4);
-  const ev4 = runCollect(four, T.ferry.fastRestockSec * TPS + 2, EV.FERRY).filter((e) => e.a === 1);
-  assert.deepEqual(ev4.map((e) => e.b), [0, 1]);
+  const four = called(ferryWorld(4));
+  assert.equal(kinds(four).filter((k) => k === FERRY_KINDS.relic).length, 3, 'a third relic from the Docks\' level 4');
+  // The next call, callEvery later: a new stock.
+  assert.equal(one.ferry.nextCall, (T.ferry.firstCall + T.ferry.callEvery) * TPS);
+  one.tick = one.ferry.nextCall;
+  const again = runCollect(one, 1, EV.FERRY);
+  assert.deepEqual(again.map((e) => [e.a, e.b]), [[4, 0], [1, 1], [3, 0]], 'casts off, restocks, calls');
+  // A short run's calls follow its clock.
+  const short = ferryWorld(1, { mode: 'short' });
+  assert.equal(short.ferry.nextCall, Math.round(T.ferry.firstCall * T.run.shortTimeScale * TPS));
 });
 
-test('ferry: standing still by the skiff opens the trade once; buying spends Sea Glass; walk away and back for another', () => {
+test('ferry: he ties up at the mooring nearest you that\'s at least minAway, rowing in from beyond it', () => {
+  const w = createWorld({ seed: 1, character: 'lamplighter', invulnerable: true, harbor: { ferry: 1 } }, DATA);
+  const M = w.ferry.moorings, p = w.player;
+  assert.ok(M.length >= 4);
+  w.tick = w.ferry.nextCall;
+  w.ferry.nextCall = w.tick;
+  run(w, 1, IDLE, { halts: 'pass' });
+  const F = w.ferry, d = (m) => Math.hypot(m.x - p.x, m.y - p.y);
+  assert.ok(d(F) >= T.ferry.minAway, `${d(F)} px away`);
+  for (const m of M) assert.ok(d(m) < T.ferry.minAway || d(m) >= d(F) - 1e-9, 'the nearest that far');
+  assert.ok(Math.hypot(F.fromX - p.x, F.fromY - p.y) > Math.hypot(F.bx - p.x, F.by - p.y), 'from the fog beyond the skiff');
+});
+
+test('ferry: his ring opens the trade once he\'s tied up (moving allowed); buying spends Pearls; leave the ring and come back for another', () => {
   const w = ferryWorld(2, { startGlass: 200 });
+  w.tick = w.ferry.nextCall; run(w, 1);
   const F = w.ferry;
   goTo(w, F.x, F.y);
-  run(w, Math.ceil(T.ferry.standSec * TPS) - 2, IDLE, { halts: 'stop' });
-  assert.equal(currentHalt(w), null, 'not before standSec');
-  run(w, 4, IDLE, { halts: 'stop' });
-  assert.equal(currentHalt(w)?.kind, 'ferry');
+  run(w, Math.ceil(T.ferry.openSec * TPS) + 2, IDLE, { halts: 'stop' });
+  assert.equal(currentHalt(w), null, 'not while he rows in');
+  w.tick = F.tiedTick;
+  const sway = (k) => ({ mx: k % 12 < 6 ? 127 : -127, my: 0, buttons: 0 });
+  let k = 0;
+  for (; k < Math.ceil(T.ferry.openSec * TPS) - 2; k++) { goTo(w, F.x, F.y); stepWorld(w, sway(k)); }
+  assert.equal(currentHalt(w), null, 'not before openSec');
+  for (let j = 0; j < 4 && !currentHalt(w); j++, k++) { goTo(w, F.x + 4, F.y); stepWorld(w, sway(k)); }
+  assert.equal(currentHalt(w)?.kind, 'ferry', 'walking inside it is fine');
+  assert.equal(w.result.ferryTrades, 1);
   const relic = F.offers[0];
   assert.throws(() => decide(w, { kind: 'pick', index: 0 }), /expected "buy" or "done"/);
   decide(w, { kind: 'buy', index: 0 });
@@ -300,15 +505,20 @@ test('ferry: standing still by the skiff opens the trade once; buying spends Sea
   assert.equal(w.result.ferryBought, 3);
   decide(w, { kind: 'done' });
   run(w, 2 * TPS, IDLE, { halts: 'stop' });
-  assert.equal(currentHalt(w), null, 'once: standing on doesn\'t reopen it');
+  assert.equal(currentHalt(w), null, 'once: staying in it doesn\'t reopen it');
+  // A relic he stocked that you've found since: gone from the trade, and refused.
+  addRelic(w, DATA.relics.find((r) => r.id === F.offers[1].id));
   goTo(w, F.x + 200, F.y); run(w, 2);
   goTo(w, F.x, F.y); run(w, TPS, IDLE, { halts: 'stop' });
   assert.equal(currentHalt(w)?.kind, 'ferry', 'back again: open again');
+  assert.equal(F.offers[1].gone, true);
+  assert.throws(() => decide(w, { kind: 'buy', index: 1 }), /no longer stocked/);
   // What can't be bought is refused.
   const poor = ferryWorld(1);
+  called(poor);
   goTo(poor, poor.ferry.x, poor.ferry.y);
   run(poor, TPS, IDLE, { halts: 'stop' });
-  assert.throws(() => decide(poor, { kind: 'buy', index: 3 }), /needs \d+ Sea Glass/);
+  assert.throws(() => decide(poor, { kind: 'buy', index: 3 }), /needs \d+ Pearls/);
   assert.throws(() => decide(poor, { kind: 'buy', index: 9 }), /no offer 9/);
 });
 
@@ -318,7 +528,7 @@ test('run config: a Tide\'s and curses\' multipliers reach the enemies; Hunger d
   const plain = makeWorld({ invulnerable: true });
   const hard = makeWorld({ invulnerable: true, hpMul: 1.5, enemySpeedMul: 1.2, enemyDamageMul: 1.3 });
   run(plain, 1); run(hard, 1);
-  assert.ok(Math.abs(hard.director.bossHpMul / plain.director.bossHpMul - 1.5) < 1e-9, 'bosses too');
+  assert.ok(Math.abs(hard.director.bossHpMul / plain.director.bossHpMul - Math.sqrt(1.5)) < 1e-6, 'bosses too, as its square root (0.9.0: tuning.director.bossTideExp)');
   const a = spawnAt(plain, 'drowned_sailor', 100, 0), b = spawnAt(hard, 'drowned_sailor', 100, 0);
   assert.ok(Math.abs(hard.enemies.maxHp[b] / plain.enemies.maxHp[a] - 1.5) < 1e-6, 'hp');
   assert.ok(Math.abs(hard.enemies.speed[b] / plain.enemies.speed[a] - 1.2) < 1e-6, 'speed');
@@ -335,29 +545,30 @@ test('run config: a Tide\'s and curses\' multipliers reach the enemies; Hunger d
   assert.equal(fed(true), 0, 'under Hunger, none');
 });
 
-test('run config: an arcana joins with its hook and its price; a rune stone halts at 0:00; a kit starts with its weapon', () => {
-  for (const a of DATA.arcana) {
-    const w = createWorld({ seed: 2, character: 'lamplighter', arcana: a.id }, DATA);
-    assert.ok(w.hookEntries.some((h) => h.source === `arcana:${a.id}`), a.id);
-    assert.equal(w.arcanaDef, a);
+test('run config: an Heirloom is a relic carried from 0:00, with its hook and its price; an old rune stone is passed over; a kit starts with its weapon', () => {
+  // (The sweep, ruling 11: arcana were relics picked at the gate. The five with code of their own are relics.)
+  for (const id of ['moon_pull', 'brine', 'kindling', 'glassblower', 'long_beam']) {
+    const w = createWorld({ seed: 2, character: 'lamplighter', relics: [id], heirloom: id }, DATA);
+    assert.ok(w.hookEntries.some((h) => h.source === `relic:${id}`) && w.build.relics.some((r) => r.id === id), id);
   }
-  const glass = createWorld({ seed: 2, character: 'lamplighter', arcana: 'glassblower' }, DATA);
+  const glass = createWorld({ seed: 2, character: 'lamplighter', relics: ['glassblower'] }, DATA);
   const base = createWorld({ seed: 2, character: 'lamplighter' }, DATA);
   assert.ok(Math.abs(glass.stats.maxHp / base.stats.maxHp - 0.85) < 1e-6, 'its price');
   assert.equal(glass.relicTierBonus, 1);
-  assert.throws(() => createWorld({ seed: 2, character: 'lamplighter', arcana: 'nope' }, DATA), /unknown arcana "nope"/);
-  // A rune stone: the run starts on the rune's placement.
+  assert.throws(() => createWorld({ seed: 2, character: 'lamplighter', relics: ['nope'] }, DATA), /unknown relic "nope"/);
+  assert.throws(() => createWorld({ seed: 2, character: 'lamplighter', heirloom: 5 }, DATA), /heirloom must be an id/);
+  assert.throws(() => createWorld({ seed: 2, character: 'lamplighter', startEmbers: -1 }, DATA), /startEmbers/);
+  // A rune stone (ruling 14: runes are gone): a config that still names one starts as any run does.
   const rune = createWorld({ seed: 2, character: 'lamplighter', startRune: 'splitting' }, DATA);
-  assert.deepEqual([currentHalt(rune)?.kind, currentHalt(rune)?.rune], ['rune', 'splitting']);
-  decide(rune, { kind: 'place', slot: 0 });
-  assert.equal(rune.slots[0].runes[0].id, 'splitting');
+  assert.equal(currentHalt(rune), null);
   // A kit: the character's other start.
   const kit = DATA.kits[0];
   const k = createWorld({ seed: 2, character: kit.character, startWeapon: kit.start }, DATA);
-  assert.equal(k.slots[0].def.id, kit.start);
+  assert.equal(k.slots[1].def.id, kit.start, 'beside the signature weapon');
   assert.throws(() => createWorld({ seed: 2, character: 'lamplighter', startWeapon: 'nope' }, DATA), /unknown weapon "nope"/);
-  // Starting Sea Glass (the Glass Pouch).
-  assert.equal(createWorld({ seed: 2, character: 'lamplighter', startGlass: 20 }, DATA).glass, 20);
+  // Starting Pearls (the Pearl Pouch), with the Ferryman in the run; none without him.
+  assert.equal(createWorld({ seed: 2, character: 'lamplighter', startGlass: 20, harbor: { ferry: 1 } }, DATA).glass, 20);
+  assert.equal(createWorld({ seed: 2, character: 'lamplighter', startGlass: 20 }, DATA).glass, 0);
 });
 
 test('run config: the bestiary\'s bonus hurts that enemy more; gear\'s hooks join and work', () => {
@@ -370,14 +581,17 @@ test('run config: the bestiary\'s bonus hurts that enemy more; gear\'s hooks joi
   };
   assert.ok(Math.abs(hit({ bestiaryBonus: { fog_wisp: 0.06 } }) / hit({}) - 1.06) < 1e-6);
   assert.ok(Math.abs(hit({ bestiaryBonus: { drowned_sailor: 0.06 } }) / hit({}) - 1) < 1e-6, 'only that enemy');
-  // Oil Wake: a dash leaves burning ground behind.
+  // Oil Wake: walking leaves burning ground behind, a pool each `every` seconds (ruling 16: not the dash).
   const wake = DATA.affixes.find((a) => a.id === 'oil_wake');
   const w = makeWorld({ invulnerable: true, gearHooks: [{ hook: wake.hook, params: wake.params, affix: wake.id }] });
   assert.ok(w.hookEntries.some((h) => h.source === 'gear:oil_wake'));
   const zones0 = w.zones.count;
-  run(w, 1, { mx: 127, my: 0, buttons: 1 });
-  run(w, 12, { mx: 127, my: 0, buttons: 0 });
-  assert.ok(w.zones.count - zones0 >= 2, `pools along the dash: ${w.zones.count - zones0}`);
+  run(w, Math.round(wake.params.every * 2.5 * TPS), { mx: 127, my: 0, buttons: 0 });
+  assert.ok(w.zones.count - zones0 >= 2, `pools along the walk: ${w.zones.count - zones0}`);
+  const still = makeWorld({ invulnerable: true, gearHooks: [{ hook: wake.hook, params: wake.params, affix: wake.id }] });
+  run(still, 6, { mx: 0, my: 0, buttons: 1 });
+  const oil = [...Array(still.zones.count).keys()].filter((z) => still.zones.damage[z] > 0).length;
+  assert.equal(oil, 0, 'a dash alone lays no oil (only its dash item\'s own mark, which never hurts)');
   // Tide Pulse: a level-up sends out a wave.
   const pulse = DATA.affixes.find((a) => a.id === 'tide_pulse');
   const p = makeWorld({ invulnerable: true, gearHooks: [{ hook: pulse.hook, params: pulse.params, affix: pulse.id }] });
@@ -417,7 +631,9 @@ test('ferry: each stock a little better, the Docks\' level 5 better again from t
     const n = [0, 0, 0, 0];
     for (let seed = 1; seed <= 40; seed++) {
       const w = ferryWorld(level, { seed });
-      w.tick = Math.round(stock * (level >= 4 ? T.ferry.fastRestockSec : T.ferry.restockSec) * TPS);
+      // His call number stock + 1 (each call is a new stock).
+      w.tick = Math.round((T.ferry.firstCall + T.ferry.callEvery * stock) * TPS);
+      w.ferry.calls = stock; w.ferry.nextCall = w.tick;
       run(w, 1);
       for (const o of w.ferry.offers) if (o.kind === FERRY_KINDS.relic) n[DATA.relics.find((r) => r.id === o.id).tier]++;
     }
@@ -429,7 +645,7 @@ test('ferry: each stock a little better, the Docks\' level 5 better again from t
   assert.equal(tiersOf(5, 0)[3], 0, 'level 5 opens like the rest');
   assert.ok(tiersOf(5, 1)[3] > tiersOf(4, 1)[3], 'then a tier better');
   // The Ember: a pick for the Ascend screen.
-  const w = ferryWorld(1, { startGlass: 200 });
+  const w = called(ferryWorld(1, { startGlass: 200 }));
   give(w, 'flare_gun');
   goTo(w, w.ferry.x, w.ferry.y);
   run(w, TPS, IDLE, { halts: 'stop' });
@@ -439,7 +655,7 @@ test('ferry: each stock a little better, the Docks\' level 5 better again from t
   run(w, 1, IDLE, { halts: 'stop' });
   assert.equal(currentHalt(w)?.kind, 'ascend', 'its Ember opens the Ascend screen');
   // A relic already carried (found since he stocked it) can't be bought twice.
-  const c = ferryWorld(1, { startGlass: 200 });
+  const c = called(ferryWorld(1, { startGlass: 200 }));
   goTo(c, c.ferry.x, c.ferry.y);
   run(c, TPS, IDLE, { halts: 'stop' });
   addRelic(c, DATA.relics.find((r) => r.id === c.ferry.offers[0].id));
@@ -451,14 +667,14 @@ test('ferry: each stock a little better, the Docks\' level 5 better again from t
 const withRelic = (id, config = {}) => { const w = makeWorld({ ...config }); addRelic(w, DATA.relics.find((r) => r.id === id)); return w; };
 const tough = (w, dx, dy = 0) => { const e = spawnAt(w, 'drowned_sailor', dx, dy); w.enemies.speed[e] = 0; w.enemies.hp[e] = w.enemies.maxHp[e] = 1e6; return e; };
 
-test('relics: Spark Flint bursts where a dash starts; Barnacle Shell answers a hit, once a cooldown, shielded or not', () => {
+test('relics: Spark Flint bursts every few seconds while you keep moving, never from the dash; Barnacle Shell answers a hit, once a cooldown, shielded or not', () => {
   const w = withRelic('spark_flint', { invulnerable: true });
-  const near = tough(w, -20), far = tough(w, -200);
-  const bursts = runCollect(w, 2, EV.EXPLODE, { mx: 127, my: 0, buttons: 1 });
-  assert.equal(bursts.length, 1);
-  assert.ok(w.enemies.hp[near] < 1e6 && w.enemies.hp[far] === 1e6, 'what stood by the start, only');
-  run(w, 2, { mx: 127, my: 0, buttons: 1 });   // held, not a new dash
-  assert.equal(runCollect(w, 2, EV.EXPLODE).length, 0);
+  const P0 = DATA.relics.find((r) => r.id === 'spark_flint').params;
+  const near = tough(w, 20), far = tough(w, -200);
+  assert.equal(runCollect(w, 20, EV.EXPLODE, { mx: 0, my: 0, buttons: 1 }).length, 0, 'a dash from standing: nothing');
+  const bursts = runCollect(w, Math.round(P0.every * 2 * TPS), EV.EXPLODE, { mx: 30, my: 0, buttons: 0 });
+  assert.equal(bursts.length, 2, 'one each `every` seconds of walking');
+  assert.ok(w.enemies.hp[near] < 1e6 && w.enemies.hp[far] === 1e6, 'what stood close, only');
   // Barnacle Shell.
   const b = withRelic('barnacle_shell');
   const e = tough(b, 60);
@@ -478,35 +694,32 @@ test('relics: Spark Flint bursts where a dash starts; Barnacle Shell answers a h
   assert.ok(b.enemies.hp[e] < after);
 });
 
-test('relics: Bloodied Hook: enough kills in the window and Damage rises, then falls; Drowned Bell tolls every Nth kill', () => {
+test('relics: Bloodied Hook: a crowd close and Damage rises, then falls; Drowned Bell tolls on its own clock (W4: nothing from kills)', () => {
   const P = DATA.relics.find((r) => r.id === 'bloodied_hook').params;
   const w = withRelic('bloodied_hook', { invulnerable: true });
   const fury = () => w.mods.some((m) => m.stat === 'might' && m.value === P.damage);
-  for (let k = 0; k < P.kills - 1; k++) { const e = spawnAt(w, 'fog_wisp', 200, k); kill(w, e); }
-  run(w, 1);
-  assert.ok(!fury(), 'one short');
-  kill(w, spawnAt(w, 'fog_wisp', 200, 0));
-  run(w, 2);
-  assert.ok(fury(), 'the streak');
-  run(w, P.duration * TPS);
-  assert.ok(!fury(), 'and it ends');
-  // Kills spread past the window never add up.
-  const slow = withRelic('bloodied_hook', { invulnerable: true });
-  for (let k = 0; k < P.kills * 2; k++) { kill(slow, spawnAt(slow, 'fog_wisp', 200, 0)); run(slow, Math.ceil((P.within * TPS) / P.kills) + 2); }
-  assert.ok(!slow.mods.some((m) => m.stat === 'might' && m.value === P.damage), 'too slow');
-  // Drowned Bell.
+  const near = [];
+  for (let k = 0; k < P.count - 1; k++) near.push(tough(w, 20 + (k % 5) * 6, 20 + Math.floor(k / 5) * 6));
+  run(w, 8);
+  assert.ok(!fury(), 'one short of the crowd');
+  near.push(tough(w, -20, -20));
+  run(w, 8);
+  assert.ok(fury(), 'the crowd is close');
+  for (const e of near) w.enemies.flags[e] |= EF.DEAD;
+  run(w, 8);
+  assert.ok(!fury(), 'and it ends when they are gone');
+  // Drowned Bell: every `every` seconds, kills or none.
   const D = DATA.relics.find((r) => r.id === 'drowned_bell').params;
   const b = withRelic('drowned_bell', { invulnerable: true });
-  const e = tough(b, 80);
-  let tolls = 0;
-  for (let k = 0; k < D.every * 2; k++) { kill(b, spawnAt(b, 'fog_wisp', 300, 0)); tolls += runCollect(b, 1, EV.WAVE).length; }
+  const e = tough(b, 60, 0);
+  const tolls = runCollect(b, Math.round(D.every * 2 * TPS) + 2, EV.WAVE).length;
   assert.equal(tolls, 2);
   assert.ok(b.enemies.hp[e] < 1e6);
 });
 
-test('arcana: High Water pulls every gem in; Brine heals on Tide kills, capped a second; Kindling doubles elites\' Embers', () => {
-  const hw = DATA.arcana.find((a) => a.id === 'high_water');
-  const w = makeWorld({ invulnerable: true, arcana: 'high_water' }, {});
+test('relics that were arcana: Moon Pull pulls every gem in; Sea Rite heals on Sea kills, capped a second; Kindling doubles elites\' Embers', () => {
+  const hw = DATA.relics.find((a) => a.id === 'moon_pull');
+  const w = makeWorld({ invulnerable: true, relics: ['moon_pull'] }, {});
   w.player.xpNext = 1e9;
   spawnGem(w, w.player.x + 600, w.player.y, 1);
   run(w, (hw.params.every - 1) * TPS);
@@ -514,10 +727,10 @@ test('arcana: High Water pulls every gem in; Brine heals on Tide kills, capped a
   run(w, 4 * TPS);
   assert.equal(w.gems.count, 0, 'then every gem flies in');
   // Brine.
-  const br = makeWorld({ arcana: 'brine' });
+  const br = makeWorld({ relics: ['brine'] });
   give(br, 'tide_bell');
   give(br, 'flare_gun');
-  const BP = DATA.arcana.find((a) => a.id === 'brine').params;
+  const BP = DATA.relics.find((a) => a.id === 'brine').params;
   br.player.hp = 10;
   for (let k = 0; k < BP.perSecond + 5; k++) damageEnemy(br, spawnAt(br, 'fog_wisp', 200, k), 1e9, 0);
   run(br, 1);
@@ -531,10 +744,10 @@ test('arcana: High Water pulls every gem in; Brine heals on Tide kills, capped a
   run(br, 1);
   assert.equal(br.player.hp, capped + BP.heal, 'the next second');
   // Kindling.
-  const embers = (arcana) => {
+  const embers = (relic) => {
     let n = 0;
     for (let seed = 1; seed <= 20; seed++) {
-      const k = makeWorld({ seed, invulnerable: true, arcana, tuning: { embers: { eliteChance: 0.5 } } });
+      const k = makeWorld({ seed, invulnerable: true, ...(relic ? { relics: [relic] } : {}), tuning: { embers: { eliteChance: 0.5 } } });
       give(k, 'flare_gun');
       const e = spawnAt(k, 'drowned_sailor', 300, 0, { elite: true });
       k.enemies.speed[e] = 0; kill(k, e);
@@ -545,21 +758,22 @@ test('arcana: High Water pulls every gem in; Brine heals on Tide kills, capped a
   };
   assert.equal(embers('kindling'), 20, 'at chance 1');
   assert.ok(embers(undefined) < 20);
-  assert.equal(makeWorld({ arcana: 'kindling' }).emberBossExtra, 1, 'and a boss drops 2');
+  assert.equal(makeWorld({ relics: ['kindling'] }).emberBossExtra, 1, 'and a boss drops 2');
 });
 
 // ---------------------------------------------------------------- replays
 
 test('tasks: a run with lamps, a bell, the Ferryman, and a Reliquary replays to the same state', () => {
   const play = () => {
-    const w = createWorld({ seed: 77, character: 'lamplighter', invulnerable: true, harbor: { ferry: 3 }, startGlass: 120, tuning: { relics: { reliquaryChance: 0.05 } } }, DATA);
-    // Walk to the first lamp and light it, then to the skiff and stand there (the input is a
-    // function of the state, so both plays steer the same).
+    const w = createWorld({ seed: 77, character: 'lamplighter', invulnerable: true, harbor: { ferry: 3 }, startGlass: 120, tuning: { relics: { reliquaryChance: 0.05 }, ferry: { firstCall: 20 } } }, DATA);
+    // Walk to the first lamp and light it, then to the skiff once he's called, then toll the first
+    // bell (0.9.0: the act's sites are farther out) (the input is a function of the state, so both plays steer the same).
     const steer = (tx, ty) => {
       const dx = tx - w.player.x, dy = ty - w.player.y, d = Math.hypot(dx, dy);
       return d < 6 ? IDLE : { mx: Math.round((127 * dx) / d), my: Math.round((127 * dy) / d), buttons: 0 };
     };
-    const frames = { length: 3600, at: () => (w.tasks[0].state !== TASK_STATE.DONE ? steer(w.tasks[0].x, w.tasks[0].y) : steer(w.ferry.x, w.ferry.y)) };
+    const bell = w.tasks.findIndex((t) => t.kind === TASK.BELL), lamp = w.tasks.findIndex((t) => t.kind === TASK.LAMP);
+    const frames = { length: 4800, at: () => (w.tasks[lamp].state !== TASK_STATE.DONE ? steer(w.tasks[lamp].x, w.tasks[lamp].y) : w.ferry.moored && w.result.ferryBought === 0 ? steer(w.ferry.x, w.ferry.y) : w.tasks[bell].state === TASK_STATE.IDLE ? steer(w.tasks[bell].x, w.tasks[bell].y) : IDLE) };
     for (let k = 0; k < frames.length; k++) {
       let g = 0;
       while (currentHalt(w) && g++ < 20) {
@@ -570,6 +784,7 @@ test('tasks: a run with lamps, a bell, the Ferryman, and a Reliquary replays to 
         else if (h.kind === 'chest') decide(w, { kind: 'ok' });
         else if (h.kind === 'rune') decide(w, { kind: 'discard' });
         else if (h.kind === 'ascend') decide(w, { kind: 'keep' });
+        else if (h.kind === 'bellpick') decide(w, { kind: 'pick', index: 0 });
         else decide(w, { kind: 'leave' });
       }
       stepWorld(w, frames.at());
@@ -579,5 +794,121 @@ test('tasks: a run with lamps, a bell, the Ferryman, and a Reliquary replays to 
   const a = play(), b = play();
   assert.equal(hashWorld(a), hashWorld(b));
   const r = a.result;
-  assert.ok(r.lampsLit >= 1 && r.ferryBought >= 1 && r.reliquaries >= 1, `each happened: ${JSON.stringify({ r: r.reliquaries, f: r.ferryBought, l: r.lampsLit })}`);
+  assert.ok(r.lampsLit >= 1 && r.ferryBought >= 1 && r.reliquaries >= 1 && a.tasks[a.tasks.findIndex((t) => t.kind === TASK.BELL)].state !== TASK_STATE.IDLE, `each happened: ${JSON.stringify({ r: r.reliquaries, f: r.ferryBought, l: r.lampsLit })}`);
+});
+
+// ---------------------------------------------------------------- what the view reads (0.8.2)
+
+test('signs: every task ring is dashed in its own color, with its fill or its count; the Ferryman\'s and the Well\'s once they can open', () => {
+  const w = field([['lamp', 0, 0], ['bell', 30, 0]], { harbor: { ferry: 1 } });
+  const out = [];
+  const rings = () => out.slice(0, collectRings(w, out)).map((r) => ({ ...r }));
+  let r = rings();
+  assert.deepEqual(r.map((x) => [x.kind, x.color, x.style]), [[RING.LAMP, 'lamp', 'dashed'], [RING.BELL_START, 'bell', 'dashed']]);
+  assert.deepEqual([r[0].r, r[0].fill, r[1].r, r[1].fill], [T.tasks.lamp.radius, 0, T.tasks.bell.startRadius, 0]);
+  goTo(w, w.tasks[0].x, w.tasks[0].y);
+  run(w, TPS);
+  assert.ok(Math.abs(rings()[0].fill - 1 / T.tasks.lamp.baseSec) < 0.02, 'a part-lit lamp shows how far');
+  run(w, 3 * TPS, IDLE, { halts: 'pass' });
+  assert.deepEqual(rings()[0].kind, RING.WARD, 'lit: its ward');
+  assert.equal(rings()[0].r, T.tasks.ward.radius);
+  toll(w, w.tasks[1]);
+  r = rings();
+  assert.deepEqual([r[1].kind, r[1].count, r[1].r], [RING.BELL, w.tasks[1].need, taskRadius(w, w.tasks[1])], 'tolled: the kill ring with its number');
+  assert.ok(!r.some((x) => x.kind === RING.FERRY), 'no ring before he ties up');
+  w.tick = w.ferry.nextCall; run(w, 1, IDLE, { halts: 'pass' }); w.tick = w.ferry.tiedTick;
+  r = rings();
+  assert.deepEqual(r.filter((x) => x.kind === RING.FERRY).map((x) => [x.x, x.y, x.r, x.color]), [[w.ferry.x, w.ferry.y, T.ferry.radius, 'ferry']]);
+  // Reused records: a second call allocates nothing new when out is long enough.
+  const len = out.length; collectRings(w, out);
+  assert.equal(out.length, len);
+});
+
+test('signs: an arrow for the nearest of each kind, none for one on screen; what a task pays, shown before you go', () => {
+  const w = field([['lamp', 40, 0], ['lamp', 60, 0], ['bell', 0, 40]], { harbor: { ferry: 1 } });
+  const out = [];
+  const arrows = (hw = 160, hh = 90) => out.slice(0, collectArrows(w, out, w.player.x, w.player.y, hw, hh)).map((a) => [a.kind, a.task]);
+  assert.deepEqual(arrows(), [[ARROW.LAMP, 0], [ARROW.BELL, 2]], 'the nearest lamp only, and the bell');
+  assert.deepEqual(arrows(2000, 2000), [], 'all on screen: none');
+  spawnPickup(w, PK.RELIQUARY, w.player.x + 500, w.player.y, 0, 0);
+  spawnPickup(w, PK.CHEST, w.player.x - 500, w.player.y, 1, 0);
+  w.tick = w.ferry.nextCall; run(w, 1, IDLE, { halts: 'pass' });
+  const kinds = arrows().map((a) => a[0]);
+  for (const k of [ARROW.FERRY, ARROW.RELIQUARY, ARROW.CHEST]) assert.ok(kinds.includes(k), `arrow ${k}`);
+  const pay = {};
+  assert.ok(rewardOf(w, 0, pay));
+  assert.deepEqual(pay, { kind: REWARD.WARD, pearls: Math.round(T.tasks.lamp.glass[0] + T.tasks.lamp.glass[1] * (w.tick / TPS / 60)), chest: false });
+  assert.ok(rewardOf(w, 2, pay));
+  assert.equal(pay.kind, REWARD.PICK);
+  const bare = field([['lamp', 0, 0]]);
+  rewardOf(bare, 0, pay);
+  assert.equal(pay.pearls, 0, 'no Pearls to show before the Docks');
+});
+
+test('ledger: what the map holds, and the run against it, in the result', () => {
+  const docks = DATA.maps.find((m) => m.id === 'drowned_docks');
+  assert.deepEqual(mapHolds(docks), { lamps: 5, bells: 3, acts: 3, cranes: 4, cairns: 0, places: docks.places.length, longNight: true, ferry: true, secrets: [{ id: 'wreck_cache', name: 'Wreck Hold' }], finds: docks.secrets.length - 1 });
+  const w = field([['lamp', 0, 0], ['bell', 30, 0]], { harbor: { ferry: 1 } });
+  goTo(w, w.tasks[0].x, w.tasks[0].y);
+  run(w, 4 * TPS, IDLE, { halts: 'pass' });
+  const L = runLedger(w);
+  assert.deepEqual([L.lamps, L.bells, L.ferry, L.nights], [{ lit: 1, most: 1, total: 1 }, { rung: 0, total: 1 }, { calls: 0, trades: 0, bought: 0 }, 0]);
+  assert.ok(L.relics.total > 0 && L.relics.found === 0);
+  crowdArrives(w, false);
+  w.over = { reason: 1, tick: w.tick };
+  const res = buildRunResult(w);
+  assert.equal(res.ledger.nights, 1);
+  assert.equal(res.lanternNights, 1);
+});
+
+test('first sightings: a lamp and a bell when first in view, the Ferryman at his first call, a Reliquary when one drops (the field guide)', () => {
+  const w = field([['lamp', 3, 0], ['bell', 60, 0]], { harbor: { ferry: 1 } });
+  run(w, 31);
+  assert.ok(w.result.sighted.includes('lamp') && !w.result.sighted.includes('bell'));
+  w.tick = w.ferry.nextCall; run(w, 1, IDLE, { halts: 'pass' });
+  assert.ok(w.result.sighted.includes('ferry'));
+  for (const k of ['lamp', 'bell', 'ferry', 'reliquary']) assert.ok(DATA.glossary.find((e) => e.id === DATA.meta.fieldGuide[k]?.term)?.short, `${k}: a field guide line (its glossary entry's)`);
+});
+
+test('the Well: its ring fills while you\'re inside, moving allowed; it asks once on its own; after that only standing still in it asks again (ruling 16: never a dash); not with no relic', async () => {
+  const { openWell } = await import('../src/sim/well.js');
+  const w = makeWorld({ invulnerable: true, layers: { storm: false, well: true, secret: false } });
+  openWell(w, w.player.x, w.player.y);
+  run(w, TPS, IDLE, { halts: 'stop' });
+  assert.equal(currentHalt(w), null, 'no relic: it doesn\'t fill');
+  assert.equal(w.well.touch, 0);
+  addRelic(w, DATA.relics.find((r) => r.id === 'brass_button'));
+  let k = 0;
+  for (; k < TPS && !currentHalt(w); k++) { stepWorld(w, { mx: k % 10 < 5 ? 127 : -127, my: 0, buttons: 0 }); }
+  assert.equal(currentHalt(w)?.kind, 'well', 'opened while walking in its ring');
+  assert.ok(Math.abs(k - T.well.openSec * TPS) <= 1, `${k} ticks`);
+  decide(w, { kind: 'keep' });
+  goTo(w, w.well.x, w.well.y);
+  run(w, 2 * TPS, IDLE, { halts: 'stop' });
+  assert.equal(currentHalt(w), null, 'once');
+  goTo(w, w.well.x + 100, w.well.y); run(w, 1);
+  goTo(w, w.well.x - 30, w.well.y); run(w, 1);
+  w.player.dashCd = 0;
+  for (k = 0; k < 30 && !currentHalt(w); k++) stepWorld(w, { mx: 127, my: 0, buttons: k === 0 ? 1 : 0 });
+  assert.equal(currentHalt(w), null, 'a dash into its ring asks nothing (ruling 16)');
+  goTo(w, w.well.x, w.well.y); run(w, TPS, IDLE, { halts: 'stop' });
+  assert.equal(currentHalt(w)?.kind, 'well', 'left and came back to stand in it: asked again');
+});
+
+test('tasks: a bell\'s own crew counts for it wherever it falls; another enemy only inside the ring', () => {
+  const w = field([['bell', 0, 0]]);
+  const bell = w.tasks[0], r = taskRadius(w, bell);
+  toll(w, bell);
+  run(w, Math.ceil(T.tasks.bell.gatherSec * TPS) + 1, IDLE, { halts: 'pass' });
+  const E = w.enemies;
+  const crew = [];
+  for (let i = 0; i < E.count; i++) if (E.crew[i] === 1) crew.push(E.handle(i));
+  assert.equal(crew.length, bell.crewN, 'tagged');
+  goTo(w, bell.x + 1000, bell.y);
+  const c = E.resolve(crew[0]);
+  E.x[c] = bell.x + r * 3; E.y[c] = bell.y;
+  kill(w, c);
+  kill(w, post(w, 'fog_wisp', bell.x + r * 3, bell.y + 40));
+  run(w, 1, IDLE, { halts: 'pass' });
+  assert.equal(bell.progress, 1, 'the crew\'s far kill counted; the stranger\'s didn\'t');
 });

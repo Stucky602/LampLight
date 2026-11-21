@@ -222,11 +222,35 @@ test('closing the window while a save still fails asks the question the game\'s 
   const main = readFileSync(new URL('../desktop/main.cjs', import.meta.url), 'utf8');
   const flat = main.replace(/\s+/g, '');
   for (const [piece, what] of [
-    ['S.askBeforeClosing(next,dialog,()=>({unsaved,quitting}));', 'every window asks before it closes'],
+    ['S.askBeforeClosing(next,dialog,()=>({unsaved,inRun,quitting}),setImmediate,question);', 'every window asks before it closes, the game first (0.9.0)'],
+    ["handle('app:inRun',(on)=>{inRun=on===true;});", 'the page says while a run is under way'],
     ["handle('app:quit',()=>{quitting=true;app.quit();});", 'the game\'s Quit asked already'],
     ["handle('app:unsaved',(on)=>{unsaved=on===true;});", 'the page says while a save fails'],
-    ["handle('app:ready',()=>{readySince=Date.now();unsaved=false;});", 'a fresh page starts saved'],
+    ['readySince=Date.now();unsaved=false;inRun=false;pageQuestions.get(event.sender.id)?.drop();', 'a fresh page starts saved, out of a run, with no close question waiting'],
   ]) assert.ok(flat.includes(piece), what);
   const preload = readFileSync(new URL('../desktop/preload.cjs', import.meta.url), 'utf8');
   assert.ok(preload.includes("setUnsaved: (on) => ipcRenderer.invoke('app:unsaved', on === true),"), 'the bridge carries it');
+  assert.ok(preload.includes("setInRun: (on) => ipcRenderer.invoke('app:inRun', on === true),"), '...and the run');
+
+  // Mid-run (G-Q11): the run's materials come home only at its end or through Quit run, so a
+  // close asks first, Stay by default; a failing save's question comes first when both hold.
+  const R = S.RUN_DIALOG;
+  assert.deepEqual([R.buttons, R.defaultId, R.cancelId], [['Quit anyway', 'Stay'], 1, 1]);
+  assert.ok(/Quit run/.test(R.detail), 'it says how to keep what was collected');
+  assert.equal(S.asksBeforeClosing({ unsaved: false, inRun: true, quitting: false, answered: false }), true);
+  assert.equal(S.asksBeforeClosing({ unsaved: false, inRun: true, quitting: true, answered: false }), false, 'Quit asked already');
+  assert.equal(S.closeDialog({ unsaved: true }), S.LEAVE_DIALOG);
+  assert.equal(S.closeDialog({ unsaved: false }), R);
+  const running = rig({ unsaved: false, inRun: true, quitting: false }, false);
+  running.answers.push(1);
+  running.win.close();
+  assert.deepEqual([running.win.destroyed, running.asked[0][1]], [false, R], 'Stay: the run goes on');
+  running.answers.push(0);
+  running.win.close();
+  running.queued[0]();
+  assert.equal(running.win.destroyed, true, 'Quit anyway: it closes');
+  // The run scene says when a run starts, when it ends (before its result is folded in), and when it's left.
+  const scene = readFileSync(new URL('../src/app/scenes/run.js', import.meta.url), 'utf8');
+  assert.equal((scene.match(/deps\.onRunLive\?\.\(true\)/g) || []).length, 1);
+  assert.equal((scene.match(/deps\.onRunLive\?\.\(false\)/g) || []).length, 2);
 });

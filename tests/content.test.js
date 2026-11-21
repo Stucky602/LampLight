@@ -1,17 +1,20 @@
 // Content (ARCHITECTURE §11, §14.1): every data file against its schema, every reference
-// resolves, every hook exists, the evolution graph is sound, and every weapon with every rune
-// that fits it actually runs.
+// resolves, every hook exists, every capstone's partner is real, and every weapon with each of its
+// lines, specials, and Form options actually runs.
+import { SKILL_RANKS } from '../src/data/skills.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DATA } from '../src/data/index.js';
 import { buildMap } from '../src/sim/terrain.js';
-import { HOOKS } from '../src/sim/hooks.js';
+import { HOOKS, HOOK_POINTS } from '../src/sim/hooks.js';
 import { checkModifier, combine, WEAPON_DEFAULTS, PLAYER_STAT_IDS } from '../src/sim/stats.js';
 import { EMIT, MOTION, FX, AI, STATUS_IDS } from '../src/sim/constants.js';
-import { runeValidOn, runeFits } from '../src/sim/weapons.js';
-import { makeWorld, give, spawnAt, run } from './helpers/simworld.js';
+import { FORM_KEYS } from '../src/sim/forms.js';
+import { makeWorld, give, spawnAt, run, TOP } from './helpers/simworld.js';
 import { HUB_TERRAIN } from '../src/data/hub.js';
 import { MAX_BUILDING_LEVEL } from '../src/data/buildings.js';
+/** A building's own number of levels (five; the Lighthouse's ten stages, 0.9.0). */
+const LEVELS = (id) => DATA.buildings.find((b) => b.id === id)?.levels.length ?? 0;
 import { parseUnlock, npcLine, hubPeople, contentFrom } from '../src/meta/state.js';
 import { defaultProfile } from '../src/save/schema.js';
 import { buildHubMap, clearTiles, solidTiles, reachableFrom, segmentOpen, arrivalPath } from '../src/hub/map.js';
@@ -20,10 +23,12 @@ import { HUB_TUNING_RANGE } from '../src/data/tuning.js';
 import { lookColor } from '../src/render/hubtiles.js';
 import { BUILDINGS_LAYOUT } from '../art/manifest.js';
 import { openings } from '../art/draw/hub.js';
-import { RUNE_STONE_COST, REROLL_COST, GEAR_SLOTS, TIER_MUL, RULE_SLOTS } from '../src/data/gear.js';
+import { REROLL_COST, GEAR_SLOTS, TIER_MUL, RULE_SLOTS, GEAR_TIER_EXTRA } from '../src/data/gear.js';
+import { MAP_LAYERS } from '../src/meta/runconfig.js';
 import { TASK } from '../src/sim/constants.js';
 import { GROUND } from '../src/sim/terrain.js';
-import { featMet } from '../src/meta/feats.js';
+import { featMet, FEAT_KEYS } from '../src/meta/feats.js';
+import { ORDER_GROUPS } from '../src/data/feats.js';
 import { createWorld } from '../src/sim/world.js';
 
 const ID_RE = /^[a-z][a-z0-9_]*$/;
@@ -34,23 +39,38 @@ const EN = ids(DATA.enemies), MAT = ids(DATA.materials), BOSS = ids(DATA.bosses)
 test('content: ids are unique, permanent-looking (snake_case), and every entry has a name and plain description', () => {
   for (const [kind, list] of Object.entries(DATA)) {
     // ascensions: their own test (lines of options); tides go by level, not id (data/tide.js).
-    if (!Array.isArray(list) || kind === 'ascensions' || kind === 'tides') continue;
+    // glossaryKinds: the glossary's group names, [kind, label] (data/glossary.js); tests/glossary.test.js checks both.
+    if (!Array.isArray(list) || kind === 'ascensions' || kind === 'tides' || kind === 'glossaryKinds') continue;
     const seen = new Set();
     for (const x of list) {
       assert.ok(ID_RE.test(x.id), `${kind}: bad id "${x.id}"`);
       assert.ok(!seen.has(x.id), `${kind}: duplicate id "${x.id}"`);
       seen.add(x.id);
-      if (kind === 'recipes' || kind === 'affixes') { assert.equal(typeof x.name, 'string', `${kind} ${x.id}: name`); continue; }
+      if (kind === 'recipes' || kind === 'affixes' || kind === 'rarities') { assert.equal(typeof x.name, 'string', `${kind} ${x.id}: name`); continue; }
       if (kind !== 'bosses') {
         assert.equal(typeof x.name, 'string', `${kind} ${x.id}: name`);
-        assert.ok(typeof x.desc === 'string' && x.desc.length > 3 && x.desc.length < 140, `${kind} ${x.id}: desc`);
+        // A building's is the paragraph at the top of its panel, so it gets a little more room.
+        // A glossary entry (0.9.0) says everything a term does, so it gets a paragraph.
+        const max = kind === 'buildings' ? 200 : kind === 'glossary' ? 700 : 140;
+        assert.ok(typeof x.desc === 'string' && x.desc.length > 3 && x.desc.length < max, `${kind} ${x.id}: desc`);
       }
     }
   }
 });
 
-test('content: weapons have valid numbers, pipelines, levels, and evolutions', () => {
+test('content: weapons have valid numbers, pipelines, number lines, Rare and Epic lines, and specials; none evolves (ruling 14, C1)', () => {
   const baseKeys = new Set(Object.keys(WEAPON_DEFAULTS));
+  const NUMS = new Set(DATA.weaponUps.filter((t) => t.stat).map((t) => t.id));
+  const own = new Set();
+  const boostOk = (at, b, kind) => {
+    assert.ok(b && (b.stats || b.onHit || b.emit || b.motion || b.fx), `${at}: its boost changes something`);
+    for (const k of Object.keys(b)) assert.ok(['stats', 'onHit', 'emit', 'motion', 'fx'].includes(k), `${at}: boost ${k}`);
+    for (const e of b.onHit || []) assert.ok(FX[e.type] !== undefined && (e.type !== 'status' || STATUS_IDS.includes(e.status)), `${at}: on-hit ${e.type}`);
+    for (const k of Object.keys(b.fx || {})) assert.ok(FORM_KEYS.includes(k), `${at}: mechanic ${k}`);
+    // Only a fire option replaces an emitter's type and only a travel option a motion's (C1-CONTRACT 2).
+    if (b.emit?.type) assert.equal(kind, 'delivery', `${at}: only how it fires replaces the emitter`);
+    if (b.motion?.type) assert.equal(kind, 'flight', `${at}: only how its shots travel replaces the motion`);
+  };
   for (const w of DATA.weapons) {
     const at = `weapon ${w.id}`;
     assert.ok(Array.isArray(w.tags) && w.tags.length >= 1 && w.tags.length <= 3, `${at}: 1 to 3 tags (brief §5.3)`);
@@ -59,38 +79,74 @@ test('content: weapons have valid numbers, pipelines, levels, and evolutions', (
       assert.ok(Number.isFinite(v), `${at}: base ${k} = ${v}`);
     }
     assert.ok(w.base.cooldown > 0, `${at}: cooldown`);
-    assert.ok(Number.isInteger(w.maxLevel) && w.maxLevel >= 1);
-    assert.equal(w.levels.length, w.maxLevel, `${at}: levels has one entry per level (levels[0] is null)`);
-    assert.equal(w.levels[0], null);
-    for (const lv of w.levels.slice(1)) for (const [k, v] of Object.entries(lv)) assert.ok(baseKeys.has(k) && Number.isFinite(v), `${at}: level adds ${k}`);
+    for (const k of ['maxLevel', 'levels', 'runeSlots']) assert.equal(w[k], undefined, `${at}: no ${k}`);
+    assert.ok(Array.isArray(w.numbers), `${at}: its number lines`);
+    if (w.innate) { assert.deepEqual(w.numbers, [], `${at}: a character's built-in weapon never rolls`); continue; }
+    assert.ok(w.numbers.includes('damage'), `${at}: damage is in every pool (the pool never runs dry)`);
+    assert.equal(new Set(w.numbers).size, w.numbers.length, `${at}: each type once`);
+    for (const u of w.numbers) assert.ok(NUMS.has(u), `${at}: number type ${u}`);
+    const has = (u) => w.numbers.includes(u);
+    const base = { ...WEAPON_DEFAULTS, ...w.base };
+    if (base.pierce < 0) assert.ok(!has('pierce'), `${at}: no Pierce on a weapon that passes through everything`);
+    if (!(base.hitCooldown > 0)) assert.ok(!has('hit_cooldown'), `${at}: no Hit Delay without its own`);
+    if (w.pipeline.emit.type === 'aura') assert.ok(!has('amount'), `${at}: an aura has no count`);
+    const C = DATA.tuning.weaponUps.caps;
+    if (base.hitCooldown > 0 && base.duration < base.hitCooldown) {
+      const longest = base.duration * (has('duration') ? C.duration : 1), shortest = base.hitCooldown * (has('hit_cooldown') ? C.hitCooldown : 1);
+      assert.ok(longest < shortest, `${at}: once a shot, its upgrades keep it so`);
+    }
+    if (w.signature) continue;   // (a signature's lines and specials are C2's: data/signatures.js)
+    for (const k of ['upgrades', 'upCaps', 'upMul', 'core', 'special']) assert.equal(w[k], undefined, `${at}: no ${k} (ruling 14: the v4 format)`);
+    assert.ok(typeof w.unit === 'string' && typeof w.units === 'string', `${at}: what one of its count is called`);
+    assert.ok(P.has(w.partner), `${at}: a partner passive`);
+    // Rare and Epic lines: three, at least one of each, ids its own.
+    assert.ok(Array.isArray(w.lines) && w.lines.length >= 3, `${at}: its Rare and Epic lines`);
+    assert.ok(w.lines.some((l) => l.rarity === 'rare') && w.lines.some((l) => l.rarity === 'epic'), `${at}: a Rare line and an Epic line`);
+    for (const l of w.lines) {
+      assert.ok(ID_RE.test(l.id) && !own.has(`${w.id}:${l.id}`), `${at}: line ${l.id}`);
+      own.add(`${w.id}:${l.id}`);
+      assert.match(l.desc, /^[A-Z].*\.$/, `${at}: line ${l.id} says what it does`);
+      boostOk(`${at} line ${l.id}`, l.boost, 'line');
+    }
+    // Legendary specials: two or three, at least one changes how you move or where you stand.
+    assert.ok(Array.isArray(w.specials) && w.specials.length >= 2 && w.specials.length <= 3, `${at}: two or three specials`);
+    assert.ok(w.specials.some((x) => x.moves), `${at}: a special that changes how you move or where you stand`);
+    for (const x of w.specials) { assert.match(x.desc, /^[A-Z].*\.$/, `${at}: special ${x.id} says what it does`); boostOk(`${at} special ${x.id}`, x.boost, 'special'); }
+    // Its deed (sim/deeds.js).
+    const d = w.deed;
+    assert.ok(d && ['kills', 'multi', 'hits'].includes(d.kind) && Number.isInteger(d.count) && d.count > 0 && /^[A-Z]/.test(d.text) && !/px/.test(d.text), `${at}: a deed, said without pixels`);
+    assert.ok(d.text.includes(String(d.count)), `${at}: the deed's line says its count`);
+    if (d.kind === 'multi') assert.ok(d.n >= 2 && d.within > 0, `${at}: a multi deed's n and window`);
     assert.ok(EMIT[w.pipeline.emit.type] !== undefined, `${at}: emitter ${w.pipeline.emit.type}`);
     assert.ok(MOTION[w.pipeline.motion.type] !== undefined, `${at}: motion ${w.pipeline.motion.type}`);
     assert.ok(w.pipeline.onHit.length >= 1 && w.pipeline.onHit.every((e) => FX[e.type] !== undefined), `${at}: on-hit list`);
     for (const e of w.pipeline.onHit) if (e.type === 'status') assert.ok(STATUS_IDS.includes(e.status), `${at}: status ${e.status}`);
-    assert.ok(Number.isInteger(w.runeSlots) && w.runeSlots >= 0 && w.runeSlots <= 2, `${at}: rune sockets (brief: 2)`);
-    // Anything that stays on enemies (an aura, a beam, bodies that never run out) needs a hit
-    // cooldown, or it would hit every tick.
     const lasting = ['aura', 'beam', 'summon', 'orbit'].includes(w.pipeline.emit.type) || w.base.pierce === -1;
     if (lasting) assert.ok(w.base.hitCooldown > 0, `${at}: lasting hits need a hitCooldown`);
-    if (w.evolution) {
-      assert.ok(P.has(w.evolution.passive), `${at}: evolution partner ${w.evolution.passive}`);
-      assert.ok(W.has(w.evolution.into), `${at}: evolves into ${w.evolution.into}`);
-      const into = DATA.weapons.find((x) => x.id === w.evolution.into);
-      assert.equal(into.unlock, 'evolution', `${at}: its evolution is only reachable by evolving`);
-      assert.ok(!into.evolution, `${at}: evolutions don't evolve again`);
-      const partner = DATA.passives.find((p) => p.id === w.evolution.passive);
-      assert.ok(w.evolution.passiveLevel >= 1 && w.evolution.passiveLevel <= partner.maxLevel, `${at}: partner level reachable`);
+    assert.equal(w.evolution, undefined, `${at}: nothing evolves (Forms are the only transformation)`);
+    assert.notEqual(w.unlock, 'evolution', `${at}: no weapon is an evolution`);
+  }
+  // Forms (C1-CONTRACT 4): every drafted weapon has a line of six options, two an axis, each with its
+  // price, the capstone options marked; a line's capstoneUnlock is a research key.
+  for (const l of DATA.ascensions) {
+    const w = DATA.weapons.find((x) => x.id === l.weapons[0]);
+    assert.ok(w, `${l.line}: its weapon`);
+    if (w.signature) continue;
+    assert.deepEqual(l.options.map((o) => o.axis), ['delivery', 'delivery', 'flight', 'flight', 'payoff', 'payoff'], `${l.line}: two options on each axis`);
+    for (const o of l.options) {
+      assert.ok(typeof o.price === 'string' && o.price.length > 2 && !/\.$/.test(o.price), `${o.id}: its price, as a short line`);
+      assert.equal(!!o.capstone, o.axis === 'payoff', `${o.id}: the capstone axis's options are capstones`);
+      assert.match(o.desc, /^[A-Z+].*\.$/, `${o.id}: says what it does`);
+      boostOk(`${o.id}`, o.boost, o.axis);
+      assert.equal(o.needs, undefined, `${o.id}: no needs (ruling 14)`);
     }
+    if (l.capstoneUnlock !== undefined) assert.match(l.capstoneUnlock, /^(research|feat):[a-z_]+$/, `${l.line}: opened by the Library or a Harbor Order`);
   }
-  // Every evolved weapon has exactly one way in.
-  for (const w of DATA.weapons.filter((x) => x.unlock === 'evolution')) {
-    const from = DATA.weapons.filter((x) => x.evolution && x.evolution.into === w.id);
-    assert.equal(from.length, 1, `evolution ${w.id} has one base weapon`);
-    assert.equal(w.weight, 0, `${w.id} is never offered in a draft`);
-  }
+  // A retired evolution is no weapon now.
+  for (const id of Object.keys(DATA.retiredWeapons)) assert.ok(!W.has(id), `${id} is retired`);
 });
 
-test('content: passives, runes, relics, characters, enemies, bosses, and maps are all well formed', () => {
+test('content: passives, relics, characters, enemies, bosses, and maps are all well formed', () => {
   for (const p of DATA.passives) {
     assert.equal(p.levels.length, p.maxLevel, `passive ${p.id}: one modifier list per level`);
     for (const list of p.levels) {
@@ -98,29 +154,15 @@ test('content: passives, runes, relics, characters, enemies, bosses, and maps ar
       for (const m of list) assert.equal(checkModifier(m), null, `passive ${p.id}: ${JSON.stringify(m)}`);
     }
   }
-  for (const r of DATA.runes) {
-    for (const e of r.validOn.emit) assert.ok(EMIT[e] !== undefined, `rune ${r.id}: valid on ${e}`);
-    const p = r.patch;
-    assert.ok(p.onHitAppend || p.emit || p.motion || p.mirror, `rune ${r.id} changes behavior (brief: runes change behavior, not numbers)`);
-    for (const e of p.onHitAppend || []) assert.ok(FX[e.type] !== undefined, `rune ${r.id}: effect ${e.type}`);
-    if (p.emit) assert.ok(EMIT[p.emit.type] !== undefined);
-    if (p.motion) assert.ok(MOTION[p.motion.type] !== undefined);
-    assert.ok(DATA.weapons.some((w) => w.runeSlots > 0 && runeValidOn(r, w)), `rune ${r.id} fits at least one weapon`);
-  }
   const paramsOk = (who, hook, params) => {
     for (const k of HOOKS[hook].needs || []) assert.ok(Number.isFinite(params?.[k]), `${who}: hook ${hook} needs a number for "${k}"`);
   };
   for (const r of DATA.relics) {
     // A hook, stat modifiers, or both; a tier (Trinket, Charm, Relic).
-    assert.ok(r.hook || (r.mods && r.mods.length), `relic ${r.id}: does something`);
+    assert.ok(r.hook || r.rule || (r.mods && r.mods.length), `relic ${r.id}: does something`);
     assert.ok([1, 2, 3].includes(r.tier), `relic ${r.id}: tier 1, 2, or 3`);
     if (r.hook) { assert.ok(HOOKS[r.hook], `relic ${r.id}: hook ${r.hook} exists`); paramsOk(`relic ${r.id}`, r.hook, r.params); }
     for (const m of r.mods || []) assert.equal(checkModifier(m), null);
-  }
-  for (const a of DATA.arcana) {
-    assert.ok(HOOKS[a.hook], `arcana ${a.id}: hook ${a.hook} exists`);
-    paramsOk(`arcana ${a.id}`, a.hook, a.params);
-    for (const m of a.mods || []) assert.equal(checkModifier(m), null);
   }
   for (const c of DATA.characters) {
     if (c.start) assert.ok(W.has(c.start), `character ${c.id}: start ${c.start}`);
@@ -165,8 +207,10 @@ test('content: passives, runes, relics, characters, enemies, bosses, and maps ar
     const bosses = m.timeline.events.filter((e) => e.event === 'boss').map((e) => e.at);
     assert.deepEqual(bosses, [600, 1200], `map ${m.id}: bosses at 10:00 and 20:00 (brief §5.1)`);
     for (const e of m.timeline.events) {
+      if (e.event === 'eye' || e.event === 'chest') continue;   // (no enemy: the Marsh's Eye, a chest)
       assert.ok(EN.has(e.enemy), `map ${m.id}: event enemy ${e.enemy}`);
       assert.equal(isBoss(e.enemy), e.event === 'boss', `map ${m.id}: ${e.event} at ${e.at} s with ${e.enemy} (boss events, and only they, spawn bosses)`);
+      if (e.otherwise) assert.ok(EN.has(e.otherwise.enemy) && !isBoss(e.otherwise.enemy), `map ${m.id}: ${e.event} at ${e.at} s: what comes otherwise`);
     }
     assert.equal(m.timeline.events.filter((e) => e.event === 'elite').length >= 1, true, `map ${m.id}: an elite event (brief §5.1)`);
   }
@@ -245,9 +289,17 @@ function sweepWorld(seed) {
   for (let k = 0; k < 24; k++) {
     const a = (k / 24) * 6.283185307179586;
     const i = spawnAt(w, k % 3 === 0 ? 'mud_crab' : 'drowned_sailor', 60 + (k % 4) * 30 * Math.cos(a), 60 * Math.sin(a) + (k % 5) * 10);
-    w.enemies.hp[i] = w.enemies.maxHp[i] = 400;
+    // A quarter of the crowd can die in the sweep (0.8.0), so a piece that acts on a kill (a spill, a kill burst) shows what it does.
+    w.enemies.hp[i] = w.enemies.maxHp[i] = k % 4 === 1 ? 40 : 400;
   }
   return w;
+}
+
+function hashEnemies(w) {
+  const E = w.enemies;
+  let h = 0;
+  for (let i = 0; i < E.count; i++) h = (h * 31 + Math.round((E.x[i] + E.y[i] + E.hp[i] + E.freezeT[i] + E.slowT[i] + E.burnT[i] + E.rotT[i] + E.dazeT[i]) * 100)) % 1000000007;
+  return h;
 }
 
 function finite(w) {
@@ -260,48 +312,73 @@ function finite(w) {
   return null;
 }
 
-test('content: every weapon with every rune that fits runs 600 ticks cleanly, and every rune changes what it does', () => {
-  const weapons = DATA.weapons;
+test('content: every weapon bare, and with each of its lines, specials, and Form options, runs 600 ticks cleanly, and each changes what it does', () => {
   let combos = 0;
-  weapons.forEach((def, wi) => {
-    const runeSets = [[]];
-    if (def.runeSlots > 0) for (const r of DATA.runes) if (runeValidOn(r, def)) runeSets.push([r.id]);
+  DATA.weapons.forEach((def, wi) => {
+    if (def.innate) return;
+    const line = DATA.ascensions.find((l) => l.weapons.includes(def.id));
+    const sets = [{}];
+    for (const l of def.lines || []) sets.push({ lines: [l.id] });
+    for (const x of def.specials || []) sets.push({ specials: [x.id] });
+    for (const o of line?.options || []) sets.push({ forms: [o.id] });
     let bare = null;
-    for (const runes of runeSets) {
-      // The same seed and crowd for the bare weapon and each rune, so a rune that does nothing
-      // shows as the same damage to the hit point (§5.8: no socketed rune ever does nothing).
+    for (const extra of sets) {
+      // The same seed and crowd for the bare weapon and each piece, so one that does nothing shows
+      // as the same damage to the hit point. The player walks, then stands, so walk- and stand-fired
+      // pieces get their turn too (ruling 16: nothing fires from the dash).
       const w = sweepWorld(100 + wi);
-      give(w, def.id, { slot: def.innate ? 8 : 0, level: def.maxLevel, runes });
-      run(w, 600, { mx: 60, my: 30, buttons: 0 }, { halts: 'pass' });
-      assert.equal(finite(w), null, `${def.id} + [${runes}]: something went non-finite`);
-      assert.ok(w.result.damageBySlot.some((d) => d > 0), `${def.id} + [${runes}]: never hurt anything`);
-      const dealt = w.result.damageBySlot.reduce((x, y) => x + y, 0).toFixed(3);
-      if (runes.length === 0) bare = dealt;
-      else assert.notEqual(dealt, bare, `${def.id} + [${runes}]: does exactly what the bare weapon does`);
+      give(w, def.id, { slot: def.signature ? 0 : 1, level: TOP, ...extra });
+      run(w, 200, { mx: 60, my: 30, buttons: 0 }, { halts: 'pass' });
+      run(w, 200, { mx: -60, my: -30, buttons: 0 }, { halts: 'pass' });   // (back the way it came: away from the crowd, over its own trail)
+      run(w, 200, { mx: 0, my: 0, buttons: 0 }, { halts: 'pass' });
+      const what = `${def.id} + ${JSON.stringify(extra)}`;
+      assert.equal(finite(w), null, `${what}: something went non-finite`);
+      assert.ok(w.result.damageBySlot.some((d) => d > 0), `${what}: never hurt anything`);
+      // What it did to the fight: the damage dealt and the enemies' state (a longer freeze changes the second, not the first).
+      const dealt = `${w.result.damageBySlot.reduce((x, y) => x + y, 0).toFixed(3)} / ${w.result.totalKills} / ${hashEnemies(w)}`;
+      if (!Object.keys(extra).length) bare = dealt;
+      // (Well-Trodden needs its own walk back over fresh glass: tests/forms.test.js checks it.)
+      else if (!def.signature && !(extra.specials || []).includes('well_trodden')) assert.notEqual(dealt, bare, `${what}: does exactly what the bare weapon does`);
       combos++;
     }
   });
-  assert.ok(combos >= 30, `${combos} combinations`);
+  assert.ok(combos >= 150, `${combos} combinations`);
 });
 
-// Every pair of runes that can share a weapon, in socket order (the rule the chests use), on
-// every weapon with two sockets: 120 ticks each.
-test('content: every weapon with both sockets filled, every allowed pair, runs cleanly', () => {
-  let pairs = 0;
-  for (const def of DATA.weapons.filter((w) => w.runeSlots >= 2)) {
-    for (const a of DATA.runes) {
-      if (!runeFits(a, def, [null, null])) continue;
-      for (const b of DATA.runes) {
-        if (!runeFits(b, def, [a, null])) continue;
-        const w = sweepWorld(1000 + pairs);
-        give(w, def.id, { level: def.maxLevel, runes: [a.id, b.id] });
-        run(w, 120, { mx: -40, my: 70, buttons: 0 }, { halts: 'pass' });
-        assert.equal(finite(w), null, `${def.id} + [${a.id}, ${b.id}]`);
-        pairs++;
-      }
-    }
+test('content: ruling 16: nothing in the data fires from the dash, no hook reads it, and every dash item is plain', async () => {
+  const { DASH_UPS } = await import('../src/sim/dash.js');
+  // No hook point for the dash, and no hook, Form, line, special, relic, passive, or gear text that fires from it.
+  assert.ok(!HOOK_POINTS.includes('onDash'), 'no onDash hook point');
+  for (const [id, h] of Object.entries(HOOKS)) assert.equal(h.onDash, undefined, `hook ${id} reads the dash`);
+  const said = [
+    ...DATA.weapons.flatMap((w) => [...(w.lines || []), ...(w.specials || [])].map((x) => [`${w.id} ${x.id}`, x.desc])),
+    // (The signatures' Forms are C2's to sweep: work/cw/C1.md. Its port extends this to them.)
+    ...DATA.ascensions.filter((l) => !DATA.weapons.find((w) => w.id === l.weapons[0])?.signature).flatMap((l) => l.options.map((o) => [o.id, o.desc])),
+    ...DATA.relics.map((r) => [r.id, r.desc]), ...DATA.passives.map((p) => [p.id, `${p.desc} ${p.keystone?.desc ?? ''}`]),
+    ...DATA.affixes.map((a) => [a.id, a.name]),
+  ];
+  for (const [id, text] of said) assert.ok(!/\bdash/i.test(text), `${id}: "${text}" names the dash (only a dash item may)`);
+  for (const w of DATA.weapons) for (const x of [...(w.lines || []), ...(w.specials || [])]) assert.equal(x.boost?.fx?.dashfire, undefined, `${w.id} ${x.id}: dashfire`);
+  // A walk-, stand-, or clock-fired piece has a clock of its own (the loop check: no kill rate can speed it).
+  const cued = [...DATA.weapons.flatMap((w) => [...(w.lines || []), ...(w.specials || [])]), ...DATA.ascensions.flatMap((l) => l.options)];
+  for (const x of cued) {
+    const fx = x.boost?.fx || {};
+    for (const k of ['cue', 'lunge', 'kick']) if (fx[k]) assert.ok(fx[k].every > 0, `${x.id}: ${k} fires on a clock of its own`);
   }
-  assert.ok(pairs >= 60, `${pairs} pairs`);
+  // Dash items (data/dashes.js, C2's): only how the dash goes, a mark that never hurts, cards from the list.
+  const keys = new Set(['id', 'name', 'desc', 'character', 'icon', 'dist', 'time', 'cooldown', 'charges', 'guard', 'mark', 'numbers', 'weight', 'unlock']);
+  assert.ok(DATA.dashes.length >= 3, 'dash items');
+  for (const d of DATA.dashes) {
+    for (const k of Object.keys(d)) assert.ok(keys.has(k), `dash ${d.id}: ${k}`);
+    for (const k of ['dist', 'time', 'cooldown', 'guard']) if (d[k] !== undefined) assert.ok(d[k] > 0, `dash ${d.id}: ${k}`);
+    if (d.charges !== undefined) assert.ok(Number.isInteger(d.charges) && d.charges >= 1 && d.charges <= DATA.tuning.dashes.caps.charges, `dash ${d.id}: charges`);
+    if (d.mark) {
+      assert.ok(['slow', 'knock'].includes(d.mark.kind) && ['path', 'end'].includes(d.mark.where), `dash ${d.id}: mark`);
+      assert.equal(d.mark.damage, undefined, `dash ${d.id}: a mark never hurts`);
+    }
+    for (const u of d.numbers) assert.ok(DASH_UPS.includes(u), `dash ${d.id}: card ${u}`);
+    if (d.character) assert.ok(DATA.characters.some((c) => c.id === d.character), `dash ${d.id}: ${d.character}`);
+  }
 });
 
 // ---------------------------------------------------------------- the meta layer's content (Phase 5)
@@ -315,12 +392,17 @@ function checkCost(where, cost) {
   }
 }
 
-const GROWING = ['tree', 'researchTier', 'researchSlots', 'lampSpeed', 'ferry', 'gearSlots', 'gearTier', 'tideMax', 'curses', 'market', 'glassToCoin', 'consumableSlots'];
-const FLAGS = ['feats', 'mastery', 'reroll', 'runeCrafting', 'bellRing', 'tasksOnMap', 'bestiary', 'challenges', 'shortRuns', 'secretsOnMap'];
+const GROWING = ['tree', 'researchTier', 'researchSlots', 'lampSpeed', 'ferry', 'gearSlots', 'gearTier', 'tideMax', 'curses', 'market', 'glassToCoin', 'consumableSlots', 'stage', 'consumableSlotsAdd', 'researchSlotsAdd', 'marketRaresAdd', 'foodHeal'];
+const FLAGS = ['feats', 'mastery', 'reroll', 'tempering', 'bellRing', 'tasksOnMap', 'findsOnMap', 'challenges', 'shortRuns', 'secretsOnMap', 'heirloom', 'lampSpeedAdd', 'bellRingAdd'];
 
 test('content: buildings have five levels, real costs, and effects that only grow', () => {
   for (const b of DATA.buildings) {
-    assert.equal(b.levels.length, MAX_BUILDING_LEVEL, `${b.id}: five levels (brief §6.1)`);
+    if (b.id === 'lighthouse') {
+      // 0.9.0: the Lighthouse is ten stages, each named, its stage numbered on each level.
+      assert.equal(b.levels.length, 10, 'the Lighthouse: ten stages');
+      assert.equal(b.stages.length, 10, 'each stage named');
+      b.levels.forEach((lv, i) => assert.equal(lv.stage, i + 1, `stage ${i + 1}`));
+    } else assert.equal(b.levels.length, MAX_BUILDING_LEVEL, `${b.id}: five levels (brief §6.1)`);
     assert.ok(MAT.has(b.material), `${b.id}: its material ${b.material}`);
     assert.ok(DATA.npcs.some((n) => n.id === b.npc && n.home === b.id), `${b.id}: its keeper ${b.npc} lives there`);
     // Numbers that only grow (data/buildings.js), and flags a level turns on.
@@ -328,7 +410,7 @@ test('content: buildings have five levels, real costs, and effects that only gro
     b.levels.forEach((lv, i) => {
       checkCost(`${b.id} level ${i + 1}`, lv.cost);
       assert.ok(lv.cost[b.material] > 0, `${b.id} level ${i + 1} uses its own material, ${b.material}`);
-      for (const k of Object.keys(lv)) assert.ok(k === 'cost' || GROWING.includes(k) || FLAGS.includes(k), `${b.id} level ${i + 1}: unknown effect "${k}"`);
+      for (const k of Object.keys(lv)) assert.ok(k === 'cost' || k === 'needs' || GROWING.includes(k) || FLAGS.includes(k), `${b.id} level ${i + 1}: unknown effect "${k}"`);   // (needs: X3, D5; tests/sweep-x3.test.js)
       for (const k of FLAGS) if (lv[k] !== undefined) assert.ok(Number.isFinite(lv[k]) && lv[k] > 0, `${b.id} level ${i + 1}: ${k}`);
       for (const k of Object.keys(seen)) {
         if (lv[k] === undefined) continue;
@@ -351,7 +433,9 @@ test('content: research sits in a tier the Library opens, needs only earlier wor
       assert.ok(byId.has(q), `${r.id} requires ${q}`);
       assert.ok(byId.get(q).tier <= r.tier, `${r.id}: requires ${q}, which is not in a later tier`);
     }
-    const adds = [DATA.weapons, DATA.passives, DATA.relics, DATA.runes, DATA.characters, DATA.recipes, DATA.consumables, DATA.arcana].flat().filter((x) => x.unlock === `research:${r.id}`);
+    // (0.9.0: a capstone Form counts: the brief's "research reveals evolution recipes".)
+    const capstones = DATA.ascensions.flatMap((l) => l.options).filter((o) => o.capstone);
+    const adds = [DATA.weapons, DATA.passives, DATA.relics, DATA.characters, DATA.recipes, DATA.consumables, capstones].flat().filter((x) => x.unlock === `research:${r.id}`);
     assert.ok(adds.length >= 1, `${r.id} adds something to your runs`);
   }
   // No cycles: every project can be reached by finishing what it needs first.
@@ -414,12 +498,14 @@ test('content: every unlock key names research, a building level, or a map secre
     assert.ok(typeof x.id === 'string' && !ids.has(x.id), `secret ${x.id}: a unique id`); ids.add(x.id);
     assert.ok(typeof x.name === 'string' && x.name.length > 0, `secret ${x.id}: a name`);
     assert.ok(Number.isFinite(x.radius) && x.radius > 0, `secret ${x.id}: a radius`);
-    assert.ok(DATA.relics.some((r) => r.id === x.relic), `secret ${x.id}: relic ${x.relic}`);
+    // A big secret holds a relic; a small find (0.9.0, W4) a gift instead (sim/acts.js checkActs checks its shape).
+    if (x.gift) assert.equal(x.relic, undefined, `secret ${x.id}: a find gives its gift, not a relic`);
+    else assert.ok(DATA.relics.some((r) => r.id === x.relic), `secret ${x.id}: relic ${x.relic}`);
     assert.ok(Array.isArray(x.at) && x.at[0] >= 0 && x.at[1] >= 0 && x.at[0] < m.size[0] && x.at[1] < m.size[1], `secret ${x.id}: inside ${m.id}`);
     const g = buildMap(m.layout, m.size[0], m.size[1]);
     assert.equal(g.solid[x.at[1] * m.size[0] + x.at[0]], 0, `secret ${x.id}: on open ground (every open tile is reachable)`);
   }
-  for (const [kind, list] of [['weapon', DATA.weapons], ['passive', DATA.passives], ['relic', DATA.relics], ['rune', DATA.runes], ['character', DATA.characters]]) {
+  for (const [kind, list] of [['weapon', DATA.weapons], ['passive', DATA.passives], ['relic', DATA.relics], ['character', DATA.characters]]) {
     for (const x of list) {
       const u = parseUnlock(x.unlock);
       assert.notEqual(u.kind, 'unknown', `${kind} ${x.id}: unlock "${x.unlock}"`);
@@ -429,11 +515,34 @@ test('content: every unlock key names research, a building level, or a map secre
         assert.ok(u.level <= DATA.buildings.find((b) => b.id === u.id).levels.length, `${kind} ${x.id}: level ${u.level}`);
       }
       // A secret's relic is what its cache holds: the cache is how you meet it the first time.
-      if (u.kind === 'secret') assert.ok(SECRETS.has(u.id) && kind === 'relic' && SECRETS.get(u.id).relic === x.id, `${kind} ${x.id}: the secret ${u.id} holds it`);
-      if (kind === 'character') assert.ok(['starter', 'building', 'research'].includes(u.kind), `character ${x.id} can be reached`);
+      // (0.9.0, W2: a character can wait at a small find, as the Drowned Man at Breakwater Point.)
+      if (u.kind === 'secret') assert.ok(SECRETS.has(u.id) && (kind === 'relic' ? SECRETS.get(u.id).relic === x.id : kind === 'character' && !SECRETS.get(u.id).relic), `${kind} ${x.id}: the secret ${u.id} holds it`);
+      // (0.8.0: the Marsh's two come from feats, the Punter from the first crossing.)
+      if (kind === 'character') assert.ok(['starter', 'building', 'research', 'feat', 'secret'].includes(u.kind), `character ${x.id} can be reached`);
+      if (u.kind === 'feat') assert.ok(DATA.feats.some((f) => f.id === u.id && f.reward?.unlock), `${kind} ${x.id}: feat ${u.id} unlocks`);
     }
   }
   assert.ok(DATA.characters.some((c) => c.unlock === 'starter'), 'someone to play from the start');
+  // 0.8.0: a map's `unlock` (a key or a list, every one needed) names things that exist; map 1 is
+  // open from the start; a map with layers says what opens each (meta/runconfig.js MAP_LAYERS); a
+  // challenge plays on a map that exists.
+  assert.equal(DATA.maps[0].unlock, undefined, 'map 1 is open from the start');
+  for (const m of DATA.maps) {
+    for (const key of m.unlock === undefined ? [] : [].concat(m.unlock)) {
+      const u = parseUnlock(key);
+      assert.ok(['building', 'boss', 'feat', 'research', 'challenge', 'secret', 'map'].includes(u.kind), `map ${m.id}: unlock "${key}"`);
+      if (u.kind === 'building') assert.ok(B.has(u.id) && u.level <= LEVELS(u.id), `map ${m.id}: ${key}`);
+      if (u.kind === 'boss') assert.ok(DATA.enemies.some((e) => e.id === u.id && e.boss), `map ${m.id}: ${key} is a boss`);
+      if (u.kind === 'feat') assert.ok(DATA.feats.some((f) => f.id === u.id), `map ${m.id}: ${key}`);
+      if (u.kind === 'map') assert.ok(DATA.maps.some((x) => x.id === u.id && x.id !== m.id), `map ${m.id}: ${key}`);
+    }
+    for (const layer of m.layers || []) {
+      const rules = MAP_LAYERS[m.id]?.[layer];
+      assert.ok(rules?.length, `map ${m.id}: what opens its ${layer} layer`);
+      for (const key of rules) assert.ok(/^(boss|tide|building):/.test(key), `map ${m.id} ${layer}: "${key}"`);
+    }
+  }
+  for (const c of DATA.challenges) assert.ok(DATA.maps.some((m) => m.id === (c.map ?? DATA.maps[0].id)), `challenge ${c.id}: plays on a map that exists`);
   assert.ok(DATA.weapons.filter((w) => w.unlock === 'starter').length >= 2, 'at least two weapons from the start');
 });
 
@@ -474,11 +583,11 @@ test('content: the MVP economy has no dead ends: map 1 pays for everything, and 
     ...DATA.buildings.flatMap((b) => b.levels.map((l, i) => [`${b.id} level ${i + 1}`, l.cost])),
     ...DATA.research.map((r) => [`research ${r.id}`, r.cost]),
     ...DATA.upgrades.map((u) => [`upgrade ${u.id}`, u.cost]),
-    // Phase 7: gear and what it costs to raise and re-roll, rune stones, consumables, perks.
+    // Phase 7: gear and what it costs to raise and re-roll, consumables, perks.
     ...DATA.recipes.map((r) => [`gear ${r.id}`, r.cost]),
-    ['rune stones', RUNE_STONE_COST], ['re-rolls', REROLL_COST],
+    ['re-rolls', REROLL_COST],
+    ...Object.entries(GEAR_TIER_EXTRA).map(([t, c]) => [`gear tier ${t}`, c]),
     ...DATA.consumables.map((c) => [`consumable ${c.id}`, c.cost]),
-    ...DATA.perks.map((p) => [`perk ${p.id}`, p.cost]),
   ];
   const used = new Set();
   for (const [where, cost] of costs) for (const id of Object.keys(cost)) {
@@ -494,9 +603,30 @@ test('content: the MVP economy has no dead ends: map 1 pays for everything, and 
   const mvpCosts = [
     ...DATA.buildings.filter((b) => mvp.includes(b.id)).flatMap((b) => b.levels.map((l, i) => [`${b.id} level ${i + 1}`, l.cost])),
     ...DATA.upgrades.map((u) => [`upgrade ${u.id}`, u.cost]),
-    ...DATA.research.filter((r) => r.tier <= mvpTier).map((r) => [`research ${r.id}`, r.cost]),
+    // (Projects that count runs on one map, `runsOn`, belong to that map's content pass, not the MVP: 0.8.0.)
+    ...DATA.research.filter((r) => r.tier <= mvpTier && r.runsOn === undefined).map((r) => [`research ${r.id}`, r.cost]),
   ];
   for (const [where, cost] of mvpCosts) for (const id of Object.keys(cost)) assert.ok(map1.has(id), `${where} needs ${id}, which map 1 (${DATA.maps[0].id}) doesn't drop`);
+  // 0.8.0: every research tier has projects a player on map 1 alone can pay for and finish (its
+  // costs map 1's, and it counts runs there), so the Library never waits on a second map.
+  const tiers = new Set(DATA.research.map((r) => r.tier));
+  for (const t of tiers) {
+    const alone = DATA.research.filter((r) => r.tier === t && (r.runsOn === undefined || r.runsOn === DATA.maps[0].id) && Object.keys(r.cost).every((id) => map1.has(id)));
+    assert.ok(alone.length >= 1, `research tier ${t}: some project on map 1 alone`);
+  }
+  // A later map's materials never in a level 1 (a building's first level waits on no second map),
+  // and every Smithy and Apothecary level that asks for one keeps a map 1 material beside it, so
+  // neither map is ever finished.
+  for (const b of DATA.buildings) {
+    for (const id of Object.keys(b.levels[0].cost)) assert.ok(map1.has(id), `${b.id} level 1 needs ${id}: a level 1 is paid from map 1`);
+    if (!['smithy', 'apothecary'].includes(b.id)) continue;
+    b.levels.forEach((lv, i) => {
+      const ids = Object.keys(lv.cost).filter((id) => !['coin', 'oil', 'map_scraps'].includes(id));
+      if (ids.some((id) => !map1.has(id))) assert.ok(ids.some((id) => map1.has(id)), `${b.id} level ${i + 1}: a map 1 material beside the later map's`);
+    });
+  }
+  // The Salt Marsh's materials have a use at the harbor, beside the research that points at it.
+  for (const id of ['marsh_herbs', 'salt_glass']) assert.ok(DATA.buildings.some((b) => b.levels.some((l) => l.cost[id] > 0)), `${id}: a building level asks for it`);
   // Every material a built map drops is wanted by something.
   for (const m of DATA.materials) if (built.some((mapId) => droppable(DATA.maps.find((x) => x.id === mapId)).has(m.id))) assert.ok(used.has(m.id), `${m.id} drops but nothing uses it`);
   // And every drop names a real material.
@@ -521,14 +651,14 @@ test('content: the MVP economy has no dead ends: map 1 pays for everything, and 
 test('content: Phase 7: gear, consumables, Tides, curses, arcana, challenges, feats, mastery, the Market, and the map\'s tasks', () => {
   const unlockOk = (where, ref) => {
     const u = parseUnlock(ref);
-    assert.ok(['starter', 'building', 'research', 'feat', 'challenge'].includes(u.kind), `${where}: unlock "${ref}"`);
+    assert.ok(['starter', 'building', 'research', 'feat', 'mastery'].includes(u.kind), `${where}: unlock "${ref}"`);
+    if (u.kind === 'mastery') assert.ok(DATA.characters.some((c) => c.id === u.id) && u.level >= 1 && u.level <= DATA.meta.masteryRanks.length, `${where}: mastery ${u.id}:${u.level}`);
     if (u.kind === 'research') assert.ok(RES.has(u.id), `${where}: research ${u.id}`);
-    if (u.kind === 'building') assert.ok(B.has(u.id) && u.level <= MAX_BUILDING_LEVEL, `${where}: building ${u.id}:${u.level}`);
+    if (u.kind === 'building') assert.ok(B.has(u.id) && u.level <= LEVELS(u.id), `${where}: building ${u.id}:${u.level}`);
     if (u.kind === 'feat') assert.ok(DATA.feats.some((f) => f.id === u.id && f.reward?.unlock), `${where}: feat ${u.id} unlocks`);
-    if (u.kind === 'challenge') assert.ok(DATA.challenges.some((c) => c.id === u.id && c.reward?.unlock), `${where}: challenge ${u.id} unlocks`);
   };
   // Relics' new unlock kinds too.
-  for (const r of DATA.relics) if (/^(feat|challenge):/.test(r.unlock)) unlockOk(`relic ${r.id}`, r.unlock);
+  for (const r of DATA.relics) if (/^feat:/.test(r.unlock)) unlockOk(`relic ${r.id}`, r.unlock);
   // Gear: each affix one of the four kinds, well formed (a stat's or a build's modifier the sim
   // accepts at every tier, a hook that exists with every param it needs and its grown ones among
   // them, a rule that says what it changes); each recipe in a slot, its own affix one that changes
@@ -567,36 +697,57 @@ test('content: Phase 7: gear, consumables, Tides, curses, arcana, challenges, fe
     for (const m of c.mods || []) assert.equal(checkModifier(m), null);
   }
   assert.ok(DATA.buildings.find((b) => b.id === 'chapel').levels.some((l) => l.curses >= DATA.curses.length - 1), 'the Chapel opens the curses');
-  for (const a of DATA.arcana) unlockOk(`arcana ${a.id}`, a.unlock);
   for (const c of DATA.challenges) {
     assert.ok(W.has(DATA.characters.find((x) => x.id === c.character)?.start), `challenge ${c.id}: a character`);
-    assert.ok(c.goal.surviveSec > 0 || DATA.enemies.some((e) => e.id === c.goal.boss), `challenge ${c.id}: a goal`);
-    for (const p of c.pools || []) assert.ok(['weapons', 'passives', 'relics', 'runes'].includes(p));
+    // (The sweep, ruling 13: a set run is a Harbor Order with `rules`; its goal is the order's `when`.)
+    const order = DATA.feats.find((f) => f.id === c.id);
+    assert.ok(order?.rules && order.when.run === c.id && order.group === 'run', `set run ${c.id}: an order on the board with rules`);
+    assert.ok(order.when.surviveSec > 0 || DATA.enemies.some((e) => e.id === order.when.boss), `set run ${c.id}: a goal`);
+    for (const p of c.pools || []) assert.ok(['weapons', 'passives', 'relics'].includes(p));
     for (const id of c.curses || []) assert.ok(DATA.curses.some((x) => x.id === id));
     assert.ok(!c.tide || c.tide <= DATA.tides.length);
-    assert.ok(c.reward.unlock || c.reward.materials, `challenge ${c.id}: a reward`);
-    if (c.reward.unlock) assert.ok(contentFrom(DATA, `challenge:${c.id}`).length >= 1, `challenge ${c.id}: opens something`);
   }
   // Feats: a visibility, conditions the meta layer can judge (an impossible one would never be
   // met), and a reward; an unlocking feat opens something.
-  const always = { end: 'cleared', cleared: true, tide: 10, bossesKilled: DATA.enemies.filter((e) => e.boss).map((e) => ({ id: e.id })), lanternNight: true, bellsRung: 99, maxForms: 3, untouchedSec: 9999, timeSurvived: 9999, seaGlassMax: 9999 };
+  const always0 = { end: 'cleared', cleared: true, tide: 10, bossesKilled: DATA.enemies.filter((e) => e.boss).map((e) => ({ id: e.id, weapons: [] })), lanternNight: true, bellsRung: 99, maxForms: 3, untouchedSec: 9999, timeSurvived: 9999, seaGlassMax: 9999, quenched: 9999, crowdSec: 9999, weaponLevelMax: Object.fromEntries(DATA.weapons.map((w) => [w.id, 99])) };
   for (const f of DATA.feats) {
+    // The best run there could be for this feat: on its map, the boss killed with its weapon first.
+    const w = f.when || {};
+    const always = { ...always0, map: w.map ?? DATA.maps[0].id, bossesKilled: always0.bossesKilled.map((b) => (b.id === w.boss && w.bossWeapon ? { ...b, weapons: [w.bossWeapon] } : b)),
+      // 0.9.0, the Harbor Orders' keys (meta/feats.js FEAT_KEYS): the best run for each.
+      character: w.character ?? DATA.characters[0].id, capstones: DATA.weapons.map((x) => x.id), level: 9999, totalKills: 1e9,
+      kills: Object.fromEntries(DATA.enemies.map((e) => [e.id, 1e9])), elitesKilled: 9999, lanternNights: 99, lampsLit: 99,
+      relics: DATA.relics.map((r) => r.id), passives: DATA.passives.map((p) => ({ id: p.id, level: p.maxLevel })), ferryBought: 99, reliquaries: 99,
+      embers: 99, dashKills: 1e9, damageTaken: 0, overtimeMinutes: 99, curses: DATA.curses.map((c) => c.id), heirloom: typeof w.heirloom === 'string' ? w.heirloom : 'any', challenge: w.run,
+      mode: w.mode ?? 'standard', secretsFound: DATA.maps.flatMap((m) => (m.secrets || []).map((x) => x.id)), wellGiven: DATA.relics[0].id,
+      tags: Object.fromEntries(['light', 'fire', 'sea', 'steel', 'echo', 'frost', 'rot'].map((t) => [t, 99])), thralls: 9999, herbsPicked: 9999,
+      act: 3, dawn: true, finds: typeof w.find === 'string' ? [w.find] : Array.from({ length: 99 }, (_, k) => `f${k}`), mapEvents: typeof w.mapEvent === 'string' ? [w.mapEvent] : [],
+      weapons: typeof w.topWeapon === 'string' ? [{ id: w.topWeapon, damage: 1 }] : [] };   // (C3: the top weapon)
+    for (const k of [...Object.keys(w), ...Object.keys(f.found || {})]) assert.ok(FEAT_KEYS.includes(k), `feat ${f.id}: a condition this build can judge (${k})`);
+    assert.equal(typeof f.by === 'string' && DATA.npcs.some((n) => n.id === f.by), true, `feat ${f.id}: posted by someone in the harbor (by)`);
+    assert.ok(ORDER_GROUPS.some(([g]) => g === f.group) && f.tier >= 1 && f.tier <= 4, `feat ${f.id}: a group and a tier`);
     assert.ok(['visible', 'after_found', 'hidden'].includes(f.visibility), `feat ${f.id}: visibility`);
     assert.ok(Object.keys(f.when || {}).length > 0, `feat ${f.id}: a condition (an empty one is always met)`);
     assert.ok(!featMet(f.when, { end: 'died', timeSurvived: 0 }, { kills: 0 }), `feat ${f.id}: not met by a run that did nothing`);
-    assert.ok(featMet(f.when, always, { kills: 1e9 }), `feat ${f.id}: can be done`);
-    if (f.visibility === 'after_found') assert.ok(f.found && featMet(f.found, always, { kills: 1e9 }), `feat ${f.id}: can be found`);
+    const maxOf = (id) => DATA.passives.find((p) => p.id === id)?.maxLevel ?? Infinity;
+    const took = w.axisBoth ? w.axisBoth.pairs.flat().map((o) => `took:${w.axisBoth.weapon}:${o}`) : [];   // (C3: both options, across runs)
+    assert.ok(featMet(f.when, always, { kills: 1e9, enemyKills: Object.fromEntries(DATA.enemies.map((e) => [e.id, 1e9])), codex: took }, maxOf), `feat ${f.id}: can be done`);
+    if (f.visibility === 'after_found') assert.ok(f.found && featMet(f.found, always, { kills: 1e9 }, maxOf), `feat ${f.id}: can be found`);
     assert.ok(f.reward.unlock || f.reward.materials, `feat ${f.id}: a reward`);
-    if (f.reward.unlock) assert.ok(contentFrom(DATA, `feat:${f.id}`).length >= 1, `feat ${f.id}: opens something`);
+    // 0.9.0: an order opens exactly one thing (the Harbor Orders' rule).
+    assert.ok(f.reward.unlock && !f.reward.materials, `feat ${f.id}: opens a thing, not materials`);
+    assert.equal(contentFrom(DATA, `feat:${f.id}`).length, 1, `feat ${f.id}: opens exactly one thing (${contentFrom(DATA, `feat:${f.id}`).map((x) => x.id)})`);
   }
   // Mastery: perks at ranks the tuning has, for real characters; kits start with real weapons.
-  const ranks = DATA.tuning.mastery.ranks;
+  const ranks = DATA.meta.masteryRanks;
   for (let k = 1; k < ranks.length; k++) assert.ok(ranks[k] > ranks[k - 1]);
-  for (const p of DATA.perks) {
-    assert.ok(DATA.characters.some((c) => c.id === p.character) && p.rank >= 1 && p.rank <= ranks.length, `perk ${p.id}`);
-    for (const m of p.mods) assert.equal(checkModifier(m), null);
+  // Ruling 15: skill points at ranks the tuning has (tests/skills.test.js checks the trees).
+  for (const r of SKILL_RANKS) assert.ok(r >= 1 && r <= ranks.length, `skill rank ${r}`);
+  for (const k of DATA.kits) {
+    assert.ok(W.has(k.start) && (k.character === '*' || DATA.characters.some((c) => c.id === k.character && c.start !== k.start)) && (k.rank === undefined || k.rank <= ranks.length), `kit ${k.id}`);
+    assert.ok(k.rank !== undefined || k.unlock !== undefined, `kit ${k.id}: opened by a rank or an order`);
+    if (k.unlock) unlockOk(`kit ${k.id}`, k.unlock);
   }
-  for (const k of DATA.kits) assert.ok(W.has(k.start) && DATA.characters.some((c) => c.id === k.character && c.start !== k.start) && k.rank <= ranks.length, `kit ${k.id}`);
   // The Market deals in materials map 1 drops.
   for (const id of [...DATA.market.common, ...DATA.market.rare]) assert.ok(droppable(DATA.maps[0]).has(id), `the Market trades ${id}`);
   // A map's tasks and skiff: each on open ground you can walk to from the start, at least one of
@@ -626,10 +777,19 @@ test('content: Phase 7: gear, consumables, Tides, curses, arcana, challenges, fe
       assert.ok(Math.hypot(a.x - b.x, a.y - b.y) > 2 * DATA.tuning.tasks.bell.radius * 1.25, `${m.id}: tasks ${i} and ${j} apart`);
     }
     if (m.ferry) {
-      const F = w.ferry;
-      assert.ok(reachable(F.x, F.y), `${m.id}: the skiff's landing on ground you can walk to`);
-      assert.ok(T.kinds[Math.floor(F.by / T.tile) * T.cols + Math.floor(F.bx / T.tile)] === GROUND.WATER, `${m.id}: the skiff on the water`);
-      assert.equal(Math.hypot(F.x - F.bx, F.y - F.by), T.tile, `${m.id}: the skiff beside its landing`);
+      // Every mooring (0.8.2): boards you can walk to, never a creek's bed, and the skiff beside
+      // them (or a tile further out) on water, a creek's bed only where no open water is near;
+      // four to six of them, spread out.
+      const M = w.ferry.moorings;
+      assert.ok(M.length >= 4 && M.length <= 6, `${m.id}: 4 to 6 moorings`);
+      M.forEach((F, k) => {
+        assert.ok(reachable(F.x, F.y), `${m.id}: mooring ${k}'s boards on ground you can walk to`);
+        assert.notEqual(T.kinds[Math.floor(F.y / T.tile) * T.cols + Math.floor(F.x / T.tile)], GROUND.MUD, `${m.id}: mooring ${k}'s boards not on a creek's bed`);
+        assert.ok([GROUND.WATER, GROUND.DEEP, GROUND.MUD].includes(T.kinds[Math.floor(F.by / T.tile) * T.cols + Math.floor(F.bx / T.tile)]), `${m.id}: mooring ${k}'s skiff on the water`);
+        const off = Math.hypot(F.x - F.bx, F.y - F.by);
+        assert.ok(off === T.tile || off === 2 * T.tile, `${m.id}: mooring ${k}'s skiff beside its boards, or a tile further out in the channel`);
+        for (let j = 0; j < k; j++) assert.ok(Math.hypot(F.x - M[j].x, F.y - M[j].y) > 200, `${m.id}: moorings ${j} and ${k} apart`);
+      });
     }
   }
   // A task or a skiff placed off the tile grid is a plain error, not a crash.
@@ -647,8 +807,15 @@ test('content: every line a keeper has can be heard, and everyone waiting on the
   for (const n of DATA.npcs) {
     n.lines.forEach((l, i) => {
       const levels = { [n.home]: 4 };
-      if (l.when !== 'start') { const [b, lv] = l.when.split(':'); levels[b] = Math.max(levels[b] ?? 0, Number(lv)); }
       const doc = defaultProfile();
+      // 0.9.0: a run milestone (an order, a boss, a secret, a map's Tide, the runs played) set as reached.
+      const p = l.when.split(':');
+      if (p[0] === 'feat') doc.profile.feats = [p[1]];
+      else if (p[0] === 'boss') doc.profile.bestiary = { [p[1]]: 1 };
+      else if (p[0] === 'secret') doc.profile.codex = [`secret:${p[1]}`];
+      else if (p[0] === 'tide') doc.profile.tides = { [p[1]]: Number(p[2]) };
+      else if (p[0] === 'runs') doc.stats.runs = Number(p[1]);
+      else if (l.when !== 'start') levels[p[0]] = Math.max(levels[p[0]] ?? 0, Number(p[1]));
       Object.assign(doc.profile.buildings, levels);
       assert.ok(hubPeople(doc, DATA).some((p) => p.id === n.id), `${n.id} is out at ${JSON.stringify(levels)}`);
       assert.equal(npcLine(doc, DATA, n.id), l.text, `${n.id}'s line ${i + 1} ("${l.text}") can be heard once they're out`);
@@ -661,29 +828,48 @@ test('content: every line a keeper has can be heard, and everyone waiting on the
   for (const c of DATA.characters) if (c.id !== DATA.hub.avatar) assert.ok(typeof c.hubLine === 'string' && c.hubLine.length > 3 && c.hubLine.length <= 80, `${c.id} has something to say on the square`);
 });
 
-test('content: evolution and innate unlocks sit only on weapons made that way; every building level brings something', () => {
-  const evolvedInto = new Set(DATA.weapons.filter((w) => w.evolution).map((w) => w.evolution.into));
-  for (const [kind, list] of [['weapon', DATA.weapons], ['passive', DATA.passives], ['relic', DATA.relics], ['rune', DATA.runes], ['character', DATA.characters]]) {
+test('content: innate unlocks sit only on weapons made that way, nothing is an evolution; every building level brings something', () => {
+  for (const [kind, list] of [['weapon', DATA.weapons], ['passive', DATA.passives], ['relic', DATA.relics], ['character', DATA.characters]]) {
     for (const x of list) {
-      if (x.unlock === 'evolution') assert.ok(kind === 'weapon' && evolvedInto.has(x.id), `${kind} ${x.id}: only a weapon something evolves into is unlocked by evolving`);
-      if (x.unlock === 'innate') assert.ok(kind === 'weapon' && x.innate, `${kind} ${x.id}: only a character's own weapon is innate`);
+      assert.notEqual(x.unlock, 'evolution', `${kind} ${x.id}: nothing evolves (0.9.0)`);
+      if (x.unlock === 'innate') assert.ok(kind === 'weapon' && (x.innate || x.signature), `${kind} ${x.id}: only a character's own weapon is innate`);
     }
   }
   for (const w of DATA.weapons) {
-    if (evolvedInto.has(w.id)) assert.equal(w.unlock, 'evolution', `${w.id} is evolved into, so it's never in a pool`);
     if (w.innate) assert.equal(w.unlock, 'innate', `${w.id} is a character's own weapon`);
+    // 0.9.0 (W2, ruling 2): a signature weapon is one character's own, and that character carries it.
+    if (w.signature) {
+      assert.equal(w.unlock, 'innate', `${w.id}: a signature weapon is never in a pool`);
+      assert.ok(!w.innate, `${w.id}: a signature weapon rolls upgrades and takes Forms (not innate)`);
+      assert.equal(DATA.characters.find((c) => c.id === w.signature)?.signature, w.id, `${w.id}: its character carries it`);
+    }
   }
   for (const b of DATA.buildings) {
     b.levels.forEach((lv, i) => {
       const key = `${b.id}:${i + 1}`;
       const brings = Object.keys(lv).some((k) => k !== 'cost')
-        || [DATA.weapons, DATA.passives, DATA.relics, DATA.runes, DATA.characters, DATA.recipes, DATA.consumables, DATA.arcana].flat().some((x) => x.unlock === `building:${key}`)
+        || [DATA.weapons, DATA.passives, DATA.relics, DATA.characters, DATA.recipes, DATA.consumables].flat().some((x) => x.unlock === `building:${key}`)
         || DATA.hub.fog.some((f) => f.revealedBy === key) || DATA.hub.props.some((p) => p.from === key)
         || DATA.npcs.some((n) => n.home === b.id && (i + 1 === 4 || i + 1 === 5));
       assert.ok(brings, `${key} brings something`);
     });
   }
 });
+
+/**
+ * A run milestone a townsfolk line can key to (0.9.0): an order done, a boss killed, a secret
+ * found, a map's Tide opened, a challenge won, or a number of runs; each naming something real.
+ */
+function milestoneOk(key) {
+  const p = key.split(':');
+  if (p[0] === 'feat') return DATA.feats.some((f) => f.id === p[1]);
+  if (p[0] === 'boss') return DATA.enemies.some((e) => e.id === p[1] && e.boss);
+  if (p[0] === 'secret') return DATA.maps.some((m) => (m.secrets || []).some((x) => x.id === p[1]));
+  if (p[0] === 'challenge') return DATA.challenges.some((c) => c.id === p[1]);
+  if (p[0] === 'tide' && p.length === 3) return DATA.maps.some((m) => m.id === p[1]) && Number(p[2]) >= 1 && Number(p[2]) <= DATA.tides.length;
+  if (p[0] === 'runs') return /^\d+$/.test(p[1]);
+  return false;
+}
 
 test('content: the harbor\'s people keep real buildings, and their lines key to real levels', () => {
   for (const n of DATA.npcs) {
@@ -692,8 +878,8 @@ test('content: the harbor\'s people keep real buildings, and their lines key to 
     assert.ok(DATA.hub.keepers[n.id], `${n.id}: has a post and a walk on the map`);
     assert.ok(n.lines.length >= 1);
     for (const l of n.lines) {
-      const m = /^([a-z_]+):(\d)$/.exec(l.when);
-      assert.ok(l.when === 'start' || (m && B.has(m[1]) && Number(m[2]) >= 1 && Number(m[2]) <= MAX_BUILDING_LEVEL), `${n.id}: line keyed to "${l.when}"`);
+      const m = /^([a-z_]+):(\d+)$/.exec(l.when);
+      assert.ok(l.when === 'start' || (m && B.has(m[1]) && Number(m[2]) >= 1 && Number(m[2]) <= LEVELS(m[1])) || milestoneOk(l.when), `${n.id}: line keyed to "${l.when}"`);
       assert.ok(typeof l.text === 'string' && l.text.length > 3 && l.text.length <= 80, `${n.id}: "${l.text}" fits on a line`);
     }
   }
@@ -728,7 +914,7 @@ function fogEdgeProblems(hub, map, buildings) {
 test('content: the harbor map: plots, doors, fog, the gate, the pier, and every walk fit together', () => {
   const hub = DATA.hub;
   const map = buildHubMap(hub, HUB_TERRAIN);
-  const regionOk = (key) => key === 'start' || (/^([a-z_]+):(\d)$/.test(key) && B.has(key.split(':')[0]) && Number(key.split(':')[1]) <= MAX_BUILDING_LEVEL);
+  const regionOk = (key) => key === 'start' || (/^([a-z_]+):(\d+)$/.test(key) && B.has(key.split(':')[0]) && Number(key.split(':')[1]) <= LEVELS(key.split(':')[0]));
   assert.equal(new Set(hub.fog.map((f) => f.id)).size, hub.fog.length, 'fog region ids are unique');
   for (const f of hub.fog) assert.ok(regionOk(f.revealedBy), `fog ${f.id}: revealed by "${f.revealedBy}"`);
   assert.deepEqual(hub.plots.map((p) => p.building).sort(), DATA.buildings.map((b) => b.id).sort(), 'every building has a plot, and every plot a building');
@@ -817,7 +1003,9 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
   // Props: each on open ground no one needs (not a door, the gate, the spawn, a post, a walk, a
   // waiting spot, or an arrival's path), clear of the fog from the moment it appears; and with every
   // prop out and only the starting fog gone, every door and the gate can still be reached.
-  const keyOk = (key) => key === 'start' || (/^([a-z_]+):(\d)$/.test(key) && B.has(key.split(':')[0]) && Number(key.split(':')[1]) <= MAX_BUILDING_LEVEL);
+  // (The sweep: a prop that comes with an order done, 'feat:<id>', stands on ground clear from the start.)
+  const featKey = (key) => /^feat:[a-z0-9_]+$/.test(key) && DATA.feats.some((f) => `feat:${f.id}` === key);
+  const keyOk = (key) => key === 'start' || featKey(key) || /^runs:\d+$/.test(key) || (/^([a-z_]+):(\d+)$/.test(key) && B.has(key.split(':')[0]) && Number(key.split(':')[1]) <= LEVELS(key.split(':')[0]));
   const reserved = new Set([hub.spawn, hub.gate.at, ...hub.plots.map((p) => p.door), ...hub.waiting].map(String));
   const walkTiles = (path, loop) => {
     const out = [];
@@ -839,7 +1027,9 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
     const [x, y] = p.at;
     assert.ok(HUB_TERRAIN[hub.map[y][x]].walk && !map.footprint[y * map.cols + x], `prop ${p.id} stands on open ground`);
     assert.ok(!reserved.has(String(p.at)), `prop ${p.id} at ${p.at} is out of everyone's way`);
-    const lv = p.from === 'start' ? {} : { [p.from.split(':')[0]]: Number(p.from.split(':')[1]) };
+    // (A building that comes out of the fog later, the Lighthouse, has its own way open too.)
+    const home = hub.plots.find((q) => q.building === p.from.split(':')[0]);
+    const lv = p.from === 'start' || featKey(p.from) || p.from.startsWith('runs:') ? {} : { ...(home?.openAt && home.openAt !== 'start' ? levelsAt(home.openAt) : {}), [p.from.split(':')[0]]: Number(p.from.split(':')[1]) };
     assert.ok(open(openFor(lv), p.at), `prop ${p.id} is out of the fog when it appears`);
   }
   const crowded = solidTiles(map, clearTiles(map, new Set(['square'])), hub.props);
@@ -865,4 +1055,11 @@ test('content: the harbor map: plots, doors, fog, the gate, the pier, and every 
   for (const p of hub.plots.filter((q) => q.windows)) {
     assert.deepEqual(p.windows, openings(BUILDINGS_LAYOUT[p.building]).windows, `${p.building}'s windows match its art`);
   }
+});
+
+test('content: a project\'s runsOn names a map this build has (a typo would leave it never finishing), and every challenge\'s map is one too', () => {
+  const maps = new Set(DATA.maps.map((m) => m.id));
+  for (const r of DATA.research.filter((x) => x.runsOn !== undefined)) assert.ok(typeof r.runsOn === 'string' && maps.has(r.runsOn), `research ${r.id}: runsOn "${r.runsOn}"`);
+  assert.ok(DATA.research.some((r) => r.runsOn), 'some projects count runs on one map');
+  for (const c of DATA.challenges.filter((x) => x.map !== undefined)) assert.ok(maps.has(c.map), `challenge ${c.id}: map "${c.map}"`);
 });

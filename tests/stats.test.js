@@ -127,7 +127,8 @@ test('stats: a passive stacks every level it has reached, only on weapons with i
   const flare0 = flare.stats.damage, bell0 = w.slots[bell.index].stats.damage;
   for (let L = 1; L <= 5; L++) {
     givePassive(w, 'wick_oil', L);           // +12% might on fire, per level
-    close(w.slots[flare.index].stats.damage, flare0 * (1 + 0.12 * L), `wick oil ${L}`);
+    // (and Wick Oil shares the Fire tag: Kindred, +6% for one kin)
+    close(w.slots[flare.index].stats.damage, flare0 * (1 + 0.12 * L) * (1 + w.tuning.weaponUps.kindred.per), `wick oil ${L}`);
     close(w.slots[bell.index].stats.damage, bell0, 'no fire tag, no change');
   }
 });

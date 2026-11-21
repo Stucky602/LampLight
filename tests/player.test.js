@@ -71,19 +71,29 @@ test('player: walls stop you; a dash into a wall stops at it', () => {
   assert.ok(w.player.x <= 66 * 16 - w.tuning.player.radius + 1e-6, `stopped at the wall (${w.player.x})`);
 });
 
-test('player: the XP curve matches its table, and one big gem can give several levels at once', () => {
+test('player: the XP curve matches its table; a big gem\'s levels come one draft at a time, at least draftGap apart (ruling 14)', () => {
   const X = DATA.tuning.xp;
-  const table = { 1: 5, 2: 15, 3: 25, 19: 185 };
-  for (const [L, need] of Object.entries(table)) assert.equal(xpToNext(DATA.tuning, Number(L)), need, `level ${L}`);
-  assert.equal(xpToNext(DATA.tuning, 20), X.first + X.perLevel * (X.lateFrom - 2) + X.latePerLevel + X.steps[20], 'level 20: the late slope starts, plus the step');
-  assert.equal(xpToNext(DATA.tuning, 21), X.first + X.perLevel * (X.lateFrom - 2) + X.latePerLevel * 2);
+  // first + perLevel x (L - 1), and from growthFrom each level costs `growth` times more, compounding.
+  const lin = (L) => X.first + X.perLevel * (L - 1);
+  for (const L of [1, 2, 3, X.growthFrom - 1]) assert.equal(xpToNext(DATA.tuning, L), lin(L), `level ${L}`);
+  assert.deepEqual([1, 2, 3].map((L) => xpToNext(DATA.tuning, L)), [5, 35, 65]);
+  assert.equal(X.bumps.length, 0, 'no bumps');
+  for (let L = 1; L < 120; L++) assert.ok(xpToNext(DATA.tuning, L + 1) >= xpToNext(DATA.tuning, L), `level ${L + 1} costs no less than level ${L}`);
+  for (let L = 1; L < 60; L++) assert.ok(xpToNext(DATA.tuning, L + 1) <= xpToNext(DATA.tuning, L) * 1.3 || L < X.growthFrom, `no stall at level ${L + 1}`);
   const w = makeWorld({ invulnerable: true });
-  w.player.xp = 5 + 15 + 25;
+  w.player.xp = 5 + 35 + 65;
   stepWorld(w, IDLE);
+  assert.equal(w.player.level, 2, 'one level now; the XP for the rest is kept');
+  const at = [w.tick];
+  w.charges.skip = 9;
+  for (let t = 0; t < 3 * X.draftGap * 60 && w.player.level < 4; t++) {
+    while (currentHalt(w)) decide(w, { kind: 'skip' });
+    const lv = w.player.level;
+    stepWorld(w, IDLE);
+    if (w.player.level > lv) at.push(w.tick);
+  }
   assert.equal(w.player.level, 4, 'three levels from one gem');
-  let drafts = 0;
-  while (currentHalt(w)) { assert.equal(currentHalt(w).kind, 'draft'); drafts++; w.charges.skip = 9; decide(w, { kind: 'skip' }); }
-  assert.equal(drafts, 3, 'one draft per level');
+  assert.ok(at.slice(1).every((t, k) => t - at[k] >= X.draftGap * 60), `never two drafts inside ${X.draftGap}s: ${at}`);
 });
 
 test('world: a RunConfig or tuning the sim can\'t run is refused with a plain message', () => {

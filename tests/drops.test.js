@@ -70,12 +70,15 @@ test('drops: seeded expected values land within tolerance (common drops, the ene
   const N = 20000;
   const map = DATA.maps.find((m) => m.id === 'drowned_docks');
   const sailor = DATA.enemies.find((e) => e.id === 'drowned_sailor');
+  // An ordinary enemy's chances are times the pace dial (tuning.pace.drops, 0.8.1); an elite's and a boss's aren't.
+  const more = DATA.tuning.pace.drops;
   const { totals, heals } = rollMany(N, 'drowned_sailor');
-  for (const d of map.commonDrops) within(`common ${d.material}`, totals[d.material] || 0, N, d.chance + (sailor.drops.find((x) => x.material === d.material)?.chance || 0));
-  within('rope', totals.rope || 0, N, sailor.drops.find((d) => d.material === 'rope').chance);
+  for (const d of map.commonDrops) within(`common ${d.material}`, totals[d.material] || 0, N, (d.chance + (sailor.drops.find((x) => x.material === d.material)?.chance || 0)) * more);
+  within('rope', totals.rope || 0, N, sailor.drops.find((d) => d.material === 'rope').chance * more);
+  // Food and the magnet keep their own rates a kill: the drops dial reaches materials only (0.8.2).
   within('heal pickups', heals.heal, N, map.pickups.heal);
   const lucky = rollMany(N, 'drowned_sailor', { luck: 2 }).totals;
-  within('coin at luck 2', lucky.coin || 0, N, map.commonDrops.find((d) => d.material === 'coin').chance * 2);
+  within('coin at luck 2', lucky.coin || 0, N, map.commonDrops.find((d) => d.material === 'coin').chance * 2 * more);
 });
 
 test('drops: guaranteed drops always land, with amounts in range; swarmers drop nothing', () => {

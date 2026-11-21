@@ -46,7 +46,7 @@ test('tune: a change the tuning cannot hold is refused and leaves no trace', () 
   ];
   for (const [d, re] of cases) assert.throws(() => decide(w, { kind: 'tune', ...d }), re, JSON.stringify(d));
   assert.equal(w.decisions.length, 0);
-  assert.equal(checkTune(TUNING, 'feel.shake.playerHurt', 0.5), null, 'feel values tune like any other');
+  assert.equal(checkTune(TUNING, 'feel.hitStop.playerHurt', 50), null, 'feel values tune like any other');
   assert.equal(tuningAt(TUNING, 'feel.fog.density'), TUNING.feel.fog.density);
   assert.equal(tuningAt(TUNING, 'feel.fog.nope'), undefined);
 });
@@ -94,14 +94,13 @@ test('tune: the run\'s character numbers (the Harpooner\'s daze) change live, on
   ]) assert.throws(() => decide(w, { kind: 'tune', path, value }), re, path);
   assert.equal(w.decisions.length, n, 'refusals leave no trace');
   assert.equal(checkCharacterTune(w, 'character.harpooner.pull', 0.8), null);
-  // A character's numbers that feed stats (the Lamplighter's growth) apply on the next tick.
-  const l = createWorld({ seed: 5, character: 'lamplighter' }, DATA);
-  l.player.level = 11;
+  // A character's numbers that feed stats (the Punter's cost: his damage with no Momentum) apply on the next tick.
+  const l = createWorld({ seed: 5, character: 'punter' }, DATA);
   stepN(l, 1);
-  const area = l.slots.find((x) => x && x.def && x.def.id === 'lamplight').stats.area;
-  decide(l, { kind: 'tune', path: 'character.lamplighter.areaPerLevel', value: 0.1 });
+  const dmg = l.slots[0].stats.damage;
+  decide(l, { kind: 'tune', path: 'character.punter.empty', value: 0 });
   stepN(l, 1);
-  assert.ok(l.slots.find((x) => x && x.def && x.def.id === 'lamplight').stats.area > area, 'the light grew');
+  assert.ok(l.slots[0].stats.damage > dmg, 'the cost is off');
 });
 
 test('tuning panel: the character\'s numbers sit beside the tuning, and Copy tuning names them', () => {
@@ -155,7 +154,7 @@ test('dev jump: forward only; the events in between are skipped, later ones stil
   assert.equal(w.pickups.count, 1, 'the 1:30 chest still came');
 });
 
-test('dev give: weapons, passives, relics, and runes, through the same rules as the draft', () => {
+test('dev give: weapons, passives, and relics, through the same rules as the draft', () => {
   const w = makeWorld();
   decide(w, { kind: 'dev', cmd: 'give', what: 'weapon', id: 'flare_gun' });
   assert.equal(w.slots[0].def.id, 'flare_gun');
@@ -167,19 +166,18 @@ test('dev give: weapons, passives, relics, and runes, through the same rules as 
   decide(w, { kind: 'dev', cmd: 'give', what: 'relic', id: 'tide_clock' });
   assert.ok(w.build.relics.some((r) => r.id === 'tide_clock'));
   assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'relic', id: 'tide_clock' }), /already holding/);
-  decide(w, { kind: 'dev', cmd: 'give', what: 'rune', id: 'backfire' });
-  assert.deepEqual(currentHalt(w), { kind: 'rune', rune: 'backfire' }, 'a rune asks where it goes');
-  decide(w, { kind: 'place', slot: 0 });
-  assert.equal(w.slots[0].runes[0].id, 'backfire');
   assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'weapon', id: 'lamplight' }), /character's own weapon/);
-  for (let k = 0; k < 6; k++) decide(w, { kind: 'dev', cmd: 'give', what: 'weapon', id: 'flare_gun' });
-  assert.equal(w.slots[0].level, 8);
-  assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'weapon', id: 'flare_gun' }), /already at its highest level/, 'a no-op give says so');
+  // A weapon has no highest level (ruling 10): each give is one rolled upgrade, as a level-up's.
+  for (let k = 0; k < 10; k++) decide(w, { kind: 'dev', cmd: 'give', what: 'weapon', id: 'flare_gun' });
+  assert.equal(w.slots[0].level, 12);
+  assert.equal(w.slots[0].ups.length, 11);
+  while (currentHalt(w)) decide(w, { kind: 'keep' });   // (its 5th and 10th opened their axes)
+  assert.ok(w.slots[0].ups.every((u) => w.slots[0].def.numbers.includes(u.up) || u.up === 'line' || u.up === 'special'), 'from its own pool');
   for (let k = 0; k < 4; k++) decide(w, { kind: 'dev', cmd: 'give', what: 'passive', id: 'wick_oil' });
   assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'passive', id: 'wick_oil' }), /already at its highest level/);
   assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'weapon', id: 'nope' }), /unknown weapon/);
   assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'hat', id: 'x' }), /not weapon, passive/);
-  assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'rune', id: 'orbiting' }), /no open socket fits/, 'Orbiting would strand the Backfire already in the Flare Gun, and no other weapon has sockets');
+  assert.throws(() => decide(w, { kind: 'dev', cmd: 'give', what: 'rune', id: 'splitting' }), /not weapon, passive/, 'runes are gone (ruling 14)');
 });
 
 test('dev level: queues exactly that many level-ups; god, heal, and clear do what they say', () => {
@@ -223,7 +221,7 @@ test('replays: a run tuned and cheated along the way plays back exactly', () => 
   const frame = (t) => ({ mx: Math.round(100 * Math.cos(t / 50)), my: Math.round(100 * Math.sin(t / 70)), buttons: t % 240 === 0 ? 1 : 0 });
   for (let t = 0; t < 1800 && !rec.world.over; t++) {
     if (t === 200) rec.decide({ kind: 'tune', path: 'enemies.separation', value: 0.7 });
-    if (t === 250) rec.decide({ kind: 'tune', path: 'character.lamplighter.areaPerLevel', value: 0.05 });
+    if (t === 250) rec.decide({ kind: 'tune', path: 'character.lamplighter.oilFull', value: 30 });
     if (t === 400) rec.decide({ kind: 'dev', cmd: 'spawn', count: 120 });
     if (t === 600) rec.decide({ kind: 'dev', cmd: 'give', what: 'weapon', id: 'tide_bell' });
     if (t === 700) rec.decide({ kind: 'dev', cmd: 'level', count: 2 });
@@ -236,7 +234,8 @@ test('replays: a run tuned and cheated along the way plays back exactly', () => 
     rec.step(frame(t));
     while (currentHalt(rec.world)) {
       const h = currentHalt(rec.world);
-      rec.decide(h.kind === 'draft' ? { kind: 'pick', index: 0 } : h.kind === 'rune' ? { kind: 'discard' } : h.kind === 'overtime' ? { kind: 'leave' } : { kind: 'ok' });
+      // (An axis that opens on the way, from the boss chest's upgrades, is kept for later.)
+      rec.decide(h.kind === 'draft' ? { kind: 'pick', index: 0 } : h.kind === 'rune' ? { kind: 'discard' } : h.kind === 'overtime' ? { kind: 'leave' } : h.kind === 'ascend' ? { kind: 'keep' } : { kind: 'ok' });
     }
   }
   const replay = rec.toReplay();
@@ -244,7 +243,7 @@ test('replays: a run tuned and cheated along the way plays back exactly', () => 
   const back = playReplay(replay, DATA, { buildId: 'b1' });
   assert.equal(hashWorld(back), replay.hash);
   assert.equal(back.tuning.enemies.separation, 0.7);
-  assert.equal(characterTuning(back).lamplighter.areaPerLevel, 0.05, 'the character tune replays too');
+  assert.equal(characterTuning(back).lamplighter.oilFull, 30, 'the character tune replays too');
   assert.equal(replay.config.invulnerable, undefined, 'god mode is not written into the config the replay starts from');
 });
 

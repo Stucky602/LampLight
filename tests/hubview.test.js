@@ -20,10 +20,11 @@ import { levelsOf, levelSetPieces } from '../src/app/hublogic.js';
 import { flattenTuning } from '../src/ui/tuningmodel.js';
 import {
   harborLights, arrivalLook, ambientLight, lookColor, drawnAt, flickerAt, boatBobAt, hopPhase, fogDensity, fogAtPoint, newcomerTint, boatTint, lightAt,
-  clearOfBoat, steppingAlpha, clampCamera, cameraAt, ANCHORS, buildingDraw, lampRadius,
+  clearOfBoat, steppingAlpha, clampCamera, cameraAt, ANCHORS, buildingDraw, lampRadius, plotLights,
 } from '../src/render/hubtiles.js';
 import { stepHop } from '../src/render/viewstate.js';
 import { PLAYER_FEET_ROOM } from '../src/render/playerframe.js';
+import { ROOF_ROOM } from '../src/render/buildingframe.js';
 import { hubRig, profileWith, ATLAS_JSON } from './helpers/hubrig.js';
 
 const HUB = DATA.hub;
@@ -56,7 +57,7 @@ test('harbor view in Node: the layers stack as §10.4 says, and the fog shows ea
   const r = hubRig({ levels: { lamp_post: 1 } });
   const look = r.tuning.look;
   let f = r.frame();
-  assert.deepEqual(r.find('harbor').children.slice(0, 7).map((c) => c.label), ['sea', 'ground', 'actors', 'puffs', 'light', 'fog', 'boat-layer']);
+  assert.deepEqual(r.find('harbor').children.slice(0, 8).map((c) => c.label), ['sea', 'ground', 'actors', 'puffs', 'light', 'fog', 'lighthouse-beam', 'boat-layer']);
   assert.equal(r.find('light').blendMode, 'multiply', 'the light map multiplies the town down');
   assert.equal(f.light.blend, 'add', 'the lights add up in it');
   // Each is drawn into the texture its layer shows, over a fresh start: the night, and nothing.
@@ -188,11 +189,12 @@ test('harbor view in Node: each thing shows its own picture, stood on its tile o
     assert.ok(lower.zIndex < upper.zIndex && upper.zIndex < scaffold.zIndex, `${p.building}: the old stage, the new, then the scaffold`);
     for (const s of [lower, upper, scaffold]) assert.ok(Math.abs(s.zIndex - (p.y + p.h) * 16) < 0.5, `${p.building}: sorted by its front edge`);
   }
-  // A building fills its plot; the town lamp stands on the middle of its tile.
+  // A building fills its plot, its frame's room above the roof reaching into the tile above
+  // (render/buildingframe.js); the town lamp stands on the middle of its tile.
   for (const p of HUB.plots) {
     const b = box(r.find(`stage:${p.building}`));
     if (p.building === 'lamp_post') assert.deepEqual([(b.left + b.right) / 2, b.bottom], [p.x * 16 + 8, (p.y + 1) * 16], 'the lamp on its tile');
-    else assert.deepEqual([b.left, b.top, b.right, b.bottom], [p.x * 16, p.y * 16, (p.x + p.w) * 16, (p.y + p.h) * 16], `${p.building} on its plot`);
+    else assert.deepEqual([b.left, b.top, b.right, b.bottom], [p.x * 16, p.y * 16 - ROOF_ROOM, (p.x + p.w) * 16, (p.y + p.h) * 16], `${p.building} on its plot`);
   }
   // The prompts' place: a world point in the view, from the camera the frame drew with.
   const cam = r.renderer.camera;
@@ -265,7 +267,7 @@ test('harbor view in Node: a new stage rises over the old behind a mask, and the
   assert.equal(lower.texture, r.atlas.tex(d.lower));
   assert.ok(lower.visible && upper.visible && mask.visible);
   assert.equal(upper.mask, mask, 'the new stage is masked');
-  const h = upper.texture.frame.height, top = plot.y * 16, edge = top + h * (1 - tl.build);
+  const h = upper.texture.frame.height, top = (plot.y + plot.h) * 16 - h, edge = top + h * (1 - tl.build);
   const b = mask.bounds;
   const want = [plot.x * 16 - 1, edge - 1, plot.x * 16 + upper.texture.frame.width + 1, top + h + 1];
   [b.minX, b.minY, b.maxX, b.maxY].forEach((v, i) => assert.ok(Math.abs(v - want[i]) < 1e-6, `shown from the ground up to the build: ${[b.minX, b.minY, b.maxX, b.maxY]}, not ${want}`));
@@ -427,10 +429,10 @@ test('harbor view in Node: every light sits on the glass its drawing has, where 
   on(r.find('boat'), look.boatLanternReach * flick, 'the boat\'s lantern');
   const lib = HUB.plots.find((p) => p.building === 'library');
   const dx = lib.door[0] - lib.x, dy = lib.door[1] - 1 - lib.y;
-  on(r.find('stage:library'), look.doorReach * flick, 'the Library\'s door lantern', [dx * 16 + 10, dy * 16 - 2, 10, 12]);
+  on(r.find('stage:library'), look.doorReach * flick, 'the Library\'s door lantern', [dx * 16 + 10, ROOF_ROOM + dy * 16 - 2, 10, 12]);
   // Every lit window: its light on the middle of its panes (the glass of its tile, x 5 to 10, y 5 to 10).
   for (const b of ['library', 'tavern']) {
-    for (const [wx, wy] of HUB.plots.find((p) => p.building === b).windows) on(r.find(`stage:${b}`), look.windowReach, `the ${b}'s window at ${wx}, ${wy}`, [wx * 16 + 5, wy * 16 + 5, 6, 6], PANES);
+    for (const [wx, wy] of HUB.plots.find((p) => p.building === b).windows) on(r.find(`stage:${b}`), look.windowReach, `the ${b}'s window at ${wx}, ${wy}`, [wx * 16 + 5, ROOF_ROOM + wy * 16 + 5, 6, 6], PANES);
   }
 });
 
@@ -547,7 +549,7 @@ test('harbor view in Node: every harbor number at the edges of its range draws a
 });
 
 test('hub view: a prompt\'s anchor (and the guide\'s marker, which uses it) sits over the thing itself: the gate\'s sign, the lamp, a door, a person', () => {
-  const r = hubRig({ levels: { library: 1, tavern: 1 } });
+  const r = hubRig({ levels: { library: 1, tavern: 1, lamp_post: 2 } });
   r.frame();
   const g = DATA.hub.gate.at;
   const gate = r.view.anchorOf({ kind: 'gate' });
@@ -565,3 +567,164 @@ test('hub view: a prompt\'s anchor (and the guide\'s marker, which uses it) sits
   assert.equal(r.view.anchorOf({ kind: 'door', id: 'no_such_building' }), null, 'an unknown door: none');
   assert.equal(r.view.anchorOf(null), null);
 });
+
+// ---------------------------------------------------------------- 0.7.3: the harbor comes alive
+
+test('harbor life: who and what is out by milestone, walking open ground, boats on the water, animals where they stand', async () => {
+  const { buildHubMap, clearTiles, solidTiles, segmentOpen } = await import('../src/hub/map.js');
+  const { HUB_TERRAIN } = await import('../src/data/hub.js');
+  const { ambientLook, reachedNow } = await import('../src/render/hubtiles.js');
+  const look = DATA.hubTuning.look, map = buildHubMap(HUB, HUB_TERRAIN);
+  assert.deepEqual(ambientLook(HUB, {}, 0, look), [], 'nobody about in a ruined town');
+  const all = Object.fromEntries(DATA.buildings.map((b) => [b.id, 5]));
+  const out = ambientLook(HUB, all, 0, look);
+  assert.equal(out.length, HUB.ambient.length, 'everyone out when the town is whole');
+  assert.equal(new Set(HUB.ambient.map((a) => a.id)).size, HUB.ambient.length, 'ids are unique');
+  for (const a of HUB.ambient) {
+    // Its milestone is one the harbor reaches: a building's level (or the start).
+    assert.match(a.from, /^(start|[a-z_]+:[1-5])$/, `${a.id}: from "${a.from}"`);
+    assert.ok(a.from === 'start' || DATA.buildings.some((b) => b.id === a.from.split(':')[0]), `${a.id}: a real building`);
+    const [b, lv] = a.from.split(':');
+    const just = { [b]: Number(lv) }, before = { [b]: Number(lv) - 1 };
+    assert.ok(ambientLook(HUB, just, 0, look).some((x) => x.id === a.id) && !ambientLook(HUB, before, 0, look).some((x) => x.id === a.id), `${a.id} comes out at ${a.from}, not before`);
+    assert.ok(DATA.npcs.every((n) => n.sprite !== a.sprite), `${a.id} isn't drawn as a keeper`);
+    // Where it is must be clear of the fog once it's out (its building's own fog, and the fog
+    // in front of its plot cleared, as the keepers' check does).
+    const plot = HUB.plots.find((p) => p.building === b);
+    const levels = { ...(plot?.openAt && plot.openAt !== 'start' ? { [plot.openAt.split(':')[0]]: Number(plot.openAt.split(':')[1]) } : {}), [b]: Number(lv) };
+    const clear = clearTiles(map, new Set(HUB.fog.filter((f) => reachedNow(f.revealedBy, levels)).map((f) => f.id)));
+    if (a.kind === 'walk') {
+      // A walker's legs are straight runs over open ground, round props as well, with every prop out.
+      const solid = solidTiles(map, clear, HUB.props);
+      for (let i = 0; i < a.loop.length; i++) {
+        const p = a.loop[i], q = a.loop[(i + 1) % a.loop.length];
+        assert.ok(p[0] === q[0] || p[1] === q[1], `${a.id}: leg ${p} -> ${q} is straight`);
+        assert.ok(segmentOpen(map, solid, p, q), `${a.id}: leg ${p} -> ${q} is open at ${JSON.stringify(levels)}`);
+      }
+      assert.ok(a.speed > 0 && a.speed < 40, `${a.id} walks at a walk`);
+    } else if (a.kind === 'moor') {
+      assert.equal(HUB.map[a.at[1]][a.at[0]], '~', `${a.id} rides on the water`);
+      const route = HUB.harbor.boatRoute;
+      assert.ok(route.every(([x, y]) => Math.abs(y - a.at[1]) >= 2 || Math.abs(x - a.at[0]) >= 3), `${a.id} is moored clear of the arrivals' route`);
+    } else {
+      assert.equal(a.kind, 'stand');
+      assert.ok(clear[a.at[1] * map.cols + a.at[0]] === 1, `${a.id} stands where the fog has cleared`);
+      assert.ok(!HUB.props.some((p) => String(p.at) === String(a.at)), `${a.id} isn't on a prop`);
+    }
+  }
+  // Walkers move along their loops, each from its own place; a moored boat rides the swell.
+  const at = (t) => Object.fromEntries(ambientLook(HUB, all, t, look).map((x) => [x.id, x]));
+  const t0 = at(0), t1 = at(1);
+  for (const a of HUB.ambient.filter((x) => x.kind === 'walk')) {
+    const moved = Math.abs(t1[a.id].x - t0[a.id].x) + Math.abs(t1[a.id].y - t0[a.id].y);
+    assert.ok(Math.abs(moved - a.speed) < 1e-6 || moved < a.speed, `${a.id} covers at most its speed a second (${moved})`);
+    assert.ok(t0[a.id].moving && (t0[a.id].facing === 1 || t0[a.id].facing === -1));
+  }
+  assert.notDeepEqual([t0.fisher.x, t0.fisher.y], [HUB.ambient.find((a) => a.id === 'fisher').loop[0][0] * 16 + 8, HUB.ambient.find((a) => a.id === 'fisher').loop[0][1] * 16 + 8], 'a walker starts at its own point on its loop');
+  const bobs = new Set();
+  for (let t = 0; t < 4; t += 0.05) bobs.add(at(t).rowboat_west.y);
+  assert.ok(bobs.size >= 2 && Math.max(...bobs) - Math.min(...bobs) <= 2 * look.boatBob, 'a moored boat rises and falls on the swell');
+  // The milestones the view reads: building levels, and the profile's runs.
+  assert.equal(reachedNow('start', {}), true);
+  assert.equal(reachedNow('docks:3', { docks: 3 }), true);
+  assert.equal(reachedNow('docks:3', { docks: 2 }), false);
+  assert.equal(reachedNow('runs:10', {}, 9), false);
+  assert.equal(reachedNow('runs:10', {}, 10), true);
+  assert.equal(reachedNow('nonsense', {}), false);
+});
+
+test('harbor view in Node: the town\'s life is drawn where ambientLook puts it, and what a level brings waits for its stage', async () => {
+  const { ambientLook } = await import('../src/render/hubtiles.js');
+  const { stepHop } = await import('../src/render/viewstate.js');
+  const levels = { lamp_post: 5, docks: 4, tavern: 3, market: 2 };
+  const r = hubRig({ levels });
+  const look = r.tuning.look;
+  for (let i = 0; i < 30; i++) tick(r);
+  const life = ambientLook(HUB, levelsOf(r.doc, DATA), r.world.time, look);
+  assert.ok(life.length >= 6, 'gulls, boats, the fisher, the dog, the cat, the shopper');
+  for (const a of life) {
+    const s = r.find(`ambient:${a.id}`);
+    assert.ok(s, a.id);
+    assert.equal(s.texture, r.atlas.tex(a.sprite), `${a.id}: ${a.sprite}`);
+    const hop = a.moving ? stepHop(true, r.world.time + hopPhase(a.id, look.hopStepsPerSec), look.hopStepsPerSec) : 0;
+    assert.deepEqual([s.x, s.y, s.zIndex, s.scale.x], [Math.round(a.x), Math.round(a.y) - hop, a.y, a.facing < 0 ? -1 : 1], a.id);
+    assert.equal(s.alpha, 1, `${a.id} was there from the start`);
+  }
+  // A Docks level that brings someone: they wait for the stage to go up, then fade in.
+  const k = hubRig({ profile: rich({ lamp_post: 5, docks: 3 }) });
+  k.frame();
+  buy(k, 'docks');
+  tick(k);
+  assert.equal(k.find('ambient:sailor'), null, 'not before the build');
+  until(k, (w) => w.timeline?.built, 'the Docks are up');
+  tick(k);
+  const sailor = k.find('ambient:sailor');
+  assert.ok(sailor && sailor.alpha < 1, 'then fading in');
+});
+
+test('harbor view in Node: the gate\'s second lamp brings its bunting and its light; the waving townswoman waves', async () => {
+  const { buntingAt, propFrame } = await import('../src/render/hubtiles.js');
+  const { setProps } = await import('../src/hub/world.js');
+  const r = hubRig({ levels: { lamp_post: 5 } });
+  tick(r);
+  const lamp2 = HUB.props.find((p) => p.id === 'gate_lamp_2');
+  const flags = r.find('bunting:gate_lamp_2');
+  assert.ok(flags, 'the bunting is up with the lamp');
+  const b = buntingAt(HUB, lamp2);
+  assert.deepEqual([flags.x, flags.y], [b.x, b.y], 'its frame from where it\'s tied');
+  // The frame was drawn for this span (art/manifest.js hub_bunting): as wide as the two ties apart.
+  const fr = r.atlas.rect('hub_bunting');
+  assert.equal(fr.w, b.w, 'the bunting\'s frame spans the two posts: rebuild the atlas with span [w, dy] from buntingAt');
+  const { BUNTING_SAG, BUNTING_PENNANT } = await import('../art/draw/harbor.js');
+  assert.equal(fr.h, Math.abs(b.dy) + BUNTING_SAG + BUNTING_PENNANT + 1);
+  // The lamp lights like the gate's: a light at its glass, the small lamps' reach.
+  const f = r.frame(1, 40);
+  const origin = r.find('light');
+  const glassY = (lamp2.at[1] + 1) * 16 - 19.5;
+  assert.ok(f.light.lights.some((s) => Math.abs(s.x * 2 + origin.x - (lamp2.at[0] * 16 + 8)) < 1e-9 && Math.abs(s.y * 2 + origin.y - glassY) < 1e-9), 'a light on its glass');
+  // Without the Lamp Post's last level, neither.
+  const r4 = hubRig({ levels: { lamp_post: 4 } });
+  tick(r4);
+  assert.equal(r4.find('bunting:gate_lamp_2'), null);
+  // The townswoman waves: her two frames in turn on the harbor's clock (a prop with frames).
+  const wave = { id: 'gate_waving', sprite: 'hub_townswoman_waving', at: HUB.props.find((p) => p.id === 'gate_waving').at };
+  setProps(r.world, [...r.world.props, wave]);
+  const seen = new Set();
+  for (let i = 0; i < 60; i++) { tick(r); seen.add(r.find('prop:gate_waving').texture); }
+  assert.equal(seen.size, 2, 'both frames of the wave');
+  const a = r.atlas.anim('hub_townswoman_waving');
+  assert.ok(a.n === 2 && a.fps > 0);
+  assert.equal(r.find('prop:gate_waving').texture, r.atlas.frames('hub_townswoman_waving')[propFrame(a.n, a.fps, r.world.time)]);
+});
+
+test('harbor lights: a door lantern leaves a pool on the street; at level 5 the open door lights the floor and spills out; the forge glows, brighter at 5', async () => {
+  const { DOOR_LIGHT, FORGE_COLOR, FORGES } = await import('../src/render/hubtiles.js');
+  const look = DATA.hubTuning.look;
+  for (const p of HUB.plots.filter((q) => q.building !== 'lamp_post')) {
+    const kinds = (lv) => plotLightsOf(p, lv).map((l) => l.kind);
+    assert.ok(!kinds(3).includes('pool') && kinds(4).includes('pool'), `${p.building}: a pool from the door lantern at 4`);
+    assert.ok(!kinds(4).includes('spill') && kinds(5).includes('spill') && kinds(5).includes('floor'), `${p.building}: the open door at 5`);
+    const pool = plotLightsOf(p, 4).find((l) => l.kind === 'pool'), spill = plotLightsOf(p, 5).find((l) => l.kind === 'spill'), floor = plotLightsOf(p, 5).find((l) => l.kind === 'floor');
+    const foot = (p.y + p.h) * 16;
+    assert.ok(pool.y > foot && spill.y > foot, `${p.building}: the pool and the spill on the street, below the building`);
+    assert.ok(floor.y < foot && floor.y > foot - 8, `${p.building}: the light inside low, on the floor`);
+    assert.ok(Math.abs(spill.x - (p.door[0] * 16 + 8)) <= 4, `${p.building}: the spill out of its door`);
+    assert.ok(spill.r > look.doorReach && spill.k <= 1 && floor.k >= spill.k, 'the spill wide and softer than the floor inside');
+    const forges = (lv) => plotLightsOf(p, lv).filter((l) => l.kind === 'forge');
+    if (FORGES.includes(p.building)) {
+      assert.equal(forges(2).length, 0);
+      assert.equal(forges(3).length, 1, 'the forge glows once its windows are lit');
+      assert.ok(Math.max(...forges(5).map((l) => l.r * l.k)) > forges(3)[0].r * forges(3)[0].k, 'brighter when the Smithy is fully alive');
+    } else assert.equal(forges(5).length, 0, `${p.building} has no forge`);
+  }
+  assert.deepEqual([DOOR_LIGHT.forgeBright[0] > DOOR_LIGHT.forge[0], DOOR_LIGHT.forgeBright[1] > DOOR_LIGHT.forge[1]], [true, true]);
+  // In the light map: the forge in its own hot color; the pools and spills in the lamps'.
+  const lights = harborLights({ hub: HUB, levels: { smithy: 5 }, you: { x: 0, y: 0 }, look });
+  const smithy = HUB.plots.find((p) => p.building === 'smithy');
+  const near = lights.filter((l) => Math.abs(l.x - (smithy.door[0] * 16 + 8)) <= 8 && Math.abs(l.y - (smithy.y + smithy.h) * 16) <= 12);
+  assert.ok(near.some((l) => l.color === lookColor(FORGE_COLOR)), 'the forge');
+  assert.ok(near.some((l) => l.color === lookColor(look.lampColor)), 'the door\'s light');
+});
+
+/** A plot's lights at a level (hubtiles.js plotLights), with the look. */
+function plotLightsOf(p, lv) { return plotLights(p, lv, DATA.hubTuning.look); }

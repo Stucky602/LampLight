@@ -13,11 +13,12 @@ import {
   createViewState, resetViewState, consumeEvents, markTick, tickOfEvent, noteEnemy, expireTelegraphs, expireDying,
   expireLights, addLight, screenFlash, enemyLook, LOOK, LOOK_COLOR, MAX_LIGHTS, MAX_TELEGRAPHS,
   simSeconds, animFrameIndex, stepHop, dazeWobble, tileHash, FLOOR_PICK, floorVariant, blockVariant,
+  HIT_CAPPED, WARD_MS, WARD_RING_MS, wardStrength, FX_COLOR, PF_FRAME,
 } from '../src/render/viewstate.js';
 import {
-  createHudModel, updateHudModel, HUD_LAYOUT, createHudPlaces, placeHud,
+  createHudModel, updateHudModel, HUD_LAYOUT, createHudPlaces, placeHud, placeMapRow, createNoticeQueue, pushNotice, noticeNow, noticeBreak, NOTICE_MAX_W, NOTICE_LINE_H,
 } from '../src/render/hudmodel.js';
-import { minimapBox } from '../src/render/minimapmodel.js';
+import { minimapBox, MINIMAP } from '../src/render/minimapmodel.js';
 import { formatClock, formatCount } from '../src/render/hudtext.js';
 import { textWidth, FONT_H } from '../src/render/font.js';
 import { VIEW_W, VIEW_H } from '../src/render/layout.js';
@@ -27,7 +28,8 @@ import { makeWorld, spawnAt, give, IDLE } from './helpers/simworld.js';
 const FEEL = DATA.tuning.feel;
 let seq = 0;
 const rand = () => ((seq = (seq * 1103515245 + 12345) >>> 0) / 2 ** 32);
-const ctx = (over = {}) => ({ now: 1000, tick: 100, feel: FEEL, numbersOn: true, playerX: 0, playerY: 0, slotOf: (h) => h & 4095, ...over });
+// The player stands well away from the hits these tests make (no number shows within 24 px of her, 0.9.0).
+const ctx = (over = {}) => ({ now: 1000, tick: 100, feel: FEEL, numbersOn: true, playerX: 500, playerY: 500, slotOf: (h) => h & 4095, ...over });
 
 test('view state: hits squash and number their enemy; kills pop facing the way they walked', () => {
   const st = createViewState({ slots: 4096, rand });
@@ -62,13 +64,12 @@ test('view state: hits squash and number their enemy; kills pop facing the way t
   assert.equal(st.hitAt[3], 1000);
 });
 
-test('view state: big kills shake and light; the player getting hurt flashes and numbers', () => {
+test('view state: big kills light up and scorch; the player getting hurt flashes and numbers', () => {
   const st = createViewState({ rand });
   const ev = createEventBuffer(64, 8);
   ev.push(EV.KILL, 5, 5, 9, 2, 0, 0);      // a boss
   ev.push(EV.PLAYER_HURT, 0, 0, 14, 80);
   consumeEvents(st, ev, ctx());
-  assert.ok(st.shake.trauma >= Math.min(1, FEEL.shake.bossKill), 'a boss kill shakes');
   assert.equal(st.lights.n, 1);
   assert.equal(st.decals.n, 1);
   assert.equal(st.hurtAt, 1000);
@@ -245,32 +246,70 @@ test('floor: the tile variants never fall into a pattern, and plain boards are h
   assert.ok(Number.isInteger(tileHash(-100000, 99999)) && tileHash(-100000, 99999) >= 0);
 });
 
+/** The longest of a list of texts, as the HUD's font measures them. */
+const longest = (list) => list.reduce((a, t) => (textWidth(t) > textWidth(a) ? t : a), '');
+/**
+ * The quiet line's longest texts (0.7.3: notices that ask nothing of the player): a level's gift
+ * (collapsed repeats, app/runlogic.js), a first sighting, the Ferryman's new stock.
+ */
+const QUIET = [
+  'Level 999: +999 Food', 'Level 999: +999 Pearls', 'Level 999: +9,999 Coin', 'Level 999: +1 Ember',
+  'Levels 999 to 999: +99,999 Coin', 'Levels 999 to 999: +9,999 Pearls', 'Levels 999 to 999: +99 Embers',
+  // 0.8.2's quiet news: a lamp lit, Lantern Night banked, the lamps taken back, the pool found.
+  'Lamp 9 of 9 lit: enemies in its light burn, 999 Pearls', 'Lantern Night is ready. It starts when 15 enemies are near you',
+  'Every relic in the pool is found. Research, Harbor Orders, and secrets add more',
+  'The Reliquary had no relic left: an Ember',
+  ...DATA.enemies.map((e) => `First sighting: ${e.name}`),
+  // The Salt Marsh's (0.8.0): first sightings say what the enemy does (its desc) and what a thing
+  // is (the Field guide's names and lines), and the water's and the Eye's quiet news.
+  ...DATA.enemies.map((e) => e.desc),
+  ...Object.keys(DATA.meta.fieldGuide || {}).flatMap((k) => { const e = DATA.glossary.find((x) => x.id === DATA.meta.fieldGuide[k].term); return [e.name, e.short]; }),
+  'High water: the creeks are closed', 'Low water: the creeks are open, with herbs on the mud',
+  'The flood rises in 15s, and it won\'t go out', 'Eye of the storm: no enemies come for 45s',
+];
+
+/** The widest line a list of notices draws, each wrapped as the HUD wraps it (hudmodel.js noticeBreak). */
+function lineW(list) {
+  let w = 0;
+  for (const t of list) { const k = noticeBreak(t); w = Math.max(w, k < 0 ? textWidth(t) : Math.max(textWidth(t.slice(0, k)), textWidth(t.slice(k + 1)))); }
+  return w;
+}
+
 test('HUD layout: nothing overlaps at the longest texts, at every minimap setting', () => {
   const atlas = JSON.parse(readFileSync(new URL('../src/assets/atlas.json', import.meta.url), 'utf8'));
   // The longest texts each line can show.
-  const longest = (list) => list.reduce((a, t) => (textWidth(t) > textWidth(a) ? t : a), '');
   const bosses = DATA.enemies.filter((e) => e.ai.type === 'boss').map((e) => e.name);
   const notices = [
     ...bosses, ...DATA.enemies.map((e) => `An elite ${e.name}`), 'Overtime: minute 99',
-    ...DATA.weapons.map((w) => `Evolved: ${w.name}`),
+    ...DATA.weapons.map((w) => `${w.name} gets a new Form`),
     // Phase 7's (app/runlogic.js noticeFor): the longest a task, the night, and the Ferryman say.
-    'Wayside Lamp: stand by it to light it', `Fog Bell: ${999} kills inside its ring`, 'Lamp lit 9/9: Kindled, +999 Sea Glass',
-    'Fog Bell rung, +999 Sea Glass', 'Lantern Night', 'The night ends', 'Ferryman: new stock',
+    'Wayside Lamp: stay in its circle to light it', `Fog Bell: kill ${99} enemies`,
+    'Bell rung: its chest gives one item +2 levels, 999 Pearls', 'Lantern Night: enemies near you burn for 99s', 'Lantern Night is over',
+    'Pearls: spend them with the Ferryman this run', 'The Ferryman tied up nearby', 'A vault rose ahead: walk over it for a better relic', 'A Reliquary dropped nearby',
+    // The Salt Marsh's (0.8.0): the ones that ask something of you.
+    'High water in 15s: the creeks will flood', 'The Salt Well is open: stay in its circle to give up a relic',
   ];
+  // The HUD's own texts at their longest (render/hudmodel.js): sentence case, as written.
   const W = {
-    hp: textWidth('9999/9999'), level: textWidth('LV 999'), timer: textWidth(formatClock(7199)),
-    kills: textWidth(`${formatCount(9999999)} KILLS`), glass: textWidth(`${formatCount(99999)} GLASS`), boss: textWidth(longest(bosses)),
-    overtime: textWidth('OVERTIME 99 MIN'), notice: textWidth(longest(notices)),
+    hp: textWidth('9999/9999'), level: textWidth('Lv 999'), timer: textWidth(formatClock(7199)),
+    kills: textWidth(`${formatCount(9999999)} kills`), glass: textWidth(`${formatCount(99999)} Pearls`), boss: textWidth(longest(bosses)),
+    overtime: textWidth('Overtime: minute 99'), notice: lineW(notices), quiet: lineW(QUIET),
   };
   const P = placeHud(createHudPlaces(), W, true);
   const L = HUD_LAYOUT;
-  // Boxes as drawn: bars with their 1 px frame, texts with their 1 px outline.
+  assert.equal(P.quiet.y, 292, 'the quiet line in the lower third');
+  assert.ok(P.quiet.y > (VIEW_H * 2) / 3 && P.quiet.y + NOTICE_LINE_H + FONT_H < VIEW_H, 'and inside it, a wrapped second line too');
+  for (const t of [...notices, ...QUIET]) { const k = noticeBreak(t); assert.ok(k < 0 || textWidth(t.slice(k + 1)) <= NOTICE_MAX_W, `"${t}" wraps onto two lines at most`); }
+  assert.ok(Math.abs(P.quiet.x + P.quiet.w / 2 - VIEW_W / 2) <= 0.5, 'centered');
+  // Boxes as drawn: bars with their 1 px frame, texts with their 1 px outline (the whole 12-row
+  // cell, descenders and all).
   const grow = (b, name) => ({ name, x: b.x - 1, y: b.y - 1, w: b.w + 2, h: b.h + 2 });
   const boxes = [
     grow(P.xp, 'xp bar'), grow(P.hp, 'hp bar'), grow(P.dash, 'dash bar'), grow(P.bossBar, 'boss bar'),
     grow(P.hpText, 'hp'), grow(P.levelText, 'level'), grow(P.timerText, 'timer'), grow(P.killsText, 'kills'), grow(P.glassText, 'sea glass'),
-    grow(P.bossName, 'boss name'), grow(P.overtime, 'overtime'), grow(P.notice, 'notice'),
+    grow(P.bossName, 'boss name'), grow(P.overtime, 'overtime'), grow(P.notice, 'notice'), grow(P.quiet, 'quiet notice'),
   ];
+  for (const b of boxes.filter((x) => /text|notice|name|overtime|level|timer|kills|glass|hp$/.test(x.name))) assert.ok(b.h === FONT_H + 2 || b.name.endsWith('bar'), `${b.name}: the whole cell`);
   for (let k = 0; k < MAX_WEAPON_SLOTS; k++) boxes.push({ name: `weapon ${k}`, x: L.icons.x + k * L.icons.step, y: L.icons.weaponsY, w: L.icons.size, h: L.icons.size });
   for (let k = 0; k < PASSIVE_SLOTS; k++) boxes.push({ name: `passive ${k}`, x: L.icons.x + k * L.icons.step, y: L.icons.passivesY, w: L.icons.size, h: L.icons.size });
   // With the minimap off, and at each of its sizes (its frame 2 px round it).
@@ -279,6 +318,9 @@ test('HUD layout: nothing overlaps at the longest texts, at every minimap settin
     const mapBox = minimapBox(mode, size);
     const all = [...boxes];
     if (mapBox) all.push({ name: `minimap ${size}`, x: mapBox.x - 2, y: mapBox.y - 2, w: mapBox.w + 4, h: mapBox.h + 4 });
+    // The map's row (0.8.2): lamps and bells at their longest, under the minimap (or in its place).
+    const row = placeMapRow({}, { lamps: textWidth('Lamps 99/99'), bells: textWidth('Bells 99/99') }, mapBox ? mapBox.y + mapBox.h + 2 + L.mapRow.gap : MINIMAP.top);
+    all.push(grow(row, `map row ${size}`));
     for (const b of all) assert.ok(b.x >= 0 && b.y >= 0 && b.x + b.w <= VIEW_W && b.y + b.h <= VIEW_H, `${b.name} is on the screen (minimap ${mode} ${size})`);
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
       assert.ok(!hit(all[i], all[j]), `${all[i].name} overlaps ${all[j].name} (minimap ${mode} ${size})`);
@@ -286,6 +328,47 @@ test('HUD layout: nothing overlaps at the longest texts, at every minimap settin
   }
   // Without a boss, overtime takes the boss's line.
   assert.equal(placeHud(createHudPlaces(), W, false).overtime.y, L.overtimeY);
+  // The check can fail: a quiet line as wide as the screen leaves it.
+  const wide = placeHud(createHudPlaces(), { ...W, quiet: VIEW_W + 10 }, true).quiet;
+  assert.ok(wide.x < 0, 'a line too long for the screen is caught');
+  assert.ok(atlas.frames['glyph_o:g'][3] === FONT_H + 2, 'the outlined glyph is the whole cell and its outline');
+});
+
+test('HUD notices: two lines, each its own queue; a menu over the run holds both', () => {
+  const loud = createNoticeQueue(3), calm = createNoticeQueue(3);
+  pushNotice(loud, ['A muster in 5s'], 2400, 1000);
+  pushNotice(calm, ['Level 12: +3 Sea Glass', 'The Ferryman has new stock'], 2400, 1000);
+  assert.equal(noticeNow(loud, 1000), 'A muster in 5s');
+  assert.equal(noticeNow(calm, 1000), 'Level 12: +3 Sea Glass', 'the quiet line shows beside it, not after it');
+  assert.equal(noticeNow(calm, 3400), 'The Ferryman has new stock', 'then its own next');
+  assert.equal(noticeNow(loud, 3400), null, 'the middle line ran out on its own clock');
+  // Covered by a menu: hidden, and the clock holds.
+  pushNotice(loud, 'Lantern Night is over', 1000, 5000);
+  assert.equal(noticeNow(loud, 5200), 'Lantern Night is over');
+  assert.equal(noticeNow(loud, 5300, true), null, 'hidden under the menu');
+  assert.equal(noticeNow(calm, 5300, true), null, 'both lines');
+  assert.equal(noticeNow(loud, 9000, true), null);
+  assert.equal(noticeNow(loud, 9000), 'Lantern Night is over', 'back when the menu closes, the time it had left');
+  assert.equal(noticeNow(loud, 9000 + 699), 'Lantern Night is over');
+  assert.equal(noticeNow(loud, 9000 + 700), null, 'then its 1000 ms are up (300 before the menu, 700 after)');
+  // A line that comes while the menu is up waits behind what's held, not over it.
+  const held = createNoticeQueue(3);
+  pushNotice(held, 'First sighting: Bilge Rat', 1000, 10000);
+  noticeNow(held, 10100, true);
+  pushNotice(held, 'Level 13: +3 Sea Glass', 1000, 10200);
+  assert.equal(noticeNow(held, 10300), 'First sighting: Bilge Rat');
+  assert.equal(noticeNow(held, 10300 + 900), 'Level 13: +3 Sea Glass', 'its 900 ms left, then the next');
+  // At most 3 wait; past that the oldest waiting go.
+  const q = createNoticeQueue(3);
+  pushNotice(q, ['a', 'b', 'c', 'd', 'e'], 100, 0);
+  assert.deepEqual(q.next.map((n) => n.text), ['c', 'd', 'e']);
+  // The HUD routes { quiet: true } to the quiet line (a source check: hud.js draws from hudmodel's queues).
+  const src = readFileSync(new URL('../src/render/hud.js', import.meta.url), 'utf8');
+  assert.match(src, /notice\(lines, ms, nowMs, \{ quiet: low = false \} = \{\}\) \{\s*pushNotice\(low \? calm : loud, lines, ms, nowMs\);/);
+  assert.match(src, /noticeNow\(loud, nowMs, covered\), aside = noticeNow\(calm, nowMs, covered\)/);
+  // (qy: the quiet line, raised when it draws at twice its size for the UI text scale, 0.9.0)
+  assert.match(src, /quiet\.view\.position\.set\(P\.quiet\.x, (P\.quiet\.y|qy)\)/);
+  assert.match(src, /const qy = ns > 1 \? P\.quiet\.y - .+ : P\.quiet\.y;/);
 });
 
 test('HUD model: what the HUD says, updated from a live run without rebuilding unchanged text', () => {
@@ -295,10 +378,10 @@ test('HUD model: what the HUD says, updated from a live run without rebuilding u
   const m = createHudModel();
   updateHudModel(m, w);
   assert.equal(m.timerText, '0:00');
-  assert.equal(m.levelText, 'LV 1');
-  assert.equal(m.killsText, '0 KILLS');
+  assert.equal(m.levelText, 'Lv 1');
+  assert.equal(m.killsText, '0 kills');
   assert.equal(m.weaponCount, 1);
-  assert.deepEqual([m.weapons[0].icon, m.weapons[0].levelText, m.weapons[0].max], ['icon_flare_gun', '8', true]);
+  assert.deepEqual([m.weapons[0].icon, m.weapons[0].levelText, m.weapons[0].max], ['icon_flare_gun', '8', false], 'a weapon never tops out (ruling 10): no MAX');
   assert.deepEqual([m.passives[0].icon, m.passives[0].levelText], ['icon_wick_oil', ''], 'level 1 shows no number');
   assert.equal(m.boss.shown, false);
   const timer = m.timerText;
@@ -312,7 +395,11 @@ test('HUD model: what the HUD says, updated from a live run without rebuilding u
   w.result.materialsRaw[w.materialIndex.get('rope')] = 3.9999999999;
   w.player.hp = 37.2;
   updateHudModel(m, w);
-  assert.equal(m.killsText, '12,345 KILLS');
+  assert.equal(m.killsText, '12,345 kills');
+  w.result.totalKills = 1;
+  updateHudModel(m, w);
+  assert.equal(m.killsText, '1 kill');
+  w.result.totalKills = 12345;
   assert.equal(m.hpText, `38/${Math.round(w.stats.maxHp)}`);
   assert.equal('materials' in m, false, 'materials found are on the pause menu, not the HUD');
   decide(w, { kind: 'dev', cmd: 'jump', to: 599.9 });
@@ -340,7 +427,7 @@ test('view state: a strike\'s own hit brings its bolt (and still counts as criti
   const src = readFileSync(new URL('../src/render/runview.js', import.meta.url), 'utf8');
   assert.match(src, /shotUpright\[P\.def\[i\]\] === true \? 0 :/);
   assert.match(src, /Z\.kind\[z\] !== ZONE\.BEAM/);
-  assert.ok(DATA.weapons.filter((w) => w.upright).map((w) => w.id).sort().join() === 'corpse_candles,oil_flask');
+  assert.ok(DATA.weapons.filter((w) => w.upright).map((w) => w.id).sort().join() === 'bog_hands,corpse_candles,grave_pennies,oil_flask')   // (0.9.0, W2: a hand and a penny stand upright);
 });
 
 test('view state: a secret cache opening flares violet, with its light', () => {
@@ -354,4 +441,60 @@ test('view state: a secret cache opening flares violet, with its light', () => {
   const before = st.sparks.count;
   consumeEvents(st, ev, ctx());
   assert.ok(st.sparks.count > before, 'a muster rings out where it forms');
+});
+
+test('view state: a hit a boss\'s cap ate shows no number, a grey ring at most every 120 ms, and a ward round the boss for 0.26 s', () => {
+  assert.equal(HIT_CAPPED, 4, 'HIT c bit 4 (sim/events.js)');
+  assert.deepEqual([WARD_MS, WARD_RING_MS], [260, 120]);
+  const st = createViewState({ slots: 4096, rand });
+  const ev = createEventBuffer(256, 8);
+  const boss = 42;
+  const rings = () => { let n = 0; for (let i = 0; i < st.sparks.count; i++) if (st.sparks.frame[i] === PF_FRAME.RING && st.sparks.color[i] === FX_COLOR.capped) n++; return n; };
+  // A stream of capped hits, one every 30 ms for 600 ms (a busy build on a capped boss).
+  for (let t = 0; t <= 600; t += 30) {
+    ev.clear();
+    ev.push(EV.HIT, 100, 100, 25, boss, HIT_CAPPED, 0);
+    consumeEvents(st, ev, ctx({ now: 1000 + t, feel: { ...FEEL, particles: { ...FEEL.particles, hit: 0 } } }));
+  }
+  assert.equal(st.numbers.count, 0, 'no number for a hit that did nothing');
+  assert.equal(rings(), Math.floor(600 / WARD_RING_MS) + 1, 'a ring every 120 ms, not one a hit');
+  assert.equal(wardStrength(st, boss, 1600), 1, 'the ward up as the last hit lands');
+  assert.ok(Math.abs(wardStrength(st, boss, 1600 + WARD_MS / 2) - 0.5) < 1e-9, 'fading');
+  assert.equal(wardStrength(st, boss, 1600 + WARD_MS), 0, 'gone after 0.26 s');
+  assert.equal(wardStrength(st, 7, 1600), 0, 'only round the boss that was hit');
+  // A hit the cap didn't eat (no bit 4, or the old events without it) numbers as before; a
+  // critical or a strike's own hit keeps its other bits.
+  ev.clear(); ev.push(EV.HIT, 0, 0, 30, boss, 1, 0); ev.push(EV.HIT, 0, 0, 30, boss + 1, 2, 0);
+  consumeEvents(st, ev, ctx({ now: 3000 }));
+  assert.equal(st.numbers.count, 2);
+  assert.equal(st.bolts.n, 1);
+  resetViewState(st);
+  assert.equal(wardStrength(st, boss, 3000), 0, 'a new run, no wards');
+  // The run view draws it round each boss in view (a source check).
+  const src = readFileSync(new URL('../src/render/runview.js', import.meta.url), 'utf8');
+  assert.match(src, /wardStrength\(st, E\.handle\(i\), now\)/);
+  assert.match(src, /drawWards\(g, alpha\);/);
+});
+
+test('view state: a level paid without a stop (LEVEL_UP with a LEVEL_GIFT for it) glints, without the level-up\'s burst, light, or wash', () => {
+  const GIFT = EV.LEVEL_GIFT ?? 36;
+  const st = createViewState({ rand });
+  const ev = createEventBuffer(64, 8);
+  ev.push(EV.LEVEL_UP, 50, 50, 41);
+  ev.push(GIFT, 50, 50, 2, 10, 41);
+  consumeEvents(st, ev, ctx({ now: 5000 }));
+  assert.equal(st.levelAt, -1e9, 'no wash');
+  assert.equal(st.lights.n, 0, 'no light');
+  assert.ok(st.sparks.count > 0 && st.sparks.count <= 4, `a glint (${st.sparks.count} sparks)`);
+  // A real level-up in the same batch (another level) still bursts.
+  ev.clear();
+  ev.push(EV.LEVEL_UP, 50, 50, 42);
+  ev.push(GIFT, 50, 50, 2, 10, 41);
+  consumeEvents(st, ev, ctx({ now: 6000 }));
+  assert.equal(st.levelAt, 6000);
+  assert.equal(st.lights.n, 1);
+  // The gift for a level in an earlier batch doesn't quiet a later one.
+  ev.clear(); ev.push(EV.LEVEL_UP, 50, 50, 43);
+  consumeEvents(st, ev, ctx({ now: 7000 }));
+  assert.equal(st.levelAt, 7000);
 });

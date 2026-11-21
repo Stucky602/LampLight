@@ -3,12 +3,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DATA } from '../src/data/index.js';
+import { bossLevelMul } from '../src/sim/bosses.js';
 import { createWorld, stepWorld, decide, currentHalt } from '../src/sim/world.js';
 import { buildRunResult } from '../src/sim/run-result.js';
 import { createKiteBot } from '../src/sim/bot.js';
 import { EF } from '../src/sim/constants.js';
 import { EV } from '../src/sim/events.js';
-import { makeWorld, give, run, runCollect, IDLE } from './helpers/simworld.js';
+import { makeWorld, give, run, runCollect, IDLE, pastGates } from './helpers/simworld.js';
 import { addMaterial } from '../src/sim/pickups.js';
 import { damageEnemy } from '../src/sim/enemies.js';
 import { hurtPlayer } from '../src/sim/player.js';
@@ -81,7 +82,7 @@ test('director: enemies get tougher with time; a boss thins the crowd; overtime 
   assert.equal(w.director.overtimeMinutes, 1);
   const ot = w.map.overtime;
   assert.ok(Math.abs(w.director.otDensity - ot.densityPerMin) < 1e-12);
-  assert.ok(Math.abs(w.director.materialMul - ot.materialsPerMin) < 1e-12);
+  assert.ok(Math.abs(w.director.otMaterialMul - ot.materialsPerMin) < 1e-12);
   assert.ok(w.director.hpMul > hp0 * ot.hpPerMin * 0.99);
 });
 
@@ -109,7 +110,7 @@ test('RunResult: plain data that covers what feats need, with materials after gr
   for (const k of ['end', 'timeSurvived', 'kills', 'totalKills', 'bossesKilled', 'weapons', 'weaponLevelMax', 'maxWeaponLevel', 'tags', 'materials', 'damageTaken', 'dashKills', 'secretsFound', 'character', 'map', 'mode', 'level']) {
     assert.ok(k in r, `has ${k}`);
   }
-  assert.equal(r.materials.coin, 21, 'greed doubles: floor(10.6 x 2)');
+  assert.equal(r.materials.coin, Math.floor(10.6 * 2 * w.tuning.run.materialMul), 'greed doubles: floor(10.6 x 2 x the harbor pace)');
   // Tags count weapons and passives in the build (a tagged passive included for sure).
   if (!w.build.passives.some((ps) => ps.def.tags.length)) w.build.passives.push({ def: w.passiveDefs.find((x) => x.id === 'wick_oil'), level: 1 });
   const r2 = buildRunResult(w);
@@ -124,7 +125,11 @@ test('RunResult: plain data that covers what feats need, with materials after gr
   const s = createWorld({ seed: 9, mode: 'short', rewardMul: 1.5 }, DATA);
   s.result.materialsRaw[coin] = 100;
   decide(s, { kind: 'leave' });
-  assert.equal(buildRunResult(s).materials.coin, Math.floor(100 * s.tuning.run.shortRewardMul * 1.5), 'short runs and reward multipliers scale the haul');
+  assert.equal(buildRunResult(s).materials.coin, Math.floor(100 * s.tuning.run.materialMul * s.tuning.run.shortRewardMul * 1.5), 'the harbor pace, short runs, and reward multipliers scale the haul');
+  const half = createWorld({ seed: 9, tuning: { run: { materialMul: 0.5 } } }, DATA);
+  half.result.materialsRaw[coin] = 100;
+  decide(half, { kind: 'leave' });
+  assert.equal(buildRunResult(half).materials.coin, 50, 'run.materialMul scales every material brought home');
 });
 
 test('RunResult: a death, and a boss kill in seconds with the weapons that did it', () => {
@@ -133,6 +138,7 @@ test('RunResult: a death, and a boss kill in seconds with the weapons that did i
   run(w, 90, undefined, { halts: 'pass' });
   const b = w.bosses[0], e = w.enemies.resolve(b.handle);
   b.damageBySlot[0] = 5;
+  pastGates(b);                                    // past its floor and its phase gates (data/bosses.js)
   damageEnemy(w, e, 1e9, 9);                       // a relic blast lands the killing blow
   run(w, 1, undefined, { halts: 'pass' });
   w.config.invulnerable = false;
@@ -231,7 +237,7 @@ test('director: contact damage grows with time; overtime compounds each minute; 
   assert.ok(Math.abs(w.director.otDensity - w.map.overtime.densityPerMin ** 3) < 1e-9);
   decide(w, { kind: 'leave' });
   assert.equal(buildRunResult(w).end, 'cleared', 'leaving from the pause menu in overtime counts as cleared');
-  const cap = makeWorld({ invulnerable: true, tuning: { director: { maxEnemies: 40 } } }, { bands: [{ from: 0, to: 60, roster: { fog_wisp: 1 }, density: [500, 500] }] });
+  const cap = makeWorld({ invulnerable: true, tuning: { pace: { maxAlive: 40 } } }, { bands: [{ from: 0, to: 60, roster: { fog_wisp: 1 }, density: [500, 500] }] });
   run(cap, 300);
   assert.ok(cap.director.regularAlive <= 40, `${cap.director.regularAlive} alive, cap 40`);
 });
@@ -241,5 +247,6 @@ test('director: short mode gives bosses less health', () => {
   const s = makeWorld({ invulnerable: true, mode: 'short' }, { events });
   run(s, 61);
   const e = s.enemies.resolve(s.bosses[0].handle);
-  assert.equal(s.enemies.maxHp[e], s.enemyDefs[s.enemies.type[e]].hp * s.tuning.run.shortBossHp);
+  const lv = bossLevelMul(s, s.bossDefs.get('harbor_maw'));
+  assert.equal(s.enemies.maxHp[e], s.enemyDefs[s.enemies.type[e]].hp * s.tuning.run.shortBossHp * lv);
 });

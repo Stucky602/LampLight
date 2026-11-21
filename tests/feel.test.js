@@ -2,7 +2,7 @@
 // of rendering and sound that can be checked without a screen or speakers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { packColor, createShake, createNumbers, createParticles, fadeOut } from '../src/render/feel.js';
+import { packColor, createNumbers, createParticles, fadeOut } from '../src/render/feel.js';
 import { formatClock, formatCount } from '../src/render/hudtext.js';
 import { createVoiceLimiter, createPitchClimb, createAudio } from '../src/audio/audio.js';
 import { zzfxSamples } from '../src/audio/zzfx.js';
@@ -17,25 +17,16 @@ test('packColor: RGB and alpha in the byte order Pixi uploads (ABGR)', () => {
   assert.equal(packColor(0xffffff, -1) >>> 24, 0);
 });
 
-test('shake: trauma adds up to 1, decays linearly, and the offset is trauma squared', () => {
-  const s = createShake();
-  const out = new Float64Array(2);
-  s.offsetInto(out, 1.23, 10);
-  assert.deepEqual([...out], [0, 0], 'no trauma, no shake');
-  s.add(0.5); s.add(0.8);
-  assert.equal(s.trauma, 1);
-  let worst = 0;
-  for (let t = 0; t < 2; t += 0.01) { s.offsetInto(out, t, 10); worst = Math.max(worst, Math.abs(out[0]), Math.abs(out[1])); assert.ok(Number.isInteger(out[0]) && Number.isInteger(out[1]), 'whole pixels'); }
-  assert.ok(worst >= 6 && worst <= 10, `full trauma shakes up to maxOffset (${worst})`);
-  s.update(0.25, 2);
-  assert.equal(s.trauma, 0.5);
-  worst = 0;
-  for (let t = 0; t < 2; t += 0.01) { s.offsetInto(out, t, 10); worst = Math.max(worst, Math.abs(out[0]), Math.abs(out[1])); }
-  assert.ok(worst <= 3, `half trauma is a quarter of the shake (${worst})`);
-  s.update(10, 2);
-  assert.equal(s.trauma, 0);
-  s.add(-1);
-  assert.equal(s.trauma, 0, 'negative trauma is ignored');
+test('no screen shake anywhere: Kevin, 0.7.0 ("it\'s making me sick to my stomach")', async () => {
+  const feel = await import('../src/render/feel.js');
+  assert.equal(feel.createShake, undefined);
+  const { TUNING } = await import('../src/data/tuning.js');
+  assert.equal(TUNING.feel.shake, undefined);
+  const { readFileSync } = await import('node:fs');
+  for (const f of ['src/render/runview.js', 'src/render/viewstate.js', 'src/render/renderer.js', 'src/render/hubview.js', 'src/hub/world.js', 'src/app/scenes/run.js', 'src/app/scenes/hub.js']) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src.replace(/\/\/.*$/gm, ''), /shake/i, `${f} moves no camera by shake`);
+  }
 });
 
 test('damage numbers: hits on one enemy group, a new enemy in the same slot starts fresh, and the cap holds', () => {

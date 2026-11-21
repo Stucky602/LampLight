@@ -18,22 +18,22 @@ import { spawnSync } from 'node:child_process';
 
 const HS = { playerHurt: 70, eliteKill: 60, bossKill: 220, bossSlam: 90 };
 
-test('hit-stop: only big events hold the sim, and the longest one wins', () => {
+test('hit-stop: only the sim\'s own requests hold it (W3: EV.HIT_STOP on real hits), and the longest one wins', () => {
   const ev = createEventBuffer(64, 8);
   ev.push(EV.HIT, 0, 0, 5, 1, 0, 0);
-  ev.push(EV.KILL, 0, 0, 1, 0, 0);
-  assert.equal(hitStopFor(ev, 0, ev.count, HS), 0, 'ordinary hits and kills never freeze the horde');
-  ev.push(EV.KILL, 0, 0, 1, 1, 0);          // elite
-  assert.equal(hitStopFor(ev, 0, ev.count, HS), 60);
-  ev.push(EV.PLAYER_HURT, 0, 0, 5, 90);
-  ev.push(EV.KILL, 0, 0, 1, 2, 0);          // boss
-  assert.equal(hitStopFor(ev, 0, ev.count, HS), 220);
-  assert.equal(hitStopFor(ev, 3, 4, HS), 70, 'only the range asked for');
+  ev.push(EV.KILL, 0, 0, 1, 1, 0);          // an elite's kill without a request: nothing
+  ev.push(EV.PLAYER_HURT, 0, 0, 5, 90);     // a hurt without one (a leech's drain): nothing
+  ev.push(EV.EXPLODE, 0, 0, 30, -1);
+  assert.equal(hitStopFor(ev, 0, ev.count, HS), 0, 'ordinary events never freeze the horde');
+  ev.push(EV.HIT_STOP, 0, 0, 3, 0);         // ELITE_KILL
+  assert.equal(hitStopFor(ev, 0, ev.count, HS), HS.eliteKill);
+  ev.push(EV.HIT_STOP, 0, 0, 1, 5);         // HURT
+  ev.push(EV.HIT_STOP, 0, 0, 4, 0);         // BOSS_KILL
+  assert.equal(hitStopFor(ev, 0, ev.count, HS), HS.bossKill);
+  assert.equal(hitStopFor(ev, 5, 6, HS), HS.playerHurt, 'only the range asked for');
   ev.clear();
-  ev.push(EV.EXPLODE, 0, 0, 30, -1);        // a boss slam
-  ev.push(EV.EXPLODE, 0, 0, 30, 2);         // a weapon's explosion
-  assert.equal(hitStopFor(ev, 0, 1, HS), 90);
-  assert.equal(hitStopFor(ev, 1, 2, HS), 0);
+  ev.push(EV.HIT_STOP, 0, 0, 2, 30);        // BOSS_HIT: a boss's attack that hurt
+  assert.equal(hitStopFor(ev, 0, 1, HS), HS.bossSlam);
 });
 
 test('sounds: weapons use their own data, and quiet events stay quiet', () => {
@@ -69,7 +69,7 @@ test('sounds for warnings: boss-sized shapes always, ordinary lines through the 
   ev.push(EV.BOSS_SPAWN, 0, 0, w.enemyIndex.get('harbor_maw'), 1);
   ev.push(EV.OVERTIME, 0, 0, 3);
   ev.push(EV.HIT, 0, 0, 1, 1);
-  assert.deepEqual([0, 1, 2].map((i) => noticeFor(ev, i, w)), ['The Harbor Maw', 'Overtime: 3 min', null]);
+  assert.deepEqual([0, 1, 2].map((i) => noticeFor(ev, i, w)), ['The Harbor Maw', 'Overtime: minute 3', null]);
 });
 
 test('sim: a gunner\'s shot writes ENEMY_SHOT (so it sounds as it fires)', () => {
@@ -89,7 +89,7 @@ test('settings: borderless switches only where a reload loses nothing', () => {
   assert.equal(settingRefusal('audio.master', 0.5, 0.8, false), null);
 });
 
-test('halt screens: a draft shows its cards and charges; a chest, a rune, and overtime show theirs', () => {
+test('halt screens: a draft shows its cards and charges; a chest, a Form choice, and overtime show theirs', () => {
   const w = makeWorld();
   give(w, 'flare_gun');
   decide(w, { kind: 'dev', cmd: 'level', count: 1 });
@@ -106,12 +106,14 @@ test('halt screens: a draft shows its cards and charges; a chest, a rune, and ov
   assert.equal(chest.boss, false);
   assert.equal(chest.items.length, 1);
   decide(w, { kind: 'ok' });
-  while (currentHalt(w)) decide(w, currentHalt(w).kind === 'rune' ? { kind: 'discard' } : { kind: 'ok' });
-  decide(w, { kind: 'dev', cmd: 'give', what: 'rune', id: 'backfire' });
-  const rune = haltView(w, currentHalt(w), DATA);
-  assert.equal(rune.kind, 'rune');
-  assert.deepEqual(rune.options.map((o) => o.slot), [0]);
-  assert.equal(rune.options[0].name, 'Flare Gun');
+  while (currentHalt(w)) decide(w, currentHalt(w).kind === 'ascend' ? { kind: 'keep' } : { kind: 'ok' });
+  // An axis that opens: that weapon, that axis, its two options with their prices and what each costs.
+  w.halts.push({ kind: 'ascend', slot: 0, axis: 'delivery', why: 'level' });
+  w.slots[0].axes |= 1;
+  const form = haltView(w, currentHalt(w), DATA);
+  assert.deepEqual([form.kind, form.direct, form.axis, form.why], ['ascend', true, 'delivery', 'level']);
+  assert.deepEqual(form.weapons[0].forms.map((f) => [f.id, f.cost, !!f.price]), [['salvo', 'free', true], ['muzzle_flash', 'free', true]]);
+  decide(w, { kind: 'keep' });
   assert.equal(haltView(w, { kind: 'overtime' }, DATA).bossName, 'Boss');
   assert.throws(() => haltView(w, { kind: 'dance' }, DATA), /unknown halt/);
   const ctx = buildContext(w);
@@ -128,13 +130,11 @@ test('pause and run end: the build summary and the end screen read from the run'
   const b = pauseBuild(rec.world);
   assert.equal(b.time, '0:20');
   const flare = b.weapons.find((x) => x.name === 'Flare Gun');
-  assert.ok(flare && flare.desc === DATA.weapons.find((w) => w.id === 'flare_gun').desc && Array.isArray(flare.runes));
+  assert.ok(flare && flare.desc === DATA.weapons.find((w) => w.id === 'flare_gun').desc && Array.isArray(flare.marks) && Array.isArray(flare.ascensions));
+  assert.match(flare.form, /^New Form at Lv \d+ \(\d+ to go\)$/, 'its next Form, and how far off (RULING-L1)');
   rec.decide({ kind: 'dev', cmd: 'give', what: 'relic', id: 'tide_clock' });
-  rec.decide({ kind: 'dev', cmd: 'give', what: 'rune', id: 'backfire' });
-  rec.decide({ kind: 'place', slot: 0 });
   const b2 = pauseBuild(rec.world);
-  assert.deepEqual(b2.weapons[0].runes, ['Backfire']);
-  assert.deepEqual(b2.relics.at(-1), { name: 'Tide Clock', icon: 'relic_tide_clock', desc: DATA.relics.find((r) => r.id === 'tide_clock').desc });
+  assert.deepEqual(b2.relics.at(-1), { name: "Ship's Clock", icon: 'relic_tide_clock', desc: DATA.relics.find((r) => r.id === 'tide_clock').desc });
   rec.decide({ kind: 'leave' });
   const s = runSummary(buildRunResult(rec.world), DATA);
   assert.equal(s.title, 'Run ended');
@@ -144,7 +144,14 @@ test('pause and run end: the build summary and the end screen read from the run'
   const f = runSummary(fake, DATA);
   assert.equal(f.title, 'Map cleared');
   assert.deepEqual(f.lines.find(([k]) => k === 'Bosses'), ['Bosses', 'The Harbor Maw']);
-  assert.deepEqual(f.lines.find(([k]) => k === 'Evolved'), ['Evolved', 'Kraken Line']);
+  assert.equal(f.lines.find(([k]) => k === 'Evolved'), undefined, 'evolutions are gone (W1, ruling 1)');
+  assert.deepEqual(runSummary({ ...fake, ascensions: [{ weapon: 'flare_gun', id: 'x', tick: 1 }] }, DATA).lines.find(([k]) => k === 'Forms taken'), ['Forms taken', '1']);
+  // What comes home includes the minutes' pay, as the harbor's results add it (V4: 1184 against 1,264).
+  const paid = runSummary({ ...fake, timeSurvived: 20 * 60 + 5, materials: { coin: 100 } }, DATA);
+  const per = DATA.meta.timePay.perMinute.coin ?? 0;
+  const mins = Math.min(20, DATA.meta.timePay.capMinutes);
+  assert.equal(paid.materials.find((m) => m.name === 'Coin').count, 100 + Math.floor(per * mins));
+  if (per > 0) assert.match(paid.payLine, new RegExp(`^Includes \\+${Math.floor(per * mins)} Coin.* for ${mins} minutes$`));
   assert.deepEqual(f.materials, [{ icon: 'mat_rope', name: 'Rope', count: 4 }]);
 });
 

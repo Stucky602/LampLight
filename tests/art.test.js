@@ -12,7 +12,7 @@ import { PALETTE } from '../src/data/palette.js';
 import { decodePng } from '../tools/atlas/png.mjs';
 import { atlasSourceHash, atlasInputs } from '../tools/atlas/sources.mjs';
 import { iconKeysFor, ELITE_SCALE, composeRig, PLAYER_SIZE } from '../tools/atlas/atlas.mjs';
-import { BUILDINGS_LAYOUT, TOWN_COLORS, SPRITES } from '../art/manifest.js';
+import { BUILDINGS_LAYOUT, TOWN_COLORS, SPRITES, RAMPS } from '../art/manifest.js';
 import { openings, librarySign, tavernSign, docksSign, smithySign, chapelSign, marketSign, apothecarySign, cartographerSign, wallLantern, flowerBox } from '../art/draw/hub.js';
 import { luminance as relLum, contrastRatio, oklab, hexRgb } from '../tools/atlas/color.mjs';
 import { checkAtlasJson, animFrameIds, DRAWN_IN_CODE } from '../src/render/atlasdata.js';
@@ -21,7 +21,8 @@ import { RIGS } from '../src/render/rigs.js';
 import { glowFrame, fogFrame } from '../src/render/textures.js';
 import { stageFrames } from '../src/render/hubtiles.js';
 import { PLAYER_FEET_ROOM } from '../src/render/playerframe.js';
-import { FONT, glyphKey, textWidth, digitsWidth } from '../src/render/font.js';
+import { ROOF_ROOM } from '../src/render/buildingframe.js';
+import { FONT, FONT_H, ADVANCE, SPACE_ADVANCE, glyphKey, textWidth, digitsWidth } from '../src/render/font.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const page = decodePng(readFileSync(resolve(ROOT, 'src/assets/atlas.png')));
@@ -83,7 +84,7 @@ test('atlas: the table is sound, matches its image, and is up to date with its s
 
 test('atlas: every sprite and icon the data names is on the page (or drawn in code)', () => {
   const named = new Set();
-  for (const list of [DATA.weapons, DATA.characters, DATA.enemies, DATA.passives, DATA.relics, DATA.runes, DATA.materials]) {
+  for (const list of [DATA.weapons, DATA.characters, DATA.enemies, DATA.passives, DATA.relics, DATA.dashes, DATA.materials]) {
     for (const x of list) { if (x.sprite) named.add(x.sprite); if (x.icon) named.add(x.icon); }
   }
   const missing = [...named].filter((id) => !has(id) && !DRAWN_IN_CODE.includes(id));
@@ -198,6 +199,56 @@ test('art: the readability rules (§16.4) hold on the real pixels', () => {
   assert.ok(hs.hue >= 15 && hs.hue < 50 && hs.hue < lampHue - 10, `hostile shots are red-orange (hue ${hs.hue.toFixed(0)}, the lamp colors from ${lampHue.toFixed(0)})`);
 });
 
+test('art: each enemy type has its own accent ramp; on each map no two share one, and their colors stand apart (OKLab)', () => {
+  // Every map's enemies: its bands, its events (elites, rings, walls, musters and their escorts),
+  // and its overtime. Bosses are rigs of many ramps (their parts), so they're out of this.
+  const onMap = (m) => {
+    const ids = new Set();
+    const take = (x) => { if (typeof x === 'string') ids.add(x); };
+    const tl = m.timeline || {};
+    for (const b of tl.bands || []) for (const id of Object.keys(b.roster || {})) take(id);
+    for (const ev of [...(tl.events || []), ...(tl.overtime?.events || [])]) { take(ev.enemy); take(ev.escort); for (const e of ev.enemies || []) take(e); }
+    return [...ids].map((id) => DATA.enemies.find((e) => e.id === id)).filter((e) => e && e.ai.type !== 'boss');
+  };
+  const rampOf = (e) => SPRITES.find((s) => s.id === e.sprite)?.ramp;
+  const key = (name) => { const r = RAMPS[name]; return r && [r.light, r.body, r.shade, r.hole ?? 'night-1'].join(','); };
+  /** The mean color in OKLab over a frame's body (its outline left out). */
+  const meanLab = (id) => {
+    const f = frame(id);
+    let L = 0, a = 0, b = 0, n = 0;
+    for (let i = 0; i < f.w * f.h; i++) {
+      const o = i * 4;
+      if (f.rgba[o + 3] < 128 || same(f.rgba[o], f.rgba[o + 1], f.rgba[o + 2], OUTLINE)) continue;
+      const k = oklab(f.rgba[o], f.rgba[o + 1], f.rgba[o + 2]);
+      L += k[0]; a += k[1]; b += k[2]; n++;
+    }
+    return [L / n, a / n, b / n];
+  };
+  const chars = DATA.characters.map((c) => measure(frame(c.sprite)).mean);
+  let maps = 0;
+  for (const m of DATA.maps) {
+    const list = onMap(m);
+    if (!list.length) continue;
+    maps++;
+    assert.ok(list.length >= 5, `${m.id}: its enemies found (${list.map((e) => e.id)})`);
+    for (const e of list) {
+      assert.ok(RAMPS[rampOf(e)], `${e.id} is drawn in a ramp of its own (${rampOf(e)})`);
+      const mm = measure(frame(e.sprite));
+      assert.ok(mm.b > mm.r, `${e.id} is cool`);
+      assert.ok(mm.mean < Math.min(...chars), `${e.id} is dimmer than every character`);
+    }
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const [p, q] = [list[i], list[j]];
+      assert.notEqual(rampOf(p), rampOf(q), `${m.id}: ${p.id} and ${q.id} share the ramp ${rampOf(p)}`);
+      assert.notEqual(key(rampOf(p)), key(rampOf(q)), `${m.id}: ${p.id} and ${q.id} have the same colors under two names`);
+      const [x, y] = [meanLab(p.sprite), meanLab(q.sprite)];
+      const d = Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+      assert.ok(d >= 0.02, `${m.id}: ${p.id} and ${q.id} are only ${d.toFixed(4)} apart in OKLab (at least 0.02)`);
+    }
+  }
+  assert.ok(maps >= 1, 'a map with enemies');
+});
+
 test('atlas: frames lie inside the page with a pixel of space around each, never touching', () => {
   const rects = Object.entries(table.frames).map(([id, [x, y, w, h]]) => ({ id, x, y, w, h }));
   for (const r of rects) assert.ok(r.x >= 1 && r.y >= 1 && r.x + r.w <= table.width - 1 && r.y + r.h <= table.height - 1, `${r.id} has its padding`);
@@ -227,21 +278,34 @@ test('art: every frame id the renderer, HUD, and title ask for by name exists', 
   for (let v = 0; v < 4; v++) assert.ok(has(`tile_floor_${v}`));
 });
 
-test('art: the font covers what the HUD writes, and measures what it draws', () => {
-  for (const ch of '0123456789:.,!?-+/%()ABCDEFGHIJKLMNOPQRSTUVWXYZ') assert.ok(glyphKey(ch) in FONT, ch);
-  assert.equal(glyphKey('a'), 'A');
-  assert.equal(glyphKey('×'), 'x');
+test('art: the font covers what the HUD writes, in sentence case, and measures what it draws', () => {
+  // The HUD's font is Jersey 10, the menus' own typeface, on its own grid (0.9.0: one typeface).
+  for (const ch of '0123456789:.,!?-+/%()ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz×') assert.equal(glyphKey(ch), ch, ch);
   assert.equal(glyphKey('~'), null);
+  assert.equal(FONT_H, 12, 'a 12-row cell: 10 rows of capitals and 2 of descender');
+  const ink = (k, y) => FONT[k][y].includes('1');
   for (const [k, rows] of Object.entries(FONT)) {
-    assert.equal(rows.length, 7, k);
-    for (const r of rows) assert.match(r, /^[01]{5}$/, k);
+    assert.equal(rows.length, FONT_H, k);
+    const w = rows[0].length;
+    for (const r of rows) assert.match(r, new RegExp(`^[01]{${w}}$`), k);
+    assert.ok(ADVANCE[k] >= w, `${k}: its advance clears its own width`);
     assert.ok(has(`glyph:${k}`) && has(`glyph_o:${k}`), `glyph ${k}`);
     const g = frame(`glyph:${k}`);
-    assert.equal(g.w, 5); assert.equal(g.h, 7);
-    rows.forEach((r, y) => { for (let x = 0; x < 5; x++) assert.equal(g.rgba[(y * 5 + x) * 4 + 3] > 0, r[x] === '1', `glyph ${k} at ${x},${y}`); });
+    assert.equal(g.w, w); assert.equal(g.h, FONT_H);
+    rows.forEach((r, y) => { for (let x = 0; x < w; x++) assert.equal(g.rgba[(y * w + x) * 4 + 3] > 0, r[x] === '1', `glyph ${k} at ${x},${y}`); });
+    // Only g, j, p, q, y, Q's tail, the comma, the slash, and the parentheses drop below the baseline (rows 10 and 11).
+    const hangs = 'gjpqyQ,/()'.includes(k);
+    assert.equal(ink(k, 10) || ink(k, 11), hangs, `${k}: ${hangs ? 'a descender' : 'nothing below the baseline'}`);
   }
+  // The lowercase body is 8 rows (2 to 9); the tall letters and the capitals stand all 10.
+  for (const k of 'acemnorsuvwxz') assert.ok(!ink(k, 0) && !ink(k, 1) && ink(k, 2) && ink(k, 9), `${k}: x-height`);
+  for (const k of 'bdfhkl') assert.ok(ink(k, 0) && ink(k, 9), `${k}: an ascender`);
+  for (const k of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') assert.ok(ink(k, 0) && ink(k, 9), `${k}: cap height`);
+  // Strokes are the font's own 2 px: an I's stem is two columns wide.
+  assert.ok(FONT.l.every((r) => r === '00' || r === '11'), 'l is a 2 px stem');
   assert.equal(textWidth(''), 0);
-  assert.equal(textWidth('12:34'), 29);
+  assert.equal(textWidth('12:34'), ADVANCE['1'] + ADVANCE['2'] + ADVANCE[':'] + ADVANCE['3'] + ADVANCE['4'] - 1);
+  assert.equal(textWidth('a b'), ADVANCE.a + SPACE_ADVANCE + ADVANCE.b - 1, 'a space is the font\'s own');
   assert.equal(digitsWidth(7), 5);
   assert.equal(digitsWidth(1234), 17);
 });
@@ -380,7 +444,8 @@ test('art: each building stage shows what it says on the committed atlas, a visi
     [ruin, roof, lit, keeper, alive].reduce((before, now) => { assert.ok(differ(before, now) >= 20, `${now.id} differs from ${before.id}`); return now; });
     // A ruin: you look down into it where the roof was.
     let dark = 0, changed = 0;
-    for (let y = 0; y < 32; y++) for (let x = 0; x < ruin.w; x++) {
+    const R = ROOF_ROOM;   // the room above the roof (render/buildingframe.js): the building starts below it
+    for (let y = R; y < R + 32; y++) for (let x = 0; x < ruin.w; x++) {
       if (/^night/.test(nameAt(ruin, x, y) ?? '')) dark++;
       const o = (y * ruin.w + x) * 4;
       if (ruin.rgba[o] !== roof.rgba[o] || ruin.rgba[o + 1] !== roof.rgba[o + 1] || ruin.rgba[o + 2] !== roof.rgba[o + 2]) changed++;
@@ -392,26 +457,26 @@ test('art: each building stage shows what it says on the committed atlas, a visi
     assert.ok(windows.length >= (mvp ? 2 : 1), `${b} has windows`);
     for (const [tx, ty] of windows) {
       for (const px of [5, 6, 9, 10]) for (let py = 5; py <= 10; py++) {
-        const x = tx * 16 + px, y = ty * 16 + py;
+        const x = tx * 16 + px, y = R + ty * 16 + py;
         assert.equal(nameAt(lit, x, y), py <= 7 ? 'lamp-5' : 'lamp-4', `${b} lit: the pane at ${x}, ${y}`);
         assert.ok(!/^lamp/.test(nameAt(roof, x, y)), `${b} roof: no light at ${x}, ${y}`);
       }
-      for (const [px, py] of [[5, 5], [10, 5], [5, 10], [10, 10]]) assert.equal(nameAt(roof, tx * 16 + px, ty * 16 + py), 'night-1', `${b} roof: the glass dark round the plank`);
-      for (let i = 0; i < 10; i++) assert.equal(nameAt(roof, tx * 16 + 3 + i, ty * 16 + 6 + (i >= 5 ? 1 : 0)), 'wood-4', `${b} roof: the plank's lit edge across the window`);
+      for (const [px, py] of [[5, 5], [10, 5], [5, 10], [10, 10]]) assert.equal(nameAt(roof, tx * 16 + px, R + ty * 16 + py), 'night-1', `${b} roof: the glass dark round the plank`);
+      for (let i = 0; i < 10; i++) assert.equal(nameAt(roof, tx * 16 + 3 + i, R + ty * 16 + 6 + (i >= 5 ? 1 : 0)), 'wood-4', `${b} roof: the plank's lit edge across the window`);
     }
     // The keeper's stage hangs the sign over the door and the lantern beside it; the last one adds
     // a window box under every upper window.
     const [dx, dy] = doors[0] ?? [Math.floor(layout[0].length / 2), layout.length - 1];   // (the Smithy's wide doorway: its middle)
     const sign = SIGN[b], lantern = wallLantern(), box = flowerBox();
-    const signAt = [dx * 16 + Math.floor((16 - sign.w) / 2), dy * 16 - sign.h + 1], lanternAt = [dx * 16 + 12, dy * 16 + 1];
+    const signAt = [dx * 16 + Math.floor((16 - sign.w) / 2), R + dy * 16 - sign.h + 1], lanternAt = [dx * 16 + 12, R + dy * 16 + 1];
     assert.ok(stamped(keeper, sign, ...signAt) && stamped(alive, sign, ...signAt), `${b}: the sign over the door`);
     assert.ok(stamped(keeper, lantern, ...lanternAt) && stamped(alive, lantern, ...lanternAt), `${b}: the door lantern`);
     assert.ok(!stamped(lit, sign, ...signAt) && !stamped(lit, lantern, ...lanternAt), `${b}: neither before the keeper`);
     const upper = windows.filter(([, ty]) => ty < dy);
     assert.ok(upper.length >= (mvp ? 2 : 1), `${b} has upper windows`);
     for (const [tx, ty] of upper) {
-      assert.ok(stamped(alive, box, tx * 16 + 2, ty * 16 + 11), `${b}: a window box under ${tx}, ${ty}`);
-      assert.ok(!stamped(keeper, box, tx * 16 + 2, ty * 16 + 11), `${b}: not before the last level`);
+      assert.ok(stamped(alive, box, tx * 16 + 2, R + ty * 16 + 11), `${b}: a window box under ${tx}, ${ty}`);
+      assert.ok(!stamped(keeper, box, tx * 16 + 2, R + ty * 16 + 11), `${b}: not before the last level`);
     }
     // A layout cell's own colors (a stone gable on timber, a timber one on stone) are its own.
     layout.forEach((row, ty) => row.forEach((cell, tx) => {
@@ -419,7 +484,7 @@ test('art: each building stage shows what it says on the committed atlas, a visi
       const own = new Set(Object.values(cell.colors));
       const instead = Object.keys(cell.colors).map((src) => TOWN_COLORS[src]).filter((n) => !own.has(n));
       const seen = new Set();
-      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) seen.add(nameAt(lit, tx * 16 + x, ty * 16 + y));
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) seen.add(nameAt(lit, tx * 16 + x, R + ty * 16 + y));
       for (const n of own) assert.ok(seen.has(n), `${b}: its ${tx}, ${ty} tile shows its own ${n}`);
       for (const n of instead) assert.ok(!seen.has(n), `${b}: its ${tx}, ${ty} tile has no ${n} (the town's color for it)`);
     }));
@@ -442,15 +507,16 @@ test('art: each building stage shows what it says on the committed atlas, a visi
   assert.ok(SPRITES.some((e) => e.kind === 'npc'), 'the townsfolk are built as townsfolk');
 });
 
-test('art: every building stage, scaffold, and ruin is its plot\'s size (the view stands each on its plot)', () => {
+test('art: every building stage and ruin is its plot\'s size with room above its roof; the scaffold its plot\'s (the view stands each on its plot)', () => {
   const size = (id) => table.frames[id]?.slice(2);
   for (const p of DATA.hub.plots) {
     if (p.building === 'lamp_post') continue;   // the town lamp stands on its one tile (hubview.js place)
     for (let level = 0; level <= 5; level++) {
       const z = stageFrames(p.building, level);
-      assert.deepEqual(size(z.frame), [p.w * 16, p.h * 16], `${p.building} at level ${level}: ${z.frame}`);
+      assert.deepEqual(size(z.frame), [p.w * 16, p.h * 16 + ROOF_ROOM], `${p.building} at level ${level}: ${z.frame}`);
     }
-    assert.deepEqual(size('hub_scaffold_5x4'), [p.w * 16 + 2, p.h * 16 + 2], `the scaffold over the ${p.building}: the plot, and its outline a pixel round it`);
+    assert.deepEqual(size(`hub_scaffold_${p.w}x${p.h}`), [p.w * 16 + 2, p.h * 16 + 2], `the scaffold over the ${p.building}: the plot, and its outline a pixel round it`);
   }
-  for (const r of DATA.hub.ruins) assert.deepEqual(size(`bld_${r.id}_ruin`), [r.w * 16, r.h * 16], `the ${r.id} ruin`);
+  for (const r of DATA.hub.ruins) assert.deepEqual(size(`bld_${r.id}_ruin`), [r.w * 16, r.h * 16 + ROOF_ROOM], `the ${r.id} ruin`);
+  assert.equal(ROOF_ROOM, 16, 'a tile: the tile above a plot comes out of the fog with it (§20 call 54)');
 });

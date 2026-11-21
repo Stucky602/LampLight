@@ -268,6 +268,26 @@ export function crystal() {
   ]);
 }
 
+/**
+ * A Pearl (0.8.2: the run's own currency, Sea Glass by its new name). A pearl is a near-perfect
+ * sphere; its nacre is a soft white with a creamy overtone, the brightest point a small sharp
+ * highlight toward the light, the side away from it greying off to the rim. (No usable reference
+ * image came back to look at; drawn from that written description.) A 6 x 6 disc: the ramp
+ * (manifest 'pearl': white light, cream body, grey shade) puts the light on the top and left and
+ * the shade on the bottom and right, as every sprite's one light falls. (A white hole for the
+ * highlight was tried: the ramp shades round a hole, so it read as a dent, and came out.)
+ */
+export function pearl() {
+  return maskFromRows([
+    '.####.',
+    '######',
+    '######',
+    '######',
+    '######',
+    '.####.',
+  ]);
+}
+
 /** Volatile Gems: a gem with sparks flying off it (sparks leave a bursting thing on straight lines, so they sit on lines out from the middle). */
 export function burstGem() {
   return maskFromRows([
@@ -360,8 +380,8 @@ export const RUNE_SIGILS = {
   rune_chain: ['###.....', '#.#.....', '#.####..', '###..#..', '..#..###', '..####.#', '.....#.#', '.....###'],
 };
 
-export function rune(id) {
-  const s = RUNE_SIGILS[id];
+export function rune(id, more = {}) {
+  const s = RUNE_SIGILS[id] || more[id];
   if (!s) throw new Error(`rune: no sigil for "${id}"`);
   return stone(s);
 }

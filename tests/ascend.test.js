@@ -1,17 +1,21 @@
-// Embers and the Forms they buy (sim/ascend.js; the Forms themselves: tests/forms.test.js) and the stats screen's numbers (the
+// Forms as choices (ruling 14, C1: three axes, two options each, one held an axis), the deeds that
+// open capstones, Embers (sim/ascend.js; the Forms themselves: tests/forms.test.js) and the stats screen's numbers (the
 // harbor's guide and walk-off: tests/guide.test.js; the minimap: tests/minimap.test.js).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DATA } from '../src/data/index.js';
+import { weaponLook } from '../src/data/ascensions.js';
 import { decide, currentHalt, stepWorld, hashWorld, buildRunResult } from '../src/sim/world.js';
 import { EV } from '../src/sim/events.js';
 import { EF, PK, EMIT } from '../src/sim/constants.js';
 import { spawnPickup, PICKUP_RESERVE } from '../src/sim/pickups.js';
 import { createRecordedRun, playReplay } from '../src/sim/replay.js';
-import { openAscensions, canAscend } from '../src/sim/ascend.js';
+import { axisState, optionChoices, giveUpgrade, offerAxis, signatureSlot } from '../src/sim/ascend.js';
+import { numberAt } from '../src/sim/weaponups.js';
+import { deedKill, deedState } from '../src/sim/deeds.js';
 import { haltView, statsView, pauseBuild, noticeFor, dpsText, materialsFound } from '../src/app/runlogic.js';
-import { makeWorld, give, run, spawnAt, eventsOf, IDLE } from './helpers/simworld.js';
+import { makeWorld, give, givePassive, run, spawnAt, eventsOf, IDLE } from './helpers/simworld.js';
 
 const lineOf = (id) => DATA.ascensions.find((l) => l.weapons.includes(id));
 
@@ -21,96 +25,113 @@ function ember(w) {
   stepWorld(w, IDLE);
 }
 
-test('embers: one picked up stops the run for the choice; ascending spends it and changes the weapon', () => {
+const ids = (list) => list.map((x) => x.id);
+const levelTo = (w, s, n) => { while (w.slots[s].ups.length < n) { giveUpgrade(w, s, { up: 'damage', ...numberAt(w, 'damage', 'common') }); while (currentHalt(w)) decide(w, { kind: 'keep' }); } };
+
+test('forms: a weapon has three axes and two options on each; leveling opens the first two (its 5th and 10th upgrade), and the run stops for the choice', () => {
+  const w = makeWorld({ invulnerable: true });
+  give(w, 'flare_gun', { level: 1 });
+  const st = axisState(w, 0);
+  assert.deepEqual(st.map((a) => [a.axis, a.open, a.at, ids(a.options)]), [['delivery', false, 5, ['salvo', 'muzzle_flash']], ['flight', false, 10, ['mortar', 'star_shell']], ['payoff', false, null, ['hanging_flare', 'phosphor']]]);
+  assert.deepEqual(st[2].deed, { have: 0, need: DATA.weapons.find((x) => x.id === 'flare_gun').deed.count, done: false, text: DATA.weapons.find((x) => x.id === 'flare_gun').deed.text });
+  for (let n = 1; n < 5; n++) giveUpgrade(w, 0, { up: 'damage', ...numberAt(w, 'damage', 'common') });
+  assert.equal(currentHalt(w), null, 'nothing opens before the 5th');
+  giveUpgrade(w, 0, { up: 'damage', ...numberAt(w, 'damage', 'common') });
+  assert.deepEqual(currentHalt(w), { kind: 'ascend', slot: 0, axis: 'delivery', why: 'level' });
+  const v = haltView(w, currentHalt(w), DATA);
+  assert.equal(v.direct, true);
+  assert.deepEqual(v.weapons[0].forms.map((f) => [f.id, f.cost, f.price]), [['salvo', 'free', '+10% Cooldown'], ['muzzle_flash', 'free', '-25% Range']], 'that axis\'s two, each with its price');
+  assert.throws(() => decide(w, { kind: 'ascend', slot: 0, id: 'mortar' }), /no Ember to spend/, 'the next axis is still shut: only an Ember opens it');
+  decide(w, { kind: 'ascend', slot: 0, id: 'salvo' });
+  assert.equal(w.build.embers, 0, 'free: the axis was open');
+  assert.deepEqual(ids(w.slots[0].ascensions), ['salvo']);
+  assert.ok(w.slots[0].fx.salvo);
+  assert.equal(eventsOf(w, EV.ASCEND).length, 1);
+  assert.equal(noticeFor(w.events, w.events.type.indexOf(EV.ASCEND), w), null, 'a Form taken says nothing mid-fight (C3, ruling 14 E)');
+  assert.throws(() => decide(w, { kind: 'ascend', slot: 0, id: 'muzzle_flash' }), /Nothing to decide|can't take/, 'one option an axis: the other is an Ember\'s switch');
+  levelTo(w, 0, 10);
+  assert.equal(w.slots[0].axes & 2, 2, 'how its shots travel opens at the 10th');
+  // A choice kept for later waits on the pause menu's Forms.
+  assert.equal(pauseBuild(w).canAscend, true);
+  decide(w, { kind: 'ember' });
+  decide(w, { kind: 'ascend', slot: 0, id: 'star_shell' });
+  assert.deepEqual(ids(w.slots[0].ascensions), ['salvo', 'star_shell']);
+  assert.equal(w.slots[0].stats.pierce, 3, 'Star Shell passes through 3 (ruling 19 RA)');
+  // A character's own weapon is out of this: its level opens nothing (its track does: section 8).
+  const lamp = makeWorld({ character: 'lamplighter', invulnerable: true });
+  const sig = signatureSlot(lamp);
+  assert.ok(sig >= 0);
+  for (let n = 0; n < 6; n++) giveUpgrade(lamp, sig, { up: 'damage', ...numberAt(lamp, 'damage', 'common') });
+  assert.equal(currentHalt(lamp), null);
+  assert.ok(offerAxis(lamp, sig, 'delivery'), 'its track offers the choice');
+  assert.deepEqual(currentHalt(lamp), { kind: 'ascend', slot: sig, axis: 'delivery', why: 'track' });
+});
+
+test('forms: the capstone opens by its deed, unless the profile lacks it; its partner passive makes it hit harder', () => {
+  const w = makeWorld({ invulnerable: true });
+  give(w, 'oil_flask');
+  const d = DATA.weapons.find((x) => x.id === 'oil_flask').deed;
+  w.slots[0].deed = d.count - 1;
+  const e = spawnAt(w, 'drowned_sailor', 20, 0);
+  w.enemies.burnT[e] = 2;
+  deedKill(w, w.slots[0], e);
+  assert.equal(deedState(w, 0).done, true);
+  stepWorld(w, IDLE);
+  assert.deepEqual(currentHalt(w), { kind: 'ascend', slot: 0, axis: 'payoff', why: 'deed' });
+  decide(w, { kind: 'ascend', slot: 0, id: 'pitch' });
+  assert.deepEqual(ids(w.slots[0].ascensions), ['pitch']);
+  assert.equal(w.result.ascensions[0].capstone, true);
+  assert.deepEqual(buildRunResult(w).capstones, ['oil_flask']);
+  // Its partner: each level makes the capstone hit harder (it gates nothing).
+  const d0 = w.slots[0].stats.damage;
+  givePassive(w, 'wick_oil', 3);
+  const fireMul = (1 + 3 * 0.12) * (1 + DATA.tuning.weaponUps.kindred.per);   // (Wick Oil's own +12% Damage (Fire) a level, and it is Fire kin: Kindred)
+  assert.ok(Math.abs(w.slots[0].stats.damage / d0 - fireMul * (1 + 3 * DATA.tuning.forms.partnerPer)) < 1e-6, 'partner bonus on a capstone');
+  // A line with a capstoneUnlock the profile lacks keeps the capstone shut, and says what opens it.
+  const locked = makeWorld({ invulnerable: true, forms: [] });
+  give(locked, 'lantern_orb');
+  assert.equal(axisState(locked, 0).find((a) => a.axis === 'payoff').locked, 'research:orbwright');
+  locked.slots[0].deed = 9999; locked.deedsDone.push(0);
+  stepWorld(locked, IDLE);
+  assert.equal(locked.slots[0].axes & 4, 0, 'shut');
+  assert.equal(currentHalt(locked), null);
+  // The capstone takes its look.
+  const f = makeWorld({ invulnerable: true });
+  give(f, 'flare_gun', { forms: ['hanging_flare'] });
+  assert.deepEqual(weaponLook(f.slots[0].def, f.slots[0].ascensions), DATA.ascensions.find((l) => l.line === 'flare_gun').options.find((o) => o.id === 'hanging_flare').look);
+});
+
+test('embers: one opens a weapon\'s next axis early or switches an option it holds; bosses, the muster\'s captain, and some elites drop them', () => {
   const w = makeWorld({ invulnerable: true });
   give(w, 'flare_gun', { level: 3 });
-  const before = { ...w.slots[0].stats };
   ember(w);
   assert.equal(w.build.embers, 1);
   assert.equal(currentHalt(w)?.kind, 'ascend');
   assert.equal(eventsOf(w, EV.PICKUP).filter((e) => e.a === PK.EMBER).length, 1);
   const v = haltView(w, currentHalt(w), DATA);
-  assert.equal(v.kind, 'ascend');
-  assert.deepEqual(v.weapons.map((x) => x.slot), [0]);
-  // The weapon, with its line's three Forms in the order of their kinds, none taken.
-  assert.deepEqual(v.weapons[0].forms.map((o) => [o.id, o.axis, o.taken, o.why]), [['salvo', 'delivery', false, null], ['mortar', 'flight', false, null], ['hanging_flare', 'payoff', false, null]]);
-  assert.throws(() => decide(w, { kind: 'ascend', slot: 0, id: 'nope' }), /can't take "nope"/);
-  assert.throws(() => decide(w, { kind: 'ascend', slot: 4, id: 'salvo' }), /can't take/);
+  assert.deepEqual(v.weapons[0].forms.filter((f) => !f.why).map((f) => [f.id, f.cost]), [['salvo', 'ember'], ['muzzle_flash', 'ember']], 'its next shut axis, for the Ember');
+  assert.ok(v.weapons[0].forms.find((f) => f.id === 'mortar').why.startsWith('New Form at Lv 11'), 'what opens the rest, truthfully');
   assert.throws(() => decide(w, { kind: 'ok' }), /expected "ascend" or "keep"/);
-  decide(w, { kind: 'ascend', slot: 0, id: 'salvo' });
+  decide(w, { kind: 'ascend', slot: 0, id: 'muzzle_flash' });
   assert.equal(w.build.embers, 0);
-  assert.equal(currentHalt(w), null);
-  const s = w.slots[0];
-  assert.deepEqual(s.ascensions.map((a) => a.id), ['salvo']);
-  assert.ok(s.fx.salvo, 'the Form is on the slot, by its mechanic');
-  assert.equal(s.stats.amount, before.amount, 'Salvo changes when it fires, not its numbers');
-  assert.deepEqual(w.result.ascensions.map((a) => [a.weapon, a.id]), [['flare_gun', 'salvo']]);
-  assert.equal(eventsOf(w, EV.ASCEND).length, 1);
-  assert.equal(noticeFor(w.events, w.events.type.indexOf(EV.ASCEND), w), 'Ascended: Flare Gun');
-  // A level-up keeps it (the slot is rebuilt from its definition and keeps its ascensions).
-  decide(w, { kind: 'dev', cmd: 'level', count: 1 });
-  stepWorld(w, IDLE);
-  while (currentHalt(w)) decide(w, { kind: 'pick', index: 0 });
-  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['salvo']);
-  // They stack: a second Ember, a second Form on the same weapon, working alongside the first.
+  assert.equal(w.slots[0].axes & 1, 1, 'the axis is open now');
+  // A second: switch the option on it, or open the next.
   ember(w);
+  const c = optionChoices(w, 0);
+  assert.deepEqual(c.map((x) => [x.option.id, x.cost, x.switches?.id ?? null]), [['salvo', 'ember', 'muzzle_flash'], ['mortar', 'ember', null], ['star_shell', 'ember', null]]);
+  decide(w, { kind: 'ascend', slot: 0, id: 'salvo' });
+  assert.deepEqual(ids(w.slots[0].ascensions), ['salvo'], 'switched');
+  assert.equal(w.result.ascensions.at(-1).switched, 'muzzle_flash');
+  assert.equal(eventsOf(w, EV.ASCEND)[0].c, 1, 'the event says it switched');
+  // An Ember never opens the capstone before both others are held; never goes on a character's own weapon.
+  ember(w);
+  assert.ok(!optionChoices(w, 0).some((x) => x.option.axis === 'payoff'));
   decide(w, { kind: 'ascend', slot: 0, id: 'mortar' });
-  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['salvo', 'mortar']);
-  assert.equal(w.slots[0].motion.type, 'arc', 'flares are lobbed');
-  assert.ok(w.slots[0].fx.salvo, 'and the Salvo is still there');
-  const view = haltView(w, { kind: 'ascend' }, DATA);
-  assert.deepEqual(view.weapons[0].forms.map((o) => o.taken), [true, true, false], 'what is taken is shown, not offered again');
-  assert.deepEqual(openAscensions(w, 0).map((o) => o.id), ['hanging_flare']);
-  const r = buildRunResult(w);
-  assert.equal(r.embers, 2);
-  assert.equal(r.ascensions.length, 2);
-});
-
-test('embers: kept for later, spent from the pause menu; with nothing to ascend, kept without stopping', () => {
-  const w = makeWorld({ invulnerable: true });
-  give(w, 'harpoon_chain');
   ember(w);
+  assert.ok(optionChoices(w, 0).some((x) => x.option.axis === 'payoff' && x.cost === 'ember'), 'with both held, the capstone early');
   decide(w, { kind: 'keep' });
-  assert.equal(w.build.embers, 1);
-  assert.equal(currentHalt(w), null);
-  assert.equal(pauseBuild(w).canAscend, true);
-  assert.equal(pauseBuild(w).embers, 1);
-  decide(w, { kind: 'ember' });
-  assert.equal(currentHalt(w)?.kind, 'ascend');
-  assert.throws(() => decide(w, { kind: 'ember' }), /spent with nothing else waiting/, 'not twice while it waits');
-  assert.equal(pauseBuild(w).canAscend, false, 'and the pause doesn\'t offer it over the screen');
-  decide(w, { kind: 'ascend', slot: 0, id: 'tether' });
-  assert.throws(() => decide(w, { kind: 'ember' }), /no Ember kept/);
-  // A weapon with every ascension taken: an Ember is kept, the run goes on.
-  const full = makeWorld({ invulnerable: true });
-  give(full, 'tide_bell');
-  for (const o of lineOf('tide_bell').options) { ember(full); decide(full, { kind: 'ascend', slot: 0, id: o.id }); }
-  assert.equal(canAscend(full), false);
-  assert.deepEqual(openAscensions(full, 0), []);
-  ember(full);
-  assert.equal(currentHalt(full), null);
-  assert.equal(full.build.embers, 1);
-  assert.throws(() => decide(full, { kind: 'ember' }), /no weapon can ascend/);
-  // The hash sees Embers and ascensions.
-  const a = makeWorld({ invulnerable: true }), b = makeWorld({ invulnerable: true });
-  give(a, 'flare_gun'); give(b, 'flare_gun');
-  ember(a); ember(b);
-  decide(a, { kind: 'keep' }); decide(b, { kind: 'ascend', slot: 0, id: 'mortar' });
-  assert.notEqual(hashWorld(a), hashWorld(b));
-});
-
-test('embers: an evolution keeps its weapon\'s ascensions; bosses, the muster\'s captain, and some elites drop them', () => {
-  const w = makeWorld({ invulnerable: true });
-  give(w, 'flare_gun', { level: 8 });
-  ember(w);
-  decide(w, { kind: 'ascend', slot: 0, id: 'hanging_flare' });
-  decide(w, { kind: 'dev', cmd: 'give', what: 'passive', id: 'wick_oil' });
-  for (let k = 0; k < 4; k++) decide(w, { kind: 'dev', cmd: 'give', what: 'passive', id: 'wick_oil' });
-  decide(w, { kind: 'dev', cmd: 'chest', boss: true });
-  while (currentHalt(w)) decide(w, currentHalt(w).kind === 'rune' ? { kind: 'discard' } : { kind: 'ok' });
-  assert.equal(w.slots[0].def.id, 'flare_barrage', 'evolved');
-  assert.deepEqual(w.slots[0].ascensions.map((x) => x.id), ['hanging_flare'], 'kept through the evolution');
-  assert.ok(w.slots[0].fx.hang && w.fxLists[w.slots[0].list].some((e) => e.type === 'hang'), 'and working on it');
+  const lamp = makeWorld({ character: 'lamplighter', invulnerable: true });
+  assert.ok(optionChoices(lamp, signatureSlot(lamp)).every((x) => x.cost === 'free'));
   // Drops: a boss always; an elite at tuning.embers.eliteChance (0 or 1 here, to be sure).
   const embersOnGround = (x) => [...Array(x.pickups.count).keys()].filter((i) => x.pickups.kind[i] === PK.EMBER).length;
   const b = makeWorld({ invulnerable: true }, { events: [{ at: 0, event: 'boss', enemy: 'harbor_maw' }] });
@@ -125,10 +146,17 @@ test('embers: an evolution keeps its weapon\'s ascensions; bosses, the muster\'s
     stepWorld(e, IDLE);
     assert.equal(embersOnGround(e), n, `an elite at chance ${chance}`);
   }
+  // The hash sees Embers and options.
+  const x = makeWorld({ invulnerable: true }), y = makeWorld({ invulnerable: true });
+  give(x, 'flare_gun'); give(y, 'flare_gun');
+  ember(x); ember(y);
+  decide(x, { kind: 'keep' }); decide(y, { kind: 'ascend', slot: 0, id: 'salvo' });
+  assert.notEqual(hashWorld(x), hashWorld(y));
 });
 
 test('stats: the screen\'s numbers are the run\'s own', () => {
-  const w = makeWorld({ invulnerable: true });
+  // (The harbor's pace, run.materialMul, at 1 here: the counts below are the run's own whatever it is tuned to.)
+  const w = makeWorld({ invulnerable: true, tuning: { run: { materialMul: 1 } } });
   give(w, 'flare_gun', { level: 4 });
   decide(w, { kind: 'dev', cmd: 'give', what: 'passive', id: 'tallow_candle' });
   decide(w, { kind: 'dev', cmd: 'give', what: 'passive', id: 'wick_oil' });
@@ -146,7 +174,7 @@ test('stats: the screen\'s numbers are the run\'s own', () => {
   assert.deepEqual([dpsText(1000, 10), dpsText(55, 10), dpsText(10, 0.2), dpsText(123456, 60), dpsText(253, 10), dpsText(99, 10)], ['100', '5.5', '10', '2,058', '25', '9.9']);
   const t0 = w.slots[0].since;
   for (let k = 0; k < 120; k++) stepWorld(w, IDLE);
-  w.result.damageBySlot[0] = 600;
+  w.result.realBySlot[0] = 600;   // (the health it took: no overkill)
   assert.equal(get(statsView(w).weapons[0].lines, 'DPS'), dpsText(600, (w.tick - t0) / 60));
   decide(w, { kind: 'dev', cmd: 'level', count: 1 });
   while (currentHalt(w)) decide(w, { kind: 'pick', index: 0 });
@@ -157,12 +185,17 @@ test('stats: the screen\'s numbers are the run\'s own', () => {
   assert.deepEqual(materialsFound(w).map((m) => [m.id, m.count]), [['rope', 4]]);
   assert.deepEqual(pauseBuild(w).materials, materialsFound(w));
   assert.deepEqual(statsView(w).materials, materialsFound(w));
+  // What it shows is what will come home: the run's haul multiplier applies (a short run's share).
+  w.config.mode = 'short';
+  w.result.materialsRaw[w.materialIndex.get('rope')] = 10;
+  assert.deepEqual(materialsFound(w).map((m) => [m.id, m.count]), [['rope', Math.floor(10 * w.tuning.run.shortRewardMul)]]);
+  w.config.mode = 'standard';
   // The items you carry: the passives with their levels, then the relics.
   assert.deepEqual(v.items.map((x) => [x.kind, x.name, x.level]), [['passive', 'Tallow Candle', 1], ['passive', 'Wick Oil', 1]]);
   assert.ok(v.items.every((x) => x.desc && x.icon));
   // A character's own weapon is there too, marked as hers.
   const lamp = makeWorld({ character: 'lamplighter', invulnerable: true });
-  const own = statsView(lamp).weapons.find((x) => x.innate);
+  const own = statsView(lamp).weapons.find((x) => x.signature);   // (0.9.0, W2: her lamp is her signature weapon)
   assert.ok(own && own.lines.length, 'the Lamplighter\'s light has its numbers');
 });
 
@@ -170,24 +203,24 @@ test('embers: a run that takes, keeps, and spends them replays exactly; one that
   const rec = createRecordedRun({ seed: 'ember-replay', map: 'drowned_docks', character: 'lamplighter', invulnerable: true }, DATA, 'b1');
   for (let t = 0; t < 900; t++) {
     if (t === 100 || t === 300 || t === 500) rec.decide({ kind: 'dev', cmd: 'ember' });
-    if (t === 600) rec.decide({ kind: 'ember' });
+    if (t === 600 && rec.world.build.embers > 0 && !currentHalt(rec.world)) rec.decide({ kind: 'ember' });
     rec.step({ mx: (t % 240) < 120 ? 90 : -90, my: 30, buttons: 0 });
     while (currentHalt(rec.world)) {
       const h = currentHalt(rec.world);
       if (h.kind === 'ascend') {
         const v = haltView(rec.world, h, DATA);
-        const pick = { kind: 'ascend', slot: v.weapons[0].slot, id: v.weapons[0].forms.find((f) => !f.taken && !f.why).id };
-        rec.decide(rec.world.tick < 400 && rec.world.build.embers === 1 && !rec.world.slots[0].ascensions.length ? pick : rec.world.tick < 400 ? { kind: 'keep' } : pick);
-      } else rec.decide(h.kind === 'draft' ? { kind: 'pick', index: 0 } : h.kind === 'rune' ? { kind: 'discard' } : h.kind === 'overtime' ? { kind: 'leave' } : { kind: 'ok' });
+        const f = v.weapons[0]?.forms.find((x) => !x.taken && !x.why);
+        rec.decide(f && rec.world.tick > 200 ? { kind: 'ascend', slot: v.weapons[0].slot, id: f.id } : { kind: 'keep' });
+      } else rec.decide(h.kind === 'draft' ? { kind: 'pick', index: 0 } : h.kind === 'overtime' ? { kind: 'leave' } : { kind: 'ok' });
     }
   }
   const replay = rec.toReplay();
-  assert.ok(replay.decisions.some((d) => d.kind === 'ascend') && replay.decisions.some((d) => d.kind === 'keep') && replay.decisions.some((d) => d.kind === 'ember'));
+  assert.ok(replay.decisions.some((d) => d.kind === 'ascend') && replay.decisions.some((d) => d.kind === 'keep'));
   const back = playReplay(replay, DATA, { buildId: 'b1' });
   assert.equal(hashWorld(back), replay.hash);
-  assert.deepEqual(back.slots[0].ascensions.map((a) => a.id), rec.world.slots[0].ascensions.map((a) => a.id));
-  // A full pool: 224 materials (up to the reserve), then chests to the last slot; an Ember then
-  // goes straight to you rather than being lost.
+  for (let s = 0; s < 4; s++) assert.deepEqual(back.slots[s]?.ascensions?.map((a) => a.id), rec.world.slots[s]?.ascensions?.map((a) => a.id));
+  // A full pool: materials up to the reserve, then chests to the last slot; an Ember then goes
+  // straight to you rather than being lost.
   const w = makeWorld({ invulnerable: true });
   give(w, 'flare_gun');
   const P = w.pickups;
@@ -199,29 +232,16 @@ test('embers: a run that takes, keeps, and spends them replays exactly; one that
   assert.equal(P.refused, 0);
 });
 
-test('embers: a Form a rune rules out is shown, marked with the rune, and refused', () => {
+test('embers: two picked up on one tick with one choice left: the second is kept, and no empty screen opens', () => {
   const w = makeWorld({ invulnerable: true });
-  give(w, 'harpoon_chain', { runes: ['orbiting'] });
-  ember(w);
-  const v = haltView(w, currentHalt(w), DATA);
-  assert.deepEqual(v.weapons[0].forms.map((f) => [f.id, f.why]), [['lunge', 'Not with Orbiting'], ['skewer', 'Not with Orbiting'], ['tether', null]]);
-  assert.throws(() => decide(w, { kind: 'ascend', slot: 0, id: 'skewer' }), /can't take "skewer"/);
-  decide(w, { kind: 'ascend', slot: 0, id: 'tether' });
-  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['tether']);
-});
-
-test('embers: two picked up on one tick with one ascension left open: the second is kept, and no empty screen opens', () => {
-  const w = makeWorld({ invulnerable: true });
-  give(w, 'tide_bell');
-  const [a, b, c] = lineOf('tide_bell').options;
-  for (const o of [a, b]) { ember(w); decide(w, { kind: 'ascend', slot: 0, id: o.id }); }
+  give(w, 'tide_bell', { forms: ['great_toll', 'breakers'] });
+  w.slots[0].deed = 9999;   // (its capstone axis is the one choice left: an Ember opens it)
   spawnPickup(w, PK.EMBER, w.player.x, w.player.y, 0, 0);
   spawnPickup(w, PK.EMBER, w.player.x, w.player.y, 0, 0);
   stepWorld(w, IDLE);
   assert.deepEqual(w.halts.map((h) => h.kind), ['ascend', 'ascend']);
-  decide(w, { kind: 'ascend', slot: 0, id: c.id });
-  assert.equal(currentHalt(w), null, 'nothing left to take: no second screen');
+  decide(w, { kind: 'ascend', slot: 0, id: 'riptide' });
+  assert.equal(currentHalt(w)?.kind, 'ascend', 'switches are left for the second');
+  decide(w, { kind: 'keep' });
   assert.equal(w.build.embers, 1, 'that Ember is kept');
-  assert.equal(pauseBuild(w).canAscend, false);
 });
-

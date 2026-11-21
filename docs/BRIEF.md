@@ -2,6 +2,8 @@
 
 This brief is for a Claude chat that will build the game. It says what the game is, why each part is there, what to avoid, and how Kevin works. Kevin directs and Claude builds. Where this brief makes a call, follow it. Where it says "builder's call", decide, then say what you decided.
 
+Where Kevin or the lead has since ruled otherwise, the line carries a note in parentheses with the ruling and its date (the rulings are in DECISIONS.md). The notes were added Nov 20 2026; the brief's own words are left as written.
+
 ---
 
 ## 1. The target in one paragraph
@@ -20,7 +22,7 @@ The test for every feature: *does this make Kevin want to do one more run?*
 | **A PC game** | The product is a Windows desktop game played with a controller, keyboard as backup. It is not a phone game, a web app, or a cross-platform compromise. No touch controls, no phone layouts, no phone performance targets. |
 | **Top-down 2D** | A top-down or slightly angled 2D camera. Never first-person, never 3D third-person. |
 | **An actual game, not an idle game** | Nothing progresses while the game is closed. No timers you wait out, no AFK income, no "come back in 4 hours". Progress comes from playing runs. |
-| **Horde combat** | Enemy density keeps climbing until the screen is packed. The fantasy is one person against a thousand. |
+| **Horde combat** | Enemy density keeps climbing until the screen is packed. The fantasy is one person against a thousand. (Kevin, Nov 7: the default fight is fewer, slower, stronger enemies, at most 450 alive; the engine still holds 1,000+, and the pace dials give the crowd back.) |
 | **Meaningful run choices** | Level-ups offer choices that change *how* you play: new weapons, synergies, evolutions, rule-changing relics. A run of "+5% damage or +5% health" is a failure. |
 | **Authored hub, never freeform** | The game decides where every building goes. The player unlocks set improvements, with no plot picking, furniture placement, decorating, or city management. |
 
@@ -70,17 +72,17 @@ If Kevin picks a different theme, keep the structure: **a ruined authored hub th
 
 ### 5.2 Controls
 - **Movement only.** Left stick, or WASD as backup. No attack input.
-- A **dash** is allowed as a movement tool, with a cooldown, and it can be unlocked. Nothing else is active. Builder's call whether it's in the MVP. It is never an attack.
+- A **dash** is allowed as a movement tool, with a cooldown, and it can be unlocked. Nothing else is active. Builder's call whether it's in the MVP. It is never an attack. (Kevin, Nov 16, ruling 16: nothing fires from the dash, ever; a Dash slot holds one item that changes only how the dash works, and nothing gives a dash back per kill.)
 - Level-up choices use the d-pad or stick. Pause, reroll, banish, and skip each get a button.
 
 ### 5.3 Run building (the Soulstone layer on the VS base)
-- **6 weapon slots + 6 passive slots.**
-- **Level-up offers 3 cards** (4 with a hub upgrade). **Reroll**, **Banish** (remove a card from the pool for the rest of the run), and **Skip** have limited uses, and the hub adds more.
-- **Evolutions:** a maxed weapon plus a specific passive, then open a boss chest, gives an evolved weapon, as in VS. Some evolutions are secret and hinted at only in the Library (see 6.1).
-- **Tags:** every weapon carries 1 to 3 tags (Light, Fire, Tide, Frost, Steel, Echo, Rot, and so on). Passives and relics scale tags, not "all damage". Stacking a tag is a build.
-- **Runes (the Soulstone idea):** chests can drop runes that attach to a weapon and change its behavior, not its numbers. Examples: "projectiles split on hit", "leaves burning ground", "orbits you instead of firing", "chains to 3 targets", "fires backward too". Each weapon has 2 rune sockets.
-- **Relics:** rare picks that change the rules. Examples: "XP gems explode when collected", "healing is converted to shield", "every 7th level-up is a free evolution check", "enemies you kill while dashing drop double XP".
-- **Arcana-style run modifiers** (unlocked later): one chosen at the start of a run that bends the whole build.
+- **6 weapon slots + 6 passive slots.** (Ruling 3, Nov 8: 4 and 4 at first, growing to 6 and 6 with the harbor; a character's signature weapon has a slot of its own.)
+- **Level-up offers 3 cards** (4 with a hub upgrade). (Kevin, Nov 8, ruling 10: weapons have no max level; a weapon's card is one upgrade rolled at a rarity, Common to Legendary.) **Reroll**, **Banish** (remove a card from the pool for the rest of the run), and **Skip** have limited uses, and the hub adds more.
+- **Evolutions:** a maxed weapon plus a specific passive, then open a boss chest, gives an evolved weapon, as in VS. Some evolutions are secret and hinted at only in the Library (see 6.1). (Rulings 1 and 14, Nov 8 and 16: evolutions are gone. A weapon makes three Form choices instead, two options each; the last, its Final Form, opens by a goal done with it in the run.)
+- **Tags:** every weapon carries 1 to 3 tags (Light, Fire, Tide, Frost, Steel, Echo, Rot, and so on). (Kevin, Oct 19: the Tide tag is Sea.) Passives and relics scale tags, not "all damage". Stacking a tag is a build.
+- **Runes (the Soulstone idea):** chests can drop runes that attach to a weapon and change its behavior, not its numbers. Examples: "projectiles split on hit", "leaves burning ground", "orbits you instead of firing", "chains to 3 targets", "fires backward too". Each weapon has 2 rune sockets. (Ruling 14, Nov 16: runes are gone. Their behavior changes are Rare and Epic upgrades rolled on the weapons they fit, and each weapon has two or three Legendaries of its own.)
+- **Relics:** rare picks that change the rules. Examples: "XP gems explode when collected", "healing is converted to shield", "every 7th level-up is a free evolution check", "enemies you kill while dashing drop double XP". (Relics take slots since ruling 4, Nov 8; with evolutions gone and ruling 16, the last two examples can't be built.)
+- **Arcana-style run modifiers** (unlocked later): one chosen at the start of a run that bends the whole build. (Ruling 11, Nov 10: arcana became relics; the Heirloom carries one relic you've found from 0:00.)
 
 **Build diversity target:** at least 6 clearly different archetypes should be viable at the top difficulty. Examples: orbit tank, projectile storm, burning-ground kiter, summoner, chain-lightning, and a pure-speed glass cannon.
 
@@ -88,15 +90,15 @@ If Kevin picks a different theme, keep the structure: **a ruined authored hub th
 - **8 at launch, 16+ by v1.0.** Each has a **unique mechanic**, not just a different starting weapon. Examples:
   - The Lamplighter: a light radius that damages anything inside it and grows with level.
   - The Harpooner: her weapons pull enemies in; she gains armor for each enemy near her.
-  - The Tide Priest: she can't heal, but every 60 seconds a wave clears half the screen.
-  - The Drowned Man: gains an extra weapon slot for each boss killed in the run.
-- **Character mastery:** each character levels on their own across runs and unlocks 5 or 6 character-only perks and an alternate starting kit.
+  - The Tide Priest: she can't heal, but every 60 seconds a wave clears half the screen. (As built: her King Tide ebbs and floods every 30 seconds, and a crowd close to her calls it early.)
+  - The Drowned Man: gains an extra weapon slot for each boss killed in the run. (As built, ruling 14: he starts two weapon slots short and wins one back from the sea chests he brings up.)
+- **Character mastery:** each character levels on their own across runs and unlocks 5 or 6 character-only perks and an alternate starting kit. (Kevin, Nov 16, ruling 15: the perks are a skill tree for each character, 13 skills with forks, 7 points from mastery, so no save has them all. Each character also has a signature weapon only they carry: ruling 2, Nov 8.)
 
 ### 5.5 Feel (the part clones get wrong)
 - 1,000+ enemies on screen at 60 fps on a mid-range Windows PC.
 - Hit flash, knockback, and a satisfying XP vacuum pull. Chest openings get a short reel with slot-machine energy. Level-ups pause and read clearly.
 - Mostly contact damage and a few telegraphed hazards. It should be a game you can play half-watching TV. Reading the screen should never feel like a bullet-hell test.
-- Damage numbers can be switched off. Screen shake can be switched off. Density on screen is the reward, so never hide the horde.
+- Damage numbers can be switched off. There is no screen shake (Kevin, 0.7.1). The 1,000+ above is the engine's floor, not the default fight (Kevin, Nov 7). Density on screen is the reward, so never hide the horde.
 
 ---
 
@@ -110,15 +112,15 @@ A fixed, hand-built town map you walk around between runs. It starts buried in f
 | Building | Restores with | What it opens |
 |---|---|---|
 | **The Lamp Post** (start) | Oil | Permanent stat tree (the capped % upgrades) |
-| **The Smithy** | Iron, Salt-glass | Equipment crafting (6.3), then rune crafting |
-| **The Library** | Drowned Pages | Research (6.4): new weapons, relics, and evolution hints enter the pool |
-| **The Tavern** | Coin, Rum | New characters arrive here as they're unlocked; mastery is trained here |
+| **The Smithy** | Iron, Salt-glass | Equipment crafting (6.3), then rune crafting (ruling 14: Tempering in its place, a run's first weapon starting with a Rare upgrade) |
+| **The Library** | Drowned Pages | Research (6.4): new weapons, relics, and evolution hints enter the pool (no evolutions since ruling 1) |
+| **The Tavern** | Coin, Rum | New characters arrive here as they're unlocked; mastery is trained here (skill trees since ruling 15; the Harbor Orders board) |
 | **The Docks** | Timber, Rope | New maps. Each dock level repairs a boat that reaches a new stretch of coast |
 | **The Chapel** | Candles, Bone | Difficulty tiers and curses (6.6) |
 | **The Market** | Coin | Converts materials at a bad rate, so you're never hard-stuck |
-| **The Apothecary** | Marsh Herbs | Starting consumables and reroll/banish/skip charges |
+| **The Apothecary** | Marsh Herbs | Starting consumables and reroll/banish/skip charges (ruling 12: eight run tools) |
 | **The Lighthouse** | Everything | The endgame. Relighting it fully is the "credits" moment and opens Prestige (6.7) |
-| **The Cartographer** | Map Scraps | Map secrets, challenge runs, and the bestiary rewards |
+| **The Cartographer** | Map Scraps | Map secrets, challenge runs, and the bestiary rewards (ruling 13: challenge runs and the bestiary's rewards are Harbor Orders) |
 
 NPCs come back as buildings are restored, and they walk the streets, talk, and react to milestones. **No building placement, no decorating, no furniture.** Ever.
 
@@ -130,12 +132,12 @@ NPCs come back as buildings are restored, and they walk the streets, talk, and r
 
 ### 6.3 Equipment (the Smithy)
 - **4 gear slots** (Lantern, Coat, Boots, Charm), and later a 5th and 6th from Smithy levels.
-- Crafted pieces carry **affixes that change builds**, not flat stats. Examples: "+1 projectile on Tide weapons", "your dash leaves a fire trail", "evolutions also need one fewer passive level".
+- Crafted pieces carry **affixes that change builds**, not flat stats. Examples: "+1 projectile on Tide weapons", "your dash leaves a fire trail", "evolutions also need one fewer passive level". (Ruling 16 moved the fire trail to walking; with evolutions gone, the last is "Final Forms get +6% Damage".)
 - Gear can be upgraded and re-rolled with materials. No random-drop grinding with a slot machine of stats. Crafting is deliberate.
 
 ### 6.4 Research (the Library)
 - A **research tree** where each node costs materials and **finishes after a set number of runs**, never after real time.
-- Research adds weapons, passives, relics, and runes to the pools, and it reveals evolution recipes as partial hints.
+- Research adds weapons, passives, relics, and runes to the pools, and it reveals evolution recipes as partial hints. (No runes or evolutions since rulings 1 and 14; research opens weapons, passives, relics, gear, and Final Forms.)
 - About **70% of all run content is locked behind research at the start**, so the first 20 hours keep adding things.
 
 ### 6.5 Characters and mastery
@@ -152,8 +154,8 @@ Characters are unlocked by in-run feats. Examples: "survive 15 minutes without a
 - Prestige is optional. Kevin wants it as a bonus layer, not a wall.
 
 ### 6.8 Collection and secrets
-- **Bestiary:** kill counts per enemy, with rewards at milestones.
-- **Codex:** every weapon, evolution, relic, and rune, with blanks for undiscovered ones.
+- **Bestiary:** kill counts per enemy, with rewards at milestones. (Ruling 13, Nov 10: the codex holds the counts, and each enemy's Hunt is a Harbor Order.)
+- **Codex:** every weapon, evolution, relic, and rune, with blanks for undiscovered ones. (As built: weapons, passives, relics, enemies, bosses, and maps, with each weapon's page listing its Forms, Legendaries, and traits.)
 - **Secrets:** hidden characters, secret evolutions, and a hidden map reached from the Reef. The VS "what is THAT" energy is part of the appeal.
 - **A completion percentage** on the title screen.
 
@@ -172,6 +174,8 @@ Characters are unlocked by in-run feats. Examples: "survive 15 minutes without a
 | Bosses | 2 | 6 | 12 |
 | Tide levels | 0 | 10 | 20 |
 | Prestige | no | no | yes |
+
+(Since rulings 1 and 14, read evolutions as each weapon's Forms and runes as its Rare and Epic upgrades.)
 
 **What the MVP proves:** the combat feels good at 1,000 enemies; a run offers real choices; the hub visibly changes after the first few runs; and materials from the run clearly point at the next thing to build. If the MVP isn't fun, stop and fix feel before adding content.
 

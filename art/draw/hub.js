@@ -653,3 +653,25 @@ export function cartographerSign() {
     'KKKKKKKKKKKKKK',
   ]);
 }
+
+/**
+ * The Lighthouse's sign (0.9.0): a white tower on its rock, its lantern lit, two rays off it.
+ * Checked against a lighthouse seen side on: a tapering tower, the lantern room the widest bright
+ * part at the top under a dark cap, the gallery a line under the glass.
+ */
+export function lighthouseSign() {
+  return paint('hub_sign_lighthouse', [
+    'KKKKKKKKKKKKKK',
+    'K222222222222K',
+    'K2y22222222y2K',
+    'K22y22kk22y22K',
+    'K22222YY22222K',
+    'K22222kk22222K',
+    'K22222GF22222K',
+    'K22222GF22222K',
+    'K2222GGFF2222K',
+    'K222nnnnnn222K',
+    'K222222222222K',
+    'KKKKKKKKKKKKKK',
+  ]);
+}

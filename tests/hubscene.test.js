@@ -14,6 +14,7 @@ import { B } from '../src/input/gamepad.js';
 import { createUi } from '../src/ui/screens.js';
 import { createHubScene } from '../src/app/scenes/hub.js';
 import { applyRunResult, startResearch, runConfigFor } from '../src/meta/index.js';
+import { orderPosted } from '../src/meta/state.js';   // (round 2: the Tavern counts the posted orders, as the board does)
 import { gateScreen, resultsScreen, hubMenuScreen } from '../src/ui/hubscreens.js';
 import { openSettings } from '../src/app/settings-flow.js';
 import { createSceneManager } from '../src/app/scenes.js';
@@ -28,6 +29,8 @@ import { errorScreen, titleScreen, confirmScreen } from '../src/ui/menus.js';
 import { readFileSync } from 'node:fs';
 import { routeTo } from '../src/hub/map.js';
 import { routeExit } from '../src/ui/hubhud.js';
+import { TASK, TASK_STATE } from '../src/sim/constants.js';
+import { HUNT_COUNTS } from '../src/data/trophies.js';   // (X3)
 
 const HUB = DATA.hub;
 const px = (t) => t * 16 + 8;
@@ -91,7 +94,7 @@ function harbor(doc0, { results = null, view: viewIn = null } = {}) {
 }
 
 test('hub scene: ✕ next to someone says their line and doesn\'t move you; R1 still dashes', () => {
-  const t = harbor(profile({ tavern: 1 }));
+  const t = harbor(profile({ tavern: 1, lamp_post: 2 }));
   const her = t.world.people.find((p) => p.id === 'harpooner');
   assert.ok(her, 'the Harpooner waits on the square');
   t.place(her.post, 10);
@@ -125,12 +128,12 @@ test('hub scene: ✕ at a door opens its panel without moving you; the panel say
   // Tide Charts can't start while the Orbwright's Notes runs (one project at a time): the row says
   // so, and pressing it says so again (with the menu's "no"), buying nothing.
   const row = t.top().el.querySelector('[data-focus="r:tide_charts"]');
-  assert.ok(textsOf(row).includes('Research slots full (1/1)'));
+  assert.ok(textsOf(row).includes('The Library is busy. Play runs until a project finishes, or restore the Library to Lv 3'));
   assert.equal(row.getAttribute('aria-disabled'), null, 'it still takes a press');
   assert.ok(t.top().scope.focusKey('r:tide_charts'));
   t.sounds.length = 0;
   t.press(B.SOUTH);
-  assert.equal(t.top().el.querySelector('.bld-note').textContent, 'Research slots full (1/1)');
+  assert.equal(t.top().el.querySelector('.bld-note').textContent, 'The Library is busy. Play runs until a project finishes, or restore the Library to Lv 3');
   assert.deepEqual(t.sounds, ['ui_back']);
   assert.equal(t.state.saves, 0, 'nothing bought');
   // The one under way says so when pressed; a click does what a press does.
@@ -155,13 +158,13 @@ test('hub scene: after a purchase the focus stays on the row and the list keeps 
   assert.equal(t.state.doc.profile.upgrades.tide_luck, 1, 'bought rank 1');
   assert.equal(panel.scope.current.dataset.focus, 'u:tide_luck', 'still on the row just bought');
   assert.equal(panel.el.querySelector('.list').scrollTop, 42, 'and the list didn\'t jump to the top');
-  assert.equal(panel.el.querySelector('.bld-note').textContent, `Scavenger 1/${DATA.upgrades.find((u) => u.id === 'tide_luck').ranks}`);
+  assert.equal(panel.el.querySelector('.bld-note').textContent, `Scavenger, rank 1 of ${DATA.upgrades.find((u) => u.id === 'tide_luck').ranks}`);
   t.press(B.SOUTH);
   assert.equal(t.state.doc.profile.upgrades.tide_luck, 2, 'so the next press buys the next rank');
 });
 
 test('hub scene: the harbor\'s menu opens and closes on Options; its Set out goes to the gate', () => {
-  const t = harbor(profile({ tavern: 1 }));
+  const t = harbor(profile({ tavern: 1, lamp_post: 2 }));
   t.press(B.START);
   assert.match(t.top().el.className, /hub-menu/);
   assert.equal(t.scene.idle, false, 'not a safe point with the menu open');
@@ -193,7 +196,7 @@ test('hub scene: a restore plays its ceremony; skipping it still shows the banne
   assert.equal(t.world.timeline, null);
   const banner = t.hud('hud-banner');
   assert.equal(banner.hidden, false);
-  assert.deepEqual(textsOf(banner), ['Library Lv 1', 'Unlocks research', 'Clears the fog nearby']);
+  assert.deepEqual(textsOf(banner), ['Library Lv 1', 'Research: pay materials to start a project, and it finishes after a few runs', 'Pushes the fog back from nearby streets']);
   assert.ok(t.world.revealed.has('library_1'));
   assert.equal(t.state.idle, idleBefore + 1, 'the harbor says it is idle again (a waiting update may load)');
 });
@@ -208,9 +211,13 @@ test('hub scene: the results come up over the harbor; closing them makes the har
   const s = t.top();
   assert.match(s.el.className, /results-screen/);
   const texts = textsOf(s.el);
-  for (const line of ['Results', 'Survived 7:11', '12 Coin', '3 Oil', 'Fog Wisp: 100 kills total', 'Next up']) assert.ok(texts.includes(line), `says "${line}" (${texts.join(' | ')})`);
+  // The totals (picked up, and 7 minutes' pay), the news, Next up (0.7.3).
+  for (const line of ['Results', 'Survived 7:11', '40 Coin', '17 Oil', 'Time bonus (7 min): +28 Coin, +14 Oil', 'Next up']) assert.ok(texts.includes(line), `says "${line}" (${texts.join(' | ')})`);
   assert.equal(s.scope.current.dataset.focus, 'continue');
   assert.equal(t.scene.idle, false, 'never a safe point with the results up');
+  t.frame(30);
+  t.press(B.SOUTH);
+  assert.equal(t.top(), s, 'a press in the first 800 ms does nothing (0.7.3)');
   t.frame(30);   // past the screen's input delay
   assert.equal(t.state.idle, 0);
   t.press(B.SOUTH);
@@ -251,7 +258,7 @@ test('hub scene: the prompt, the corner panels, the skip hint, a keeper\'s line,
   t.place(lib.door);
   t.frame();
   assert.equal(prompt.hidden, false);
-  assert.deepEqual(textsOf(prompt).slice(-1), ['Enter Library']);
+  assert.deepEqual(textsOf(prompt).slice(-1), ['Enter the Library']);
   // Silas at his door: his line in a bubble, gone once you step away.
   const silas = t.world.people.find((p) => p.id === 'librarian');
   t.place(silas.post, 6);
@@ -294,7 +301,7 @@ test('hub scene: the prompt, the corner panels, the skip hint, a keeper\'s line,
 });
 
 test('hub scene: a purchase updates the materials and the next three at once', () => {
-  const t = harbor(profile({ lamp_post: 3 }, { oil: 20, coin: 20 }));
+  const t = harbor(profile({ lamp_post: 3 }, { oil: 130, coin: 130 }));
   const mats = t.hud('hud-mats'), next = t.hud('hud-next');
   const oilBefore = textsOf(mats);
   const nextBefore = textsOf(next).join(' | ');
@@ -303,9 +310,9 @@ test('hub scene: a purchase updates the materials and the next three at once', (
   t.press(B.SOUTH);
   assert.equal(t.state.doc.profile.upgrades.bright_flame, 1);
   assert.notDeepEqual(textsOf(mats), oilBefore, 'the materials bar shows what\'s left');
-  assert.ok(textsOf(mats).includes(String(20 - DATA.upgrades.find((u) => u.id === 'bright_flame').cost.oil)), textsOf(mats).join(' '));
+  assert.ok(textsOf(mats).includes(String(130 - DATA.upgrades.find((u) => u.id === 'bright_flame').cost.oil)), textsOf(mats).join(' '));
   assert.notEqual(textsOf(next).join(' | '), nextBefore, 'the next three moved on');
-  assert.ok(textsOf(next).includes('Brighter Flame 2/5') || !textsOf(next).includes('Brighter Flame 1/5'), textsOf(next).join(' | '));
+  assert.ok(textsOf(next).includes('Brighter Flame, rank 2 of 5') || !textsOf(next).includes('Brighter Flame, rank 1 of 5'), textsOf(next).join(' | '));
 });
 
 test('hub scene: the d-pad moves through a panel by where things are, and presses what it lands on', () => {
@@ -319,14 +326,16 @@ test('hub scene: the d-pad moves through a panel by where things are, and presse
   };
   layout();
   assert.equal(panel.scope.current.dataset.focus, 'restore');
+  // Right from Restore: the list's first row in view (0.9.0, V4: it landed on the second), however
+  // the rows line up beside it.
   t.press(B.RIGHT);
-  assert.equal(panel.scope.current.dataset.focus, `u:${DATA.upgrades[5].id}`, 'right: the row beside it');
-  t.press(B.DOWN);
-  assert.equal(panel.scope.current.dataset.focus, `u:${DATA.upgrades[6].id}`);
-  t.press(B.UP); t.press(B.UP);
-  assert.equal(panel.scope.current.dataset.focus, `u:${DATA.upgrades[4].id}`);
+  assert.equal(panel.scope.current.dataset.focus, `u:${DATA.upgrades[0].id}`, 'right: the list\'s first row');
+  t.press(B.DOWN); t.press(B.DOWN);
+  assert.equal(panel.scope.current.dataset.focus, `u:${DATA.upgrades[2].id}`);
+  t.press(B.UP);
+  assert.equal(panel.scope.current.dataset.focus, `u:${DATA.upgrades[1].id}`);
   t.press(B.SOUTH);
-  assert.equal(t.state.doc.profile.upgrades[DATA.upgrades[4].id], 1, 'pressed what it landed on');
+  assert.equal(t.state.doc.profile.upgrades[DATA.upgrades[1].id], 1, 'pressed what it landed on');
   layout();
   t.press(B.LEFT);
   assert.equal(panel.scope.current.dataset.focus, 'restore');
@@ -336,8 +345,9 @@ test('hub scene: the Tavern lists who comes back; the results\' next three and S
   const t = harbor(profile({ tavern: 2 }));
   const panel = t.open('tavern');
   const words = textsOf(panel.el.querySelector('.bld-list'));
-  for (const line of ['Unlocks', 'New character: Harpooner', 'New relic: Tide Clock', 'Bram returns', 'Bram walks the harbor']) assert.ok(words.includes(line), `says "${line}"`);
-  assert.equal(words.filter((w) => w === 'Unlocked').length, 2, 'levels 1 and 2 are here');
+  // Three parts (0.7.3): Levels, Mastery (each character's way into their skill tree: ruling 15), and Feats.
+  for (const line of ['Levels', 'Mastery', 'Harbor Orders', `0 of ${DATA.feats.filter((f) => orderPosted(profile({ tavern: 2 }), DATA, f)).length} done`, 'Bram, the innkeeper, moves back in', 'Bram starts walking around the harbor', 'Lamplighter\'s skills', 'No skills taken yet.']) assert.ok(words.includes(line), `says "${line}" (${words.join(' | ')})`);
+  assert.equal(words.filter((w) => w === 'Restored').length, 2, 'levels 1 and 2 are here');
   assert.ok(!words.includes('Clears the fog nearby'), 'the fog isn\'t someone coming back');
   t.press(B.EAST);
   // The results, with the next three, and Set out again straight to the gate.
@@ -348,7 +358,7 @@ test('hub scene: the Tavern lists who comes back; the results\' next three and S
   const texts = textsOf(s.el);
   assert.ok(texts.includes('Lamp Post Lv 1'), texts.join(' | '));
   assert.ok(texts.includes('Returned at 1:10'));
-  r.frame(30);
+  r.frame(50);
   s.scope.focusKey('again');
   r.press(B.SOUTH);
   assert.match(r.top().el.className, /gate-screen/, 'Set out again opens the gate');
@@ -429,7 +439,9 @@ test('hub scene: the tuning panel (hold Create): the harbor\'s numbers live, Cop
   const note = () => panel.el.querySelector('.tuning-note').textContent;
   assert.match(note(), /the harbor shows it at once/);
   const groups = [...panel.el.querySelectorAll('.tuning-group')].map((g) => g.textContent);
-  assert.deepEqual(groups, ['Dev commands', 'hub.timing', 'hub.look', 'hub.look.dust', 'hub.look.smoke', 'hub.look.puffs']);
+  // Plain names (0.7.3): the groups and every value in words, with units; Copy tuning keeps the paths.
+  assert.deepEqual(groups, ['Dev commands', 'Harbor timing', 'Harbor look', 'Harbor look, dust', 'Harbor look, smoke', 'Harbor look, puffs']);
+  assert.ok(!textsOf(panel.el).some((x) => /^hub\./.test(x)), 'no code names on the rows');
   assert.equal(panel.el.querySelector('[data-focus="t:hub.look.fogColor"]'), null, 'colors are changed in the data, not stepped');
   assert.equal(panel.el.querySelector('[data-focus="t:hub.look.dust.color"]'), null, 'in a group of their own too');
   assert.ok(panel.el.querySelector('[data-focus="t:hub.look.smoke.every"]'), 'the numbers in a group of their own are on it');
@@ -440,7 +452,7 @@ test('hub scene: the tuning panel (hold Create): the harbor\'s numbers live, Cop
   assert.equal(t.state.saves, 1);
   assert.equal(t.state.doc.profile.materials.coin, 100);
   assert.equal(t.state.doc.profile.flags.devTools, true);
-  assert.match(note(), /^Added 100 of each material the maps drop \(8 kinds\)\. Saved to your profile\.$/);
+  assert.match(note(), /^Added 100 of each material the maps drop \(10 kinds\)\. Saved to your profile\.$/);
   assert.ok(textsOf(t.hud('hud-mats')).some((x) => x.trim() === '100'));
   // A value: right steps it, and the world reads it on its next tick.
   const reach = DATA.hubTuning.timing.reach;
@@ -555,7 +567,7 @@ test('run scene: a run is the app\'s config for it (the profile\'s pools), and R
   assert.deepEqual(asked, [{ character: 'lamplighter', seed: 'cfg-test', all: false }], 'the app is asked for the run\'s config');
   const want = runConfigFor(doc, DATA, { character: 'lamplighter', seed: 'cfg-test' });
   const ids = (list) => list.map((x) => x.id);
-  for (const kind of ['weapons', 'passives', 'relics', 'runes']) assert.deepEqual(ids(scene.world.pools[kind]), want.pools[kind], `the run draws from the profile's ${kind}`);
+  for (const kind of ['weapons', 'passives', 'relics']) assert.deepEqual(ids(scene.world.pools[kind]), want.pools[kind], `the run draws from the profile's ${kind}`);
   assert.ok(want.pools.weapons.length < DATA.weapons.length, 'which is less than everything');
   const frame = (n = 1) => { for (let i = 0; i < n; i++) { box.t += FRAME_MS; input.update(FRAME_MS); scene.step(1 / 60); scene.frame(1, FRAME_MS); ui.update(FRAME_MS); } };
   frame(5);
@@ -644,12 +656,12 @@ test('screens: the title\'s Continue, the question before leaving, the desktop\'
 
 test('hub scene: what a purchase and a set piece leave behind, and the smaller rules of the screens', () => {
   // The view gets the new levels the moment a building is restored (its ceremony shows the step).
-  const t = harbor(profile({}, RICH));
-  assert.deepEqual(t.view.levels, Object.fromEntries(DATA.buildings.map((b) => [b.id, 0])));
-  t.open('tavern').scope.focusKey('restore');
+  const t = harbor(profile({ lamp_post: 1 }, RICH));
+  assert.deepEqual(t.view.levels, Object.fromEntries(DATA.buildings.map((b) => [b.id, b.id === 'lamp_post' ? 1 : 0])));
+  t.open('lamp_post').scope.focusKey('restore');
   t.press(B.SOUTH);
-  assert.equal(t.view.levels.tavern, 1);
-  // The Tavern's first level: its ceremony, then the Harpooner's boat. Circle skips as well as cross.
+  assert.equal(t.view.levels.lamp_post, 2);
+  // The Lamp Post's second level: its ceremony, then the Harpooner's boat. Circle skips as well as cross.
   assert.equal(t.world.timeline.kind, 'ceremony');
   t.press(B.EAST);
   assert.deepEqual([t.world.timeline?.kind, t.world.timeline?.id], ['arrival', 'harpooner']);
@@ -666,7 +678,7 @@ test('hub scene: what a purchase and a set piece leave behind, and the smaller r
   const panel = lp.open('lamp_post');
   const rankOf = (id) => panel.el.querySelector(`[data-focus="u:${id}"] .row-rank`).textContent;
   assert.equal(rankOf('bright_flame'), '0/5');
-  assert.equal(textsOf(panel.el.querySelector('[data-focus="u:quick_step"]')).includes('Requires Lamp Post Lv 2'), true, 'a locked upgrade says why');
+  assert.equal(textsOf(panel.el.querySelector('[data-focus="u:quick_step"]')).includes('Needs the Lamp Post at Lv 2'), true, 'a locked upgrade says why');
   panel.scope.focusKey('u:bright_flame');
   lp.press(B.SOUTH);
   assert.equal(rankOf('bright_flame'), '1/5', 'redrawn with the new rank');
@@ -703,7 +715,10 @@ test('hub scene: the results take a moment before a press counts, then Circle cl
   assert.equal(t.top(), s, 'a press right away is ignored (a held button from the run can\'t close them)');
   t.frame(30);
   t.press(B.EAST);
-  assert.equal(t.top(), null, 'Circle closes them');
+  assert.ok(t.top() === s, 'and for 800 ms (0.7.3)');
+  t.frame(20);
+  t.press(B.EAST);
+  assert.ok(t.top() === null, 'Circle closes them');
 });
 
 test('hub scene: research starts from the Library\'s panel, saved, and its row says it\'s under way', () => {
@@ -730,8 +745,12 @@ test('hub scene: research starts from the Library\'s panel, saved, and its row s
   assert.ok(costs.length > 0 && costs.every((c) => c.classList.contains('short')), 'short of it all');
   const rich = harbor(profile({ library: 1 }, RICH));
   assert.ok([...rich.open('library').el.querySelectorAll('[data-focus="r:orbwright"] .cost-item')].every((c) => !c.classList.contains('short')), 'none short');
+  // Fully restored: no next level, the list takes the whole width, and the Tavern's levels go (0.7.3).
   const done = harbor(profile({ tavern: 5 }));
-  assert.deepEqual(textsOf(done.open('tavern').el.querySelector('.bld-next')), ['Fully restored']);
+  const full = done.open('tavern').el;
+  assert.deepEqual(textsOf(full.querySelector('.bld-next')), []);
+  assert.ok(full.querySelector('.bld-body').classList.contains('full'));
+  assert.ok(!textsOf(full.querySelector('.bld-list')).includes('Levels'), textsOf(full.querySelector('.bld-list')).join(' | '));
 });
 
 test('hub scene: after Run again, the results say how many runs since the harbor, and which map the last one cleared', () => {
@@ -739,7 +758,7 @@ test('hub scene: after Run again, the results say how many runs since the harbor
   const first = applyRunResult(profile(), run('died', 200), DATA);
   const second = applyRunResult(first.doc, run('cleared', 1500), DATA);
   const t = harbor(second.doc, { results: { changes: [...first.changes, ...second.changes], result: run('cleared', 1500), runs: 2 } });
-  assert.ok(textsOf(t.top().el).includes('Results (2 runs)') && textsOf(t.top().el).includes('Last run: Drowned Docks cleared in 25:00'), textsOf(t.top().el).join(' | '));
+  assert.ok(textsOf(t.top().el).includes('Results (2 runs)') && textsOf(t.top().el).includes('Last run: Drowned Docks cleared at 25:00'), textsOf(t.top().el).join(' | '));
 });
 
 test('settings: a switch between fullscreen and a window saves first, then switches; the error screen says what stopped; the root carries the view\'s unit and left edge', async () => {
@@ -844,7 +863,7 @@ test('hub scene: the guide shows its goal and marker until its target is in reac
 });
 
 /** The run scene with stand-ins for what needs a browser, and a frame() that runs one frame as main.js does. */
-function runRig({ isFirstRun = () => false, character = 'lamplighter', seed = 'rig' } = {}) {
+function runRig({ isFirstRun = () => false, character = 'lamplighter', seed = 'rig', harbor = null, map = null, seen = null, config = null } = {}) {
   const document = installFakeDocument();
   const root = document.createElement('div');
   document.body.appendChild(root);
@@ -856,8 +875,11 @@ function runRig({ isFirstRun = () => false, character = 'lamplighter', seed = 'r
   const view = { now: 0, attach() {}, detach() {}, markTick() {}, consume() {}, draw(a, ms) { this.now += ms; }, screenFlash: () => 0 };
   const errors = [];
   const camera = { x: 320, y: 180 };
+  const notices = [], quiet = [], loud = [];
   const scene = createRunScene({
-    view, hud: { attach() {}, detach() {}, draw() {}, notice() {} }, input, ui, menuCtx, audio: { ok: false }, data: DATA, buildId: 'test',
+    view, hud: { attach() {}, detach() {}, draw() {}, notice(lines, ms, now, opts) { notices.push(lines); (opts?.quiet ? quiet : loud).push(lines); } }, input, ui, menuCtx, audio: { ok: false }, data: DATA, buildId: 'test',
+    ...(harbor || map || config ? { configFor: (c) => ({ seed: c.seed, character: c.character, map: map ?? DATA.maps[0].id, ...(harbor ? { harbor } : {}), ...config }) } : {}),
+    ...(seen ? { seen } : {}),
     loop: { pause() {}, resume() {}, reset() {}, hitStop() {} }, renderer: { camera },
     onRunSaved() {}, onHarbor() {}, startRun() {}, onSettings() {}, saveReport() {}, copyText: () => 'ok', onTitle() {},
     isFirstRun, onError: (e) => errors.push(e),
@@ -865,8 +887,33 @@ function runRig({ isFirstRun = () => false, character = 'lamplighter', seed = 'r
   scene.enter({ character, seed, all: true });
   const frame = (n = 1) => { for (let i = 0; i < n; i++) { box.t += FRAME_MS; input.update(FRAME_MS); scene.step(1 / 60); scene.frame(1, FRAME_MS); ui.update(FRAME_MS); } };
   const press = (b) => { box.pads = [dualSense([b])]; frame(); box.pads = [dualSense()]; frame(); };
-  return { scene, ui, root, box, frame, press, errors, camera };
+  return { scene, ui, root, box, frame, press, errors, camera, notices, quiet, loud };
 }
+
+test('run scene: one frame\'s notices show in turn, so the first Pearls are explained even when a lamp gives it; a lamp lit goes on the quiet line', () => {
+  const light = (rig) => {
+    rig.frame(2);
+    const w = rig.scene.world;
+    const lamp = w.tasks.findIndex((t) => t.kind === TASK.LAMP);
+    rig.scene.recorded.decide({ kind: 'dev', cmd: 'warp', task: lamp });
+    for (let k = 0; k < 900 && w.tasks[lamp].state !== TASK_STATE.DONE; k++) rig.frame();
+    assert.equal(w.tasks[lamp].state, TASK_STATE.DONE, 'lit by standing there');
+  };
+  // With the Ferryman in the run: the lamp's line asks nothing (the quiet line), and the first Sea
+  // Glass says what it's for (the middle line), once a run.
+  const r = runRig({ seed: 'glass', harbor: { ferry: 1, lampSpeed: 0, bellRing: 0, tasksOnMap: 0, secretsOnMap: 0 } });
+  light(r);
+  const lit = r.quiet.find((n) => n.some((l) => /^Lamp 1 of \d+ lit/.test(l)));
+  assert.ok(lit, JSON.stringify(r.notices));
+  assert.ok(r.loud.flat().some((l) => /^Pearls: spend them with the Ferryman/.test(l)), `the first Pearls are said: ${JSON.stringify(r.loud)}`);
+  assert.equal(r.notices.flat().filter((l) => /^Pearls: /.test(l)).length, 1, 'once a run');
+  assert.ok(lit.some((l) => /enemies in its light burn(, and your Fuel is full)?, \d+ Pearls$/.test(l)), 'a lit lamp is a ward, and says what it paid (0.8.2)');
+  // Before the Docks there is no one to spend them with: nothing about Pearls at all (0.7.3).
+  const bare = runRig({ seed: 'glass' });
+  light(bare);
+  assert.ok(bare.quiet.flat().some((l) => /^Lamp 1 of \d+ lit: enemies in its light burn(, and your Fuel is full)?$/.test(l)), JSON.stringify(bare.quiet));
+  assert.ok(!bare.notices.flat().some((l) => /Sea Glass|Pearl/.test(l)), JSON.stringify(bare.notices));
+});
 
 test('run scene: a first run shows How to play, hidden under a screen, gone after its seconds; a later run never shows it', () => {
   for (const first of [true, false]) {
@@ -875,7 +922,8 @@ test('run scene: a first run shows How to play, hidden under a screen, gone afte
     const card = () => root.querySelector('.run-tips');
     if (!first) { assert.equal(card(), null, 'not after the first run'); continue; }
     assert.ok(card(), 'a first run shows it');
-    assert.deepEqual(textsOf(card()).filter((s) => /\w{4}/.test(s)).slice(0, 1), ['How to play']);
+    // 0.9.0: Move and Dash only (the map's things get a tip over each, app/runtips.js).
+    assert.ok(textsOf(card()).some((s) => /Move/.test(s)) && textsOf(card()).some((s) => /Dash/.test(s)));
     scene.openPauseForTools();
     frame();
     assert.equal(card().hidden, true, 'hidden under the pause');
@@ -899,7 +947,7 @@ test('run scene: a first run shows How to play, hidden under a screen, gone afte
   }
 });
 
-test('run scene: an Ember opens Ascend; Keep for later, then the pause\'s Ascend spends it; the pause never offers it over another screen', () => {
+test('run scene: an Ember opens its screen; Keep for later, then the pause\'s Use an Ember spends it; the pause never offers it over another screen', () => {
   const { scene, ui, frame, press } = runRig({ seed: 'ascend' });
   frame(2);
   const w = scene.world;
@@ -907,13 +955,13 @@ test('run scene: an Ember opens Ascend; Keep for later, then the pause\'s Ascend
   frame(3);
   assert.match(ui.top?.el.className ?? '', /ascend-screen/, 'the Ember stopped the run for the choice');
   const words = textsOf(ui.top.el);
-  for (const t of ['Ascend', 'Flare Gun', 'Forms: 0 of 3', 'Keep for later']) assert.ok(words.includes(t), `says "${t}"`);
-  // Step 2: a weapon's three Forms, each with its kind; Back returns to the weapons.
+  for (const t of ['Forms', 'Flare Gun', '0 of 3 Forms', 'Keep for later']) assert.ok(words.includes(t), `says "${t}"`);
+  // Step 2: a weapon's options, two an axis, each with its axis and price; Back returns to the weapons.
   frame(20);
-  ui.top.scope.focusKey('w0');
+  ui.top.scope.focusKey('w1');   // (0.9.0, W2: her lamp, Lamplight, is weapon 0 now; the Flare Gun is 1)
   press(B.SOUTH);
   const forms = textsOf(ui.top.el);
-  for (const t of ['Salvo', 'Mortar', 'Hanging Flare', 'How it fires', 'How it flies', 'What it leaves']) assert.ok(forms.includes(t), `the Forms screen says "${t}"`);
+  for (const t of ['Salvo', 'Muzzle Flash', 'Mortar', 'Hanging Flare', 'First Form', 'Second Form', 'Final Form', 'Drawback: +10% Cooldown']) assert.ok(forms.includes(t), `the Forms screen says "${t}"`);
   press(B.EAST);
   assert.ok(textsOf(ui.top.el).includes('Keep for later'), 'Back: the weapons again');
   // Options over the Ascend screen: the pause has no Ascend (the Ember's own screen is open).
@@ -931,27 +979,27 @@ test('run scene: an Ember opens Ascend; Keep for later, then the pause\'s Ascend
   // The pause now offers it; Ascend there opens the screen; a pick spends it.
   press(B.START);
   const asc = ui.top.el.querySelector('[data-focus="ascend"]');
-  assert.ok(asc, 'Ascend (1) in the pause');
-  assert.deepEqual(textsOf(asc).slice(-1), ['Ascend (1)']);
+  assert.ok(asc, 'Forms (1 Ember) in the pause');
+  assert.deepEqual(textsOf(asc).slice(-1), ['Forms (1 Ember)']);
   ui.top.scope.focusKey('ascend');
   press(B.SOUTH);
   frame(20);
   assert.match(ui.top?.el.className ?? '', /ascend-screen/);
-  ui.top.scope.focusKey('w0');
+  ui.top.scope.focusKey('w1');
   press(B.SOUTH);
-  ui.top.scope.focusKey('f1');
+  ui.top.scope.focusKey('f1');   // (an Ember opens its next axis early: how it fires, Muzzle Flash the second)
   press(B.SOUTH);
   assert.equal(ui.top, null);
   assert.equal(w.build.embers, 0);
-  assert.deepEqual(w.slots[0].ascensions.map((a) => a.id), ['mortar']);
+  assert.deepEqual(w.slots[1].ascensions.map((a) => a.id), ['muzzle_flash']);
   // Pause, Stats: the character, the weapons (her own light too), and the items.
   press(B.START);
   ui.top.scope.focusKey('stats');
   press(B.SOUTH);
   assert.match(ui.top?.el.className ?? '', /stats-screen/);
   const stats = textsOf(ui.top.el);
-  for (const t of ['Character', 'All weapons', 'Weapons', 'Items', 'HP', 'DPS', 'Total Damage', 'Materials found', 'Forms: Mortar']) assert.ok(stats.includes(t), `Stats says "${t}" (${stats.join(' | ')})`);
-  assert.ok(stats.some((t) => /\(built in\)/.test(t)), "the character's own weapon is listed");
+  for (const t of ['Character', 'All weapons', 'Weapons', 'Items', 'HP', 'DPS', 'Total Damage', 'Materials found', 'Forms: Muzzle Flash']) assert.ok(stats.includes(t), `Stats says "${t}" (${stats.join(' | ')})`);
+  assert.ok(stats.some((t) => /^Lamplight/.test(t)), "the character's own weapon is listed (0.9.0: her signature, Lamplight)");
   press(B.EAST);
   assert.ok(ui.has((x) => x.isPause), 'Back returns to the pause');
 });
@@ -996,17 +1044,18 @@ function phase7Profile() {
   const d = profile(Object.fromEntries(DATA.buildings.map((b) => [b.id, b.levels.length])), RICH);
   d.profile.research.done = DATA.research.map((r) => r.id);
   d.profile.characters = { lamplighter: { unlocked: true, masteryXp: 60, perks: [] } };
-  d.profile.bestiary = { fog_wisp: 150 };
-  d.profile.tide = { unlocked: 4, selected: 2 };
-  d.profile.consumables = { smelling_salts: 1, 'rune:splitting': 1 };
+  d.profile.bestiary = { fog_wisp: 150, drowned_bosun: 5 };
+  d.profile.tides = { drowned_docks: 4 }; d.profile.tide = { selected: 2 };
+  d.profile.consumables = { smelling_salts: 1 };
+  d.profile.feats = ['dawn'];   // (the Smelling Salts: Bell Breaker's)
   return d;
 }
 const keyOf = (t) => t.top().scope.current?.dataset.focus;
 
 test('hub scene: every row of every Phase 7 panel takes focus (a pad reaches them all), and each panel lists what it should', () => {
   const t = harbor(phase7Profile());
-  const want = { tavern: ['i:lamplighter_mastery', 'p:trimmed_wick', 'i:dawn'], smithy: ['i:worn', 'c:storm_lantern', 's:splitting'], chapel: ['i:tide_1', 'i:tide_10', 'i:brittle'],
-    market: ['t:iron'], apothecary: ['b:smelling_salts'], cartographer: ['i:wreck_cache', 'k:fog_wisp', 'i:flood'], docks: ['lv:1', 'lv:5'] };
+  const want = { tavern: ['i:lamplighter_s_mastery', 'k:lamplighter', 'orders'], smithy: ['i:wearing', 'c:storm_lantern'], chapel: ['i:tide_1', 'i:tide_10', 'i:brittle'],
+    market: ['t:iron'], apothecary: ['b:smelling_salts', 'b:driftwood_token'], cartographer: ['i:wreck_hold', 'i:on_your_minimap', 'i:challenge_runs'], docks: ['lv:1', 'lv:5'] };
   for (const [b, keys] of Object.entries(want)) {
     const panel = t.open(b);
     const rows = [...panel.el.querySelectorAll('.bld-list .list-row')];
@@ -1016,10 +1065,10 @@ test('hub scene: every row of every Phase 7 panel takes focus (a pad reaches the
     t.press(B.EAST);
   }
   // The Chapel says what opens each Tide and curse.
-  const low = harbor((() => { const d = profile({ chapel: 1 }, RICH); d.profile.tide = { unlocked: 0, selected: 0 }; return d; })());
+  const low = harbor((() => { const d = profile({ chapel: 1 }, RICH); d.profile.tides = {}; d.profile.tide = { selected: 0 }; return d; })());
   const ch = low.open('chapel');
   const texts = textsOf(ch.el);
-  assert.ok(texts.includes('Clear the map') && texts.includes('Requires Chapel Lv 2') && texts.includes('Requires Chapel Lv 5'));
+  assert.ok(texts.includes('Kill the last boss to open it') && texts.includes('Opens at Chapel Lv 2') && texts.includes('Opens at Chapel Lv 5'));
   assert.ok(texts.some((x) => /^\+15% Enemy HP, \+8% Enemy Damage, \+5% Enemies, \+1.5% Enemy Speed, \+12% Materials$/.test(x)), 'a Tide\'s whole effect');
 });
 
@@ -1029,7 +1078,7 @@ test('hub scene: the Smithy: make an item, open it, wear and take off, raise its
   assert.ok(panel.scope.focusKey('c:storm_lantern'));
   t.press(B.SOUTH);
   assert.equal(t.state.doc.profile.gear.inventory.length, 1);
-  assert.ok(textsOf(panel.el).includes('Made: Storm Lantern (worn)'));
+  assert.ok(textsOf(panel.el).includes('Made a Storm Lantern and put it on'));
   assert.ok(panel.scope.focusKey('g:1'));
   t.press(B.SOUTH);
   const gear = t.top();
@@ -1042,7 +1091,7 @@ test('hub scene: the Smithy: make an item, open it, wear and take off, raise its
   gear.scope.focusKey('tier');
   t.press(B.SOUTH);
   assert.equal(t.state.doc.profile.gear.inventory[0].tier, 2);
-  assert.ok(textsOf(gear.el).includes('Storm Lantern: tier 2'));
+  assert.ok(textsOf(gear.el).includes('The Storm Lantern is now Uncommon'), 'tiers read as rarities (ruling 10)');
   const before = t.state.doc.profile.gear.inventory[0].affixes[1];
   gear.scope.focusKey('a1');
   t.press(B.SOUTH);
@@ -1067,7 +1116,7 @@ test('hub scene: the Smithy: make an item, open it, wear and take off, raise its
   assert.equal(t.state.saves, saves);
 });
 
-test('hub scene: the Market trades, the Apothecary sells, the Cartographer pays a claim, the Tavern trains, each said on the panel', () => {
+test('hub scene: the Market trades, the Apothecary sells, the Cartographer shows its charts, the Tavern trains, each said on the panel', () => {
   const t = harbor(phase7Profile());
   const m = t.open('market');
   m.scope.focusKey('t:iron'); t.press(B.SOUTH);
@@ -1076,21 +1125,20 @@ test('hub scene: the Market trades, the Apothecary sells, the Cartographer pays 
   const a = t.open('apothecary');
   a.scope.focusKey('b:smelling_salts'); t.press(B.SOUTH);
   assert.equal(t.state.doc.profile.consumables.smelling_salts, 2);
-  assert.ok(textsOf(a.el).includes('Bought: Smelling Salts (2 held)'));
+  assert.ok(textsOf(a.el).includes('Bought Smelling Salts. You have 2'));
   t.press(B.EAST);
+  // The Cartographer draws maps (ruling 13: no claims): what the charts mark, and where the set runs are.
   const c = t.open('cartographer');
-  c.scope.focusKey('k:fog_wisp'); t.press(B.SOUTH);
-  assert.ok(textsOf(c.el).includes('Fog Wisp: 10 kills claimed'));
-  t.press(B.SOUTH);
-  assert.ok(textsOf(c.el).includes('Fog Wisp: 100 kills claimed'));
-  t.press(B.SOUTH);
-  assert.ok(textsOf(c.el).includes('Need 1000 kills (150)'), 'the next one says why not');
+  assert.ok(textsOf(c.el).includes('Small secrets: marked') && textsOf(c.el).includes('Big secrets: marked'), textsOf(c.el).join(' | '));
+  assert.ok(![...c.el.querySelectorAll('[data-focus]')].some((e) => e.dataset.focus.startsWith('k:')), 'nothing to claim');
   t.press(B.EAST);
   const v = t.open('tavern');
-  v.scope.focusKey('p:trimmed_wick'); t.press(B.SOUTH);
-  assert.ok(textsOf(v.el).includes('Trained: Trimmed Wick'));
-  t.press(B.SOUTH);
-  assert.ok(textsOf(v.el).includes('Already trained'));
+  // Ruling 15: the Mastery list opens a character's skill tree, a screen of its own.
+  v.scope.focusKey('k:lamplighter'); t.press(B.SOUTH);
+  assert.notEqual(t.top(), v, 'the tree is its own screen');
+  assert.ok(textsOf(t.top().el).includes('Great Lamp'), textsOf(t.top().el).join(' | '));
+  t.press(B.EAST);
+  assert.equal(t.top(), v, 'and back to the Tavern');
 });
 
 test('hub scene: the gate\'s second step: its rows, a detail for the focused value, changes, a refusal that stays, and Start', () => {
@@ -1100,34 +1148,80 @@ test('hub scene: the gate\'s second step: its rows, a detail for the focused val
   t.press(B.SOUTH);   // the Lamplighter
   const s = t.top();
   assert.match(s.el.className, /setup-screen/);
-  assert.equal(s.el.querySelector('h1').textContent, 'Lamplighter');
-  assert.ok(s.scope.focusKey('tide'));
+  assert.equal(s.el.querySelector('h1').textContent, 'Start a run', 'the screen\'s name; the Character row says who (C3)');
+  // Six rows (the sweep, X2; no Rune stone row since ruling 14), every one in reach of the pad.
+  assert.deepEqual([...s.el.querySelectorAll('.set-row')].map((r) => r.dataset.focus), ['map', 'character', 'kit', 'tools', 'difficulty']);
+  // Difficulty is one row: left and right move along Lower, Raise, and the curses; confirm changes the one in focus.
+  assert.ok(s.scope.focusKey('difficulty'));
+  const diff = () => s.el.querySelector('[data-focus="difficulty"]');
+  assert.equal(diff().querySelector('.set-item.at').textContent, 'Lower');
   s.onNav('right');
-  assert.equal(s.el.querySelector('[data-focus="tide"] .set-value').textContent.includes('Tide 3'), true);
+  assert.equal(diff().querySelector('.set-item.at').textContent, 'Raise');
+  s.onAction('confirm');
+  assert.ok(textsOf(diff()).some((x) => x.includes('Tide 3')), textsOf(diff()).join(' | '));
+  assert.equal(diff().querySelector('.set-item.at').textContent, 'Raise', 'the item in focus stays in focus after a change');
   assert.ok(textsOf(s.el.querySelector('.setup-detail')).some((x) => x.startsWith('+45% Enemy HP')));
-  assert.ok(textsOf(s.el).some((x) => /^\+36% Materials$/.test(x)), 'what it adds');
-  s.scope.focusKey('mode');
-  while (!s.el.querySelector('[data-focus="mode"] .set-value').textContent.includes('Challenge')) s.onNav('right');
-  assert.ok(!s.el.querySelector('[data-focus="tide"]'), 'a challenge has its own Tide');
-  assert.ok(textsOf(s.el.querySelector('.setup-detail')).length > 0);
-  s.onNav('right');   // back to Standard
-  // A choice the profile no longer allows is refused on the screen, and nothing is used up.
-  s.scope.focusKey('slot:0');
+  s.onNav('right'); s.onAction('confirm');
+  assert.equal(diff().querySelector('.set-item.at').textContent, 'Brittle: On', 'a switch says its state in words');
+  assert.ok(textsOf(s.el).some((x) => /^This run pays 51% more materials$/.test(x)), 'what it adds');
+  s.onAction('confirm');
+  assert.equal(diff().querySelector('.set-item.at').textContent, 'Brittle: Off');
+  for (let k = 0; k < 9; k++) s.onNav('right');
+  assert.equal(diff().querySelector('.set-item.at').textContent.split(':')[0], DATA.curses.at(-1).name, 'the row stops at its last item');
+  // An item that can't be pressed says why, and changes nothing.
+  for (let k = 0; k < 9; k++) s.onNav('left');
+  s.onAction('confirm'); s.onAction('confirm'); s.onAction('confirm');
+  assert.ok(textsOf(s.el.querySelector('.setup-detail')).includes('No Tide is chosen.'));
+  s.onNav('right'); s.onAction('confirm'); s.onAction('confirm'); s.onAction('confirm');
+  // The map row steps to the short run and back.
+  s.scope.focusKey('map');
   s.onNav('right');
+  assert.ok(s.el.querySelector('[data-focus="map"] .set-value').textContent.includes('short run'));
+  s.onNav('left');
+  // A choice the profile no longer allows is refused on the screen, and nothing is used up.
+  s.scope.focusKey('tools');
+  s.onAction('confirm');
+  assert.equal(s.el.querySelector('[data-focus="tools"] .set-item.at').textContent, 'Smelling Salts: On');
   t.state.doc = structuredClone(t.state.doc);
   delete t.state.doc.profile.consumables.smelling_salts;
   s.scope.focusKey('start');
   t.press(B.SOUTH);
   assert.equal(t.top(), s, 'still on the gate');
-  assert.ok(textsOf(s.el).includes('No Smelling Salts held.'));
+  assert.ok(textsOf(s.el).includes('You have no Smelling Salts.'));
   assert.deepEqual(t.state.runs, []);
-  s.scope.focusKey('slot:0');
-  s.onNav('left');
+  t.state.doc.profile.consumables.smelling_salts = 1;
+  s.refresh();
+  s.scope.focusKey('tools');
+  s.onAction('confirm');
   s.scope.focusKey('start');
   t.press(B.SOUTH);
   assert.equal(t.state.runs.length, 1);
   assert.equal(t.state.runs[0].character, 'lamplighter');
   assert.equal(t.state.runs[0].tide, 3);
+  assert.equal(t.state.runs[0].consumables, undefined);
+});
+
+test('hub scene: a set run starts from the Harbor Orders board, and one whose character hasn\'t come says why (ruling 13)', () => {
+  const t = harbor(phase7Profile());
+  const panel = t.open('tavern');
+  panel.scope.focusKey('orders'); t.press(B.SOUTH);
+  const board = t.top();
+  assert.ok(textsOf(board.el).some((x) => x.startsWith('Challenge runs: 0 of ')) && textsOf(board.el).some((x) => x.startsWith('Hunts: 0 of 15')));
+  // The Harpooner is here (the Lamp Post's level 2); the Punter is not.
+  assert.ok(board.scope.focusKey('o:low_water'));
+  t.press(B.SOUTH);
+  assert.equal(t.top(), board);
+  assert.ok(textsOf(board.el).includes('The Punter hasn\'t arrived yet'));
+  assert.deepEqual(t.state.runs, []);
+  assert.ok(board.scope.focusKey('o:bare_hands'));
+  assert.ok(textsOf(board.el.querySelector('[data-focus="o:bare_hands"]')).includes('Start this run'));
+  t.press(B.SOUTH);
+  assert.deepEqual(t.state.runs, [{ character: 'harpooner', mode: 'challenge', challenge: 'bare_hands' }]);
+  // A Hunt shows its count so far; a trial not earned yet isn't posted.
+  const t2 = harbor(phase7Profile());
+  t2.open('tavern').scope.focusKey('orders'); t2.press(B.SOUTH);
+  assert.ok(textsOf(t2.top().el.querySelector('[data-focus="o:hunt_fog_wisp"]')).includes(`150 kills of ${HUNT_COUNTS.fog_wisp.toLocaleString('en-US')}`)   /* (X3: the count from the data) */);
+  assert.equal(t2.top().el.querySelector('[data-focus="o:lamplighter_trial"]'), null);
 });
 
 test('hub scene: a pad walks a Phase 7 panel\'s whole list with the d-pad, every key its own, and a fixed row presses silently', () => {
@@ -1150,4 +1244,202 @@ test('hub scene: a pad walks a Phase 7 panel\'s whole list with the d-pad, every
   const sounds = t.sounds.length;
   t.press(B.SOUTH);
   assert.ok(!t.sounds.slice(sounds).includes('ui_confirm'), 'a fixed row presses nothing, and says nothing');
+});
+
+// ---------------------------------------------------------------- W5 (0.9.0): the board, the codex, the Lighthouse
+
+test('hub scene: the Tavern\'s Harbor Orders and the Library\'s codex open from a row, walk row by row on the pad, and back out', () => {
+  const t = harbor(phase7Profile());
+  for (const [b, key, cls, first] of [['tavern', 'orders', 'orders-screen', 'o:'], ['library', 'codex', 'codex-screen', 'x:']]) {
+    const panel = t.open(b);
+    assert.ok(panel.scope.focusKey(key), `${b}: its ${key} row`);
+    t.press(B.SOUTH);
+    const top = t.top();
+    assert.ok(top.el.className.includes(cls), `${b}: the ${cls} is up`);
+    const els = [...top.el.querySelectorAll('[data-focus]')];
+    const keys = els.map((e) => e.dataset.focus);
+    assert.equal(new Set(keys).size, keys.length, `${cls}: no two rows share a key`);
+    assert.ok(keyOf(t).startsWith(first), `${cls}: focus starts on the first row`);
+    // A column of places, as the page lays them out: down walks every row, then Back.
+    els.forEach((e, i) => { e.rect = { left: 300, top: 40 + i * 20, width: 200, height: 18 }; });
+    top.scope.focus(els[0]);
+    const seen = [keyOf(t)];
+    for (let k = 0; k < els.length + 2; k++) { t.press(B.DOWN); if (keyOf(t) !== seen.at(-1)) seen.push(keyOf(t)); }
+    assert.deepEqual(seen, keys, `${cls}: down, row by row, to Back`);
+    t.press(B.EAST);
+    assert.ok(!t.top().el.className.includes(cls), `${cls}: Back closes it`);
+    t.press(B.EAST);
+  }
+});
+
+test('hub scene: the Lighthouse\'s panel counts stages and lists each with what it opens', () => {
+  const d = phase7Profile();
+  d.profile.buildings.lighthouse = 3;
+  const t = harbor(d);
+  const panel = t.open('lighthouse');
+  const words = textsOf(panel.el);
+  assert.ok(words.includes('Stage 3 of 10'), words.join(' | '));
+  assert.ok(words.includes('Next: Glaze the lantern room'));
+  assert.ok(words.includes('4. Glaze the lantern room') && words.includes('Take 1 more run tool into each run'));
+  assert.ok(panel.scope.focusKey('st:10'), 'the last stage takes focus');
+});
+
+// ---------------------------------------------------------------- the Salt Marsh (0.8.0)
+
+/** A harbor with the Salt Marsh open (the Docks and the Tavern restored, the Harbor Maw killed). */
+function marshProfile(extra = {}) {
+  const d = profile({ docks: 1, tavern: 1, lamp_post: 2 }, { coin: 50 });
+  d.profile.bestiary = { harbor_maw: 1 };
+  Object.assign(d.profile, extra);
+  return d;
+}
+
+test('hub scene: once the Marsh is open the gate asks where first, a card per map, then who sets out on it', () => {
+  // One map: straight to who sets out.
+  const one = harbor(profile({ tavern: 1, lamp_post: 2 }));
+  one.scene.openGateForTools(); one.frame();
+  assert.match(one.top().el.className, /gate-screen/);
+  assert.ok(!/map-screen/.test(one.top().el.className));
+  const t = harbor(marshProfile({ setup: { ...defaultProfile().profile.setup, map: 'salt_marsh' } }));
+  t.scene.openGateForTools(); t.frame();
+  const m = t.top();
+  assert.match(m.el.className, /map-screen/);
+  const cards = [...m.el.querySelectorAll('.map-card')];
+  assert.deepEqual(cards.map((c) => textsOf(c)[0]), ['Drowned Docks', 'Salt Marsh']);
+  assert.ok(textsOf(cards[1]).includes('Drops here only: Marsh Herbs and Salt Glass'), textsOf(cards[1]).join(' | '));
+  assert.equal(m.scope.current.dataset.focus, 'm1', 'it starts on the map last chosen');
+  t.press(B.SOUTH);
+  const g = t.top();
+  assert.match(g.el.className, /gate-screen/);
+  assert.equal(g.el.querySelector('h1').textContent, 'Salt Marsh');
+  // Back returns to the maps.
+  t.press(B.EAST);
+  assert.equal(t.top(), m);
+  t.press(B.SOUTH);
+  t.press(B.SOUTH);   // the Lamplighter
+  assert.deepEqual(t.state.runs, [{ character: 'lamplighter', map: 'salt_marsh' }]);
+  assert.equal(runConfigFor(t.state.doc, DATA, { ...t.state.runs[0], seed: 1 }).map, 'salt_marsh');
+});
+
+test('hub scene: a setup.map naming a known map that is closed: the gate skips the map cards and sets out on the Docks', () => {
+  const d = profile({ docks: 1, tavern: 1, lamp_post: 2 });
+  d.profile.setup = { ...defaultProfile().profile.setup, map: 'salt_marsh' };
+  const t = harbor(d);
+  t.scene.openGateForTools(); t.frame();
+  assert.ok(!/map-screen/.test(t.top().el.className), 'one map open: no cards');
+  assert.equal(t.top().el.querySelector('h1').textContent, 'Drowned Docks');
+  t.press(B.SOUTH);   // the Lamplighter
+  assert.deepEqual(t.state.runs, [{ character: 'lamplighter' }], 'map 1 says nothing more');
+  assert.equal(runConfigFor(t.state.doc, DATA, { ...t.state.runs[0], seed: 1 }).map, 'drowned_docks');
+});
+
+test('run scene: Run again on the Salt Marsh asks the app\'s configFor for the Marsh again', () => {
+  const document = installFakeDocument();
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const box = { pads: [dualSense()], t: 1000 };
+  const input = createInput({ getGamepads: () => box.pads, target: new EventTarget(), now: () => box.t });
+  const ui = createUi({ root, input, doc: document, sound: () => {} });
+  ui.layout({ x: 0, y: 0, scale: 1 }, 640, 360);
+  const menuCtx = { ui, icon: () => document.createElement('span'), sound: () => {} };
+  const view = { now: 0, attach() {}, detach() {}, markTick() {}, consume() {}, draw(a, ms) { this.now += ms; }, screenFlash: () => 0 };
+  const doc = marshProfile();
+  const asked = [], runs = [];
+  const configFor = (choice) => { asked.push(choice); return runConfigFor(doc, DATA, choice); };
+  const scene = createRunScene({
+    view, hud: { attach() {}, detach() {}, draw() {}, notice() {} }, input, ui, menuCtx, audio: { ok: false }, data: DATA, buildId: 'test',
+    loop: { pause() {}, resume() {}, reset() {}, hitStop() {} }, renderer: { camera: { x: 0 } },
+    configFor, onRunSaved() {}, onHarbor() {}, startRun: (cfg) => runs.push(cfg), onSettings() {}, saveReport() {}, copyText: () => 'ok', onTitle() {},
+  });
+  scene.enter({ character: 'lamplighter', seed: 'marsh-again', map: 'salt_marsh', tide: 0, curses: [] });
+  assert.equal(asked[0].map, 'salt_marsh');
+  assert.equal(scene.world.map.id, 'salt_marsh', 'the run is on the Marsh');
+  const frame = (n = 1) => { for (let i = 0; i < n; i++) { box.t += FRAME_MS; input.update(FRAME_MS); scene.step(1 / 60); scene.frame(1, FRAME_MS); ui.update(FRAME_MS); } };
+  frame(5);
+  scene.recorded.decide({ kind: 'leave' });
+  frame(Math.ceil(1400 / FRAME_MS) + 45);
+  assert.match(ui.top.el.className, /end-screen/);
+  ui.top.scope.focusKey('again');
+  box.pads = [dualSense([B.SOUTH])]; frame(); box.pads = [dualSense()]; frame();
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].map, 'salt_marsh', 'Run again keeps the map');
+  // As the app sets it out (main.js startRun enters the scene with it), the config is the Marsh's.
+  const again = configFor({ ...runs[0], seed: 'next' });
+  assert.equal(again.map, 'salt_marsh');
+  assert.deepEqual(again.layers, { storm: false, well: false, secret: false }, 'with the Marsh\'s layers as the profile has them');
+  scene.exit();
+});
+
+test('hub scene: the Punter comes home by boat when the results close; setting out from the results, he is simply there', () => {
+  const d0 = marshProfile();
+  const out = applyRunResult(d0, { map: 'salt_marsh', character: 'lamplighter', end: 'died', timeSurvived: 320, kills: {}, bossesKilled: [], materials: {} }, DATA);
+  assert.ok(out.changes.some((c) => c.kind === 'arrival' && c.id === 'punter'));
+  const t = harbor(out.doc, { results: { changes: out.changes, result: { end: 'died', timeSurvived: 320, map: 'salt_marsh' }, runs: 1 } });
+  assert.ok(!t.world.people.some((p) => p.id === 'punter'), 'still out at sea under the results');
+  assert.ok(textsOf(t.top().el).includes('New character: Punter. Coming home by boat'));
+  t.frame(50);
+  t.press(B.SOUTH);   // Continue
+  assert.equal(t.world.timeline?.kind, 'arrival');
+  assert.equal(t.world.timeline.id, 'punter');
+  t.press(B.EAST);    // skip it
+  assert.ok(t.world.people.some((p) => p.id === 'punter' && p.kind === 'waiting'));
+  // Start run from the results instead: he's on the square, no boat.
+  const s = harbor(out.doc, { results: { changes: out.changes, result: { end: 'died', timeSurvived: 320, map: 'salt_marsh' }, runs: 1 } });
+  s.frame(50);
+  s.top().scope.focusKey('again');
+  s.press(B.SOUTH);
+  assert.equal(s.world.timeline, null);
+  assert.ok(s.world.people.some((p) => p.id === 'punter'));
+});
+
+test('run scene: the Salt Well\'s screen gives one relic or keeps them all; the pause menu\'s Field guide lists what the map has shown', () => {
+  const rig = runRig({ map: 'salt_marsh', config: { layers: { storm: false, well: true, secret: false } }, seen: { on: () => ['enemy:midge_cloud', 'herbs'], any: () => new Set(['enemy:midge_cloud', 'herbs']) } });
+  rig.frame(2);
+  const w = rig.scene.world;
+  assert.equal(w.map.id, 'salt_marsh');
+  for (const id of ['brass_button', 'gull_feather']) rig.scene.recorded.decide({ kind: 'dev', cmd: 'give', what: 'relic', id });
+  // The well, open where you stand (as the Well Warden's fall opens it).
+  w.well.open = true; w.well.x = w.player.x; w.well.y = w.player.y; w.well.armed = true;
+  for (let k = 0; k < 90 && !rig.ui.has((x) => /well-screen/.test(x.el.className)); k++) rig.frame();
+  const screen = rig.ui.top;
+  assert.match(screen.el.className, /well-screen/);
+  assert.ok(textsOf(screen.el).includes('Give up one relic. It is gone for the rest of this run, and the Ferryman offers it on every map from then on.'));
+  assert.deepEqual([...screen.el.querySelectorAll('.card-title')].map((e) => e.textContent), ['Brass Button', 'Gull Feather']);
+  assert.equal(screen.scope.current.dataset.focus, 'keep', 'keeping is where it starts: ignoring the well costs nothing');
+  rig.frame(30);
+  screen.scope.focusKey('c1');
+  rig.press(B.SOUTH);
+  assert.equal(w.result.wellGiven, 'gull_feather');
+  assert.ok(!w.build.relics.some((r) => r.id === 'gull_feather'));
+  assert.ok(!rig.ui.has((x) => /well-screen/.test(x.el.className)));
+  // The pause menu's Codex is the codex for this map (ruling 13): what it has shown, earlier runs' and this run's.
+  w.result.sighted.push('enemy:midge_cloud', 'water');
+  rig.scene.openPauseForTools(); rig.frame();
+  const pause = rig.ui.top;
+  assert.equal(pause.el.querySelector('[data-focus="guide"]').textContent, 'Codex');
+  pause.scope.focusKey('guide'); rig.press(B.SOUTH);
+  const guide = rig.ui.top;
+  assert.match(guide.el.className, /codex-screen/);
+  assert.equal(guide.el.querySelector('h1').textContent, 'Codex: Salt Marsh');
+  const names = [...guide.el.querySelectorAll('.list-row .row-name')].map((r) => r.textContent.trim());
+  assert.ok(names.includes('High water') && names.includes('Midge Cloud'), names.join(' | '));
+  assert.ok(names.includes('???'), 'what the map hasn\'t shown yet is a blank');
+  rig.press(B.EAST);
+  assert.equal(rig.ui.top, pause);
+});
+
+test('run scene: a first sighting goes on the quiet line once ever; the high-water warning on the middle line', async () => {
+  const { currentHalt } = await import('../src/sim/world.js');
+  const rig = runRig({ map: 'salt_marsh', seed: 'sights', config: { invulnerable: true, layers: { storm: false, well: false, secret: false } }, seen: { on: () => [], any: () => new Set(['enemy:fog_wisp']) } });
+  const w = rig.scene.world;
+  // Play on, answering any level-up with its first card.
+  const play = (n) => { for (let k = 0; k < n; k++) { rig.frame(); const h = currentHalt(w); if (h) { rig.ui.closeAll(); rig.scene.recorded.decide(h.kind === 'draft' ? { kind: 'pick', index: 0 } : { kind: 'ok' }); } } };
+  play(60 * 20);
+  const quiet = rig.quiet.flat();
+  // One line once the cloud is on screen (0.9.0: the name and what it is together).
+  assert.ok(quiet.some((l) => /^First sighting: Midge Cloud\. /.test(l)), JSON.stringify(rig.quiet));
+  assert.ok(!quiet.some((l) => /^First sighting: Fog Wisp/.test(l)), 'met on an earlier run');
+  rig.scene.recorded.decide({ kind: 'dev', cmd: 'jump', to: 3 * 60 - 20 });   // just before the first high water's warning
+  play(60 * 8);
+  assert.ok(rig.loud.flat().includes('High water in 15s: the creeks will flood'), JSON.stringify(rig.loud.slice(-5)));
 });

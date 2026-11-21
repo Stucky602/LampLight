@@ -462,13 +462,13 @@ test('flow: a run\'s end is folded in and saved at once (rotating the backups), 
   const { box, keeper, scenes, flow } = await flowHarness();
   await scenes.go('run');
   await flow.onRunSaved('replay-1', runResult());
-  assert.equal(keeper.profile.profile.materials.coin, 40, 'folded into the profile in memory');
+  assert.equal(keeper.profile.profile.materials.coin, 40 + 24, 'folded into the profile in memory (with 6 minutes\' pay)');
   assert.deepEqual(box.saves.map((x) => [x.doc.stats.runs, x.rotate]), [[1, true]], 'saved at once, rotating the backups');
   assert.deepEqual(box.replays, ['replay-1']);
   assert.deepEqual(box.order, ['profile', 'replay'], 'the progress first, then the replay');
   // Run again, then back to the harbor: both runs' news, once.
   await flow.onRunSaved('replay-2', runResult({ materials: { coin: 5 }, kills: { fog_wisp: 3 } }));
-  assert.equal(keeper.profile.profile.materials.coin, 45);
+  assert.equal(keeper.profile.profile.materials.coin, 40 + 24 + 5 + 24);
   await flow.toHarbor();
   const [name, params] = box.entered.at(-1);
   assert.equal(name, 'hub');
@@ -482,7 +482,7 @@ test('flow: a run\'s end is folded in and saved at once (rotating the backups), 
 test('flow: a run\'s config comes from the profile; the title\'s first button goes to the harbor; the window reopens only at the title or in the harbor', async () => {
   const { flow, scenes, box } = await flowHarness();
   const cfg = flow.configFor({ character: 'lamplighter', seed: 's' });
-  assert.ok(cfg.pools && !cfg.pools.weapons.includes('lantern_orb'), 'the profile\'s own pools (the Orb is research)');
+  assert.ok(cfg.pools && !cfg.pools.weapons.includes('corpse_candles'), 'the profile\'s own pools (the Corpse Candles are research)');
   assert.throws(() => flow.configFor({ character: 'harpooner', seed: 's' }), /hasn't arrived/);
   assert.deepEqual(flow.configFor({ character: 'harpooner', seed: 's', all: true }), { seed: 's', character: 'harpooner', map: DATA.maps[0].id }, 'the tools may ask for everything');
   await flow.fromTitle();
@@ -563,14 +563,14 @@ test('main.js wires the scenes, the title, the error screen, settings, and updat
   const wires = [
     ['onHarbor: () => flow.toHarbor()', 'a run\'s end goes to the harbor with the results waiting'],
     ['configFor: (choice) => flow.configFor(choice)', 'a run from the profile\'s own pools'],
-    ['onRunSaved: (replay, result) => flow.onRunSaved(replay, result)', 'a run\'s end folded in and saved'],
+    ['onRunSaved: (replay, result) => Promise.resolve(flow.onRunSaved(replay, result))', 'a run\'s end folded in and saved (then its checkpoint cleared, 0.9.0)'],
     ['onError: (e) => { errors.add(\'run end\', … showError(e); }', 'a fold-in that fails goes to the error screen'],
     ['createSceneManager({ onError: (e) => { errors.add(\'scene\', … showError(e); } })', 'a scene that can\'t start too'],
     ['if (where === \'step\') showError(e);', 'and a crash in the sim'],
     ['inRun: scenes.name === \'run\'', 'the error screen says whether a run stopped'],
     ['onReload: () => flow.reloadAfterError()', 'reloading after an error, through the keeper'],
     ['profile: { get: () => keeper.profile, save: (doc) => { keeper.keep(doc); } }', 'the harbor\'s purchases kept through the keeper'],
-    ['onStart: () => { ui.close(s); flow.fromTitle(); }', 'the title\'s first button goes to the harbor'],
+    ['onStart: () => { ui.close(s); if (resumeOffer.current) resumeOffer.drop(); flow.fromTitle(); }', 'the title\'s first button goes to the harbor (a left-over run dropped, 0.9.0)'],
     ['const quit = flow.quit;', 'Quit through the keeper'],
     ['window.addEventListener(\'beforeunload\', (e) => flow.beforeLeaving(e))', 'closing the page asks while a save fails'],
     ['atTitleOrHarbor: () => flow.atTitleOrHarbor()', 'the window reopens only at the title or in the harbor'],
@@ -578,7 +578,7 @@ test('main.js wires the scenes, the title, the error screen, settings, and updat
     ['isSafePoint: () => scenes.isSafePoint()', 'an update loads only at a safe point'],
     ['reload: () => flow.reloadForUpdate()', 'an update\'s reload through the keeper'],
     ['onIdle: () => versionCheck?.atSafePoint()', 'the harbor going idle lets a waiting update load'],
-    ['scenes.onChange(() => { if (scenes.isSafePoint()) vc.atSafePoint(); })', '...and so does reaching a safe point by a scene change'],
+    ['checkAtSafePoints(vc, scenes);', '...and so does reaching a safe point by a scene change'],
     ['const flushSettings = () => (saveSettingsTimer ? saveSettings(true) : store.flush());', 'leaving waits for the settings, or else the store\'s writes in flight'],
     ['onFailing: (f) => { native?.setUnsaved?.(f)?.catch?.(() => {}); }', 'the desktop shell is told while a save fails'],
   ];

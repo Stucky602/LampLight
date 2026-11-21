@@ -36,21 +36,58 @@ export const PACKS = Object.freeze({
   town: { file: 'kenney_tiny-town/Tilemap/tilemap_packed.png', cols: 12, title: 'Tiny Town' },
 });
 
+// The run's ground, lifted (0.9.0, the veteran round: runs were too dark to read the map, mean
+// luminance 23 of 255 at the Docks' start). What you walk on is drawn a palette step lighter than
+// its drawing's own colors, so the ground is a dark mid-value and the enemies' night-0 outline
+// shows against it as a rim (Halls of Torment and Vampire Survivors keep the ground mid-value and
+// the crowd dark-edged; no usable picture came back from the image search, so this goes by that
+// written description). Water, deep pools, roofs, walls, and the hull stay as drawn: obstacles
+// and water read darker than the ground you can stand on.
+export const GROUND_LIFT = Object.freeze({
+  draws: Object.freeze(['planks', 'bridge', 'deck', 'mSalt', 'mMud', 'mReeds', 'mPeat', 'mCauseway', 'mBoardwalk', 'mLanding']),
+  colors: Object.freeze({ 'night-0': 'night-1', 'night-1': 'night-2', 'night-2': 'night-3', 'night-3': 'night-4' }),   // night-4 stays: the salt flats' bright crust keeps under 1.5:1
+});
+
 // Ramps for one-color sprites: light (top and left edges), body, shade (bottom and right),
 // hole (enclosed holes such as eyes; null leaves them see-through), outline (default night-0).
 // Enemies are cool and desaturated and dimmer than any character (§16.4).
 const r = (light, body, shade, hole = 'night-1') => Object.freeze({ light, body, shade, hole });
+// An enemy's ramp with its family's second tone over the top of its body (0.9.0, the veteran
+// round: the crowd read as one-tint wallpaper). One tone a family, so a glance sorts the horde:
+// the fog things wear the fog's pale grey, the drowned a salt-bleached grey-teal, the lantern
+// eater pale violet, the marsh's own the creek's sea green.
+const FAMILY_TONE = Object.freeze({ fog: 'fog-4', drowned: 'sea-6', moth: 'violet-4', marsh: 'sea-5' });
+const fam = (family, ramp, toneTo = 0.4) => Object.freeze({ ...ramp, tone: FAMILY_TONE[family], toneTo });
 export const RAMPS = Object.freeze({
-  // Enemies.
-  // Grey-blues told apart by value: the wisp mid, the crab (bigger, a charger) paler, the rat a
-  // dark body under a pale rim (its rim lifted a step so it keeps 2:1 against the floor with room).
-  wisp: r('fog-2', 'fog-1', 'night-5', 'night-0'),
-  drowned: r('sea-4', 'sea-3', 'sea-2'),
-  gull: r('fog-2', 'fog-2', 'fog-1'),
-  crab: r('fog-3', 'fog-2', 'fog-1'),
-  bloater: r('sea-4', 'sea-3', 'sea-2', 'sea-1'),
-  rat: r('fog-2', 'night-5', 'night-4', 'night-0'),
-  moth: r('violet-4', 'violet-3', 'violet-2', 'violet-1'),
+  // Enemies. Each type its own ramp (0.7.3): on a map no two types share one, and their mean colors
+  // stand at least 0.02 apart in OKLab (tests/art.test.js), so a crowd sorts itself by color as well
+  // as by shape. All cool, desaturated, and dimmer than any character (§16.4).
+  // The fog things in grey-blue told apart by value: the wisp a pale rim on a mid body (fog thins
+  // at its edge), the gull mid, the crab (bigger, a charger) paler, the rat a dark body under a pale
+  // rim (its rim lifted a step so it keeps 2:1 against the floor with room).
+  wisp: fam('fog', r('fog-3', 'fog-1', 'night-5', 'night-0'), 0.2),
+  gull: fam('fog', r('fog-2', 'fog-1', 'night-5'), 0.4),   // the wings' tops pale, the V's point dark
+  crab: fam('fog', r('fog-3', 'fog-2', 'fog-1'), 0.25),   // the palest already: a shallower cap keeps it under the characters
+  rat: fam('fog', r('fog-2', 'night-5', 'night-4', 'night-0'), 0.25),
+  // The drowned in the sea's teal, told apart by depth: the sailor mid; the gunner darker, sunk
+  // deeper with its gun; the bosun, the one who gives the orders, with the palest rim over the
+  // deepest shade; the bloater a swollen grey with a drowned teal underside.
+  drowned: fam('drowned', r('sea-4', 'sea-3', 'sea-2')),
+  gunner: fam('drowned', r('sea-3', 'sea-2', 'night-4', 'night-0')),
+  bosun: fam('drowned', r('sea-5', 'sea-3', 'sea-1', 'night-0')),
+  bloater: fam('drowned', r('fog-2', 'night-5', 'sea-2', 'sea-1')),
+  moth: fam('moth', r('violet-4', 'violet-3', 'violet-2', 'violet-1')),
+  // The Salt Marsh's (0.8.0), each its own beside the coast-wide wisp and gull: the midges teal specks
+  // (blue-black ones were lost under the fog on the salt); the Salted Dead a drowned grey under pale salt (salt_crust, their crust and the
+  // Warden's); the Well Warden the deep blue of well water; the toad mottled grey over a pond green;
+  // the leech a violet-grey; the eel the creek's teal, palest of them, its belly catching the light.
+  midge: fam('marsh', r('sea-4', 'sea-3', 'sea-2')),
+  salted: fam('marsh', r('fog-2', 'fog-1', 'night-5', 'night-0'), 0.2),   // the salt crust is a third tone over it
+  salt_crust: r('fog-5', 'fog-4', 'fog-3', null),
+  warden: r('gem-2', 'gem-1', 'sea-1', 'night-0'),   // two-tone already: the salt crust it wears
+  toad: fam('marsh', r('fog-2', 'sea-3', 'sea-2', 'night-0')),
+  leech: fam('marsh', r('violet-4', 'fog-1', 'violet-1', 'night-0')),
+  eel: fam('marsh', r('sea-5', 'sea-4', 'sea-3', 'night-0')),
   // Boss parts.
   maw_hide: r('sea-4', 'sea-3', 'sea-2', null),
   maw_lip: r('sea-5', 'sea-4', 'sea-3', null),
@@ -67,11 +104,21 @@ export const RAMPS = Object.freeze({
   bronze: r('sea-5', 'sea-4', 'sea-3', null),
   staff: r('fog-2', 'fog-1', 'night-5', null),
   tentacle: r('sea-4', 'sea-3', 'sea-2', null),
+  // The Old Grey (a grey heron) and the Salt Widow (0.8.0).
+  heron_pale: r('fog-5', 'fog-4', 'fog-3', null),
+  heron_back: r('fog-2', 'fog-1', 'night-5', null),
+  heron_dark: r('night-2', 'night-1', 'night-1', null),
+  heron_dark_wing: r('night-5', 'night-4', 'night-3', null),
+  heron_bill: r('lamp-5', 'lamp-4', 'lamp-3', null),
+  heron_leg: r('wood-4', 'wood-3', 'wood-2', null),
+  widow_cloak: r('fog-2', 'fog-1', 'night-5', null),
+  widow_eye: r('gem-4', 'gem-4', 'gem-4', null),
   // Icons, by tag (the border shows the tag too), and for relics and runes. Every key of
   // TAG_COLORS (src/data/palette.js) needs one here (tests/atlas.test.js checks).
   fire: r('lamp-5', 'lamp-4', 'lamp-3'),
   light: r('lamp-6', 'lamp-5', 'lamp-4'),
-  tide: r('sea-6', 'sea-5', 'sea-4'),
+  tide: r('sea-6', 'sea-5', 'sea-4'),   // the relic icons that name it
+  sea: r('sea-6', 'sea-5', 'sea-4'),    // the Sea tag (decision 8: Tide is the difficulty)
   steel: r('fog-5', 'fog-4', 'fog-3'),
   echo: r('violet-4', 'violet-3', 'violet-2'),
   relic: r('violet-4', 'violet-3', 'violet-2'),
@@ -92,6 +139,8 @@ export const RAMPS = Object.freeze({
   bottle: r('rot-4', 'rot-3', 'rot-2', 'lamp-5'),
   iron: r('fog-3', 'fog-2', 'fog-1'),
   herb: r('moss-4', 'moss-3', 'moss-2'),
+  well_water: r('sea-1', 'night-0', 'night-0'),
+  bog: r('skin-1', 'wood-4', 'wood-3', 'night-0'),   // bog-tanned skin: leathery red-brown, lighter than the peat he lies in
   glass: r('white', 'fog-5', 'fog-4'),
   bone: r('lamp-6', 'skin-3', 'skin-2'),
   candle: r('lamp-6', 'lamp-5', 'lamp-4'),
@@ -101,6 +150,8 @@ export const RAMPS = Object.freeze({
   item: r('moss-4', 'moss-3', 'moss-2', 'lamp-5'),
   arcana: r('lamp-6', 'lamp-5', 'lamp-4'),
   seaglass: r('sea-6', 'sea-5', 'sea-4'),
+  // A Pearl (0.8.2): white where the light falls, a cream body (nacre's warm overtone), grey shade.
+  pearl: r('white', 'lamp-6', 'fog-3'),
   bellmetal: r('lamp-5', 'lamp-4', 'lamp-3', 'night-1'),
   skiff: r('wood-4', 'wood-3', 'wood-2'),
   // Obstacles: darker than any actor, lighter than the ground (§16.4).
@@ -143,6 +194,11 @@ const DIRT = Object.freeze({ '#eaa56c': 'wood-3', '#cf8254': 'wood-2', '#fec99c'
  */
 const STONE_GABLE = { t: 63, colors: { '#eaa56c': 'fog-3', '#bd6c4a': 'fog-2' } };
 const TIMBER_GABLE = { t: 67, colors: { '#c0cbdc': 'wood-4', '#8b9bb4': 'wood-3', '#5a6988': 'wood-2' } };
+/**
+ * What rises from each building's roof once its roof is back (art/draw/harbor.js, 0.7.3), so each
+ * has its own outline against the sky rather than the pack's one house shape.
+ */
+const OUTLINE = Object.freeze({ lighthouse: 'lanternRoom', chapel: 'bellcote', smithy: 'forgeStack', docks: 'flagstaff', market: 'weathervane', apothecary: 'chimneyPots', cartographer: 'lookout', library: 'cupola', tavern: 'innChimney' });
 export const BUILDINGS_LAYOUT = Object.freeze({
   library: [[48, 49, 51, 49, 50], [60, 61, STONE_GABLE, 61, 62], [76, 88, 77, 88, 79], [76, 88, 89, 88, 79]],
   tavern: [[52, 53, 55, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [72, 84, 73, 84, 75], [72, 84, 85, 84, 75]],
@@ -152,7 +208,7 @@ export const BUILDINGS_LAYOUT = Object.freeze({
   apothecary: [[48, 49, 51, 49, 50], [60, 61, 63, 61, 62], [72, 84, 73, 84, 75], [72, 73, 85, 73, 75]],
   cartographer: [[52, 53, 53, 53, 54], [64, 65, TIMBER_GABLE, 65, 66], [76, 88, 77, 88, 79], [76, 88, 89, 88, 79]],
   docks: [[48, 49, 49, 49, 50], [60, 61, 61, 61, 62], [72, 84, 73, 84, 75], [72, 74, 85, 74, 75]],
-  lighthouse: [[48, 51, 50], [60, STONE_GABLE, 62], [76, 88, 79], [76, 89, 79]],
+  lighthouse: [[48, 51, 50], [60, STONE_GABLE, 62], [76, 77, 79], [76, 89, 79]],
 });
 
 export const SPRITES = Object.freeze([
@@ -176,6 +232,53 @@ export const SPRITES = Object.freeze([
     },
   },
 
+  // The Salt Marsh's two (0.8.0, art/draw/marshlife.js). The Punter: the pack's brown-haired man in
+  // a fisherman's yellow oilskin, his punt pole in his right hand. The Bog Warden: the pack's
+  // white-haired woman (the Harpooner's tile, §20 call 53) in a moss-green dress, her long hair
+  // recolored into a peat-brown hood, its peak drawn over her crown.
+  {
+    id: 'pc_punter', kind: 'player', pack: 'dungeon', tile: 98,
+    hold: { what: 'pole', at: [18, 0, 20] },
+    colors: {
+      '#3f2631': 'night-0', '#262b44': 'night-0', '#c0cbdc': 'lamp-4', '#8b9bb4': 'lamp-3', '#52607c': 'wood-3',
+      '#bd6c4a': 'wood-4', '#763b36': 'wood-3', '#f7c282': 'skin-3', '#e19a65': 'skin-2',
+    },
+  },
+  {
+    id: 'pc_bog_warden', kind: 'player', pack: 'dungeon', tile: 100,
+    hold: { what: 'hood', at: [10, 4] },
+    colors: {
+      '#3f2631': 'night-0', '#262b44': 'night-0', '#c0cbdc': 'wood-4', '#8b9bb4': 'wood-4',
+      '#763b36': 'moss-3', '#bd6c4a': 'moss-4', '#e19a65': 'skin-2', '#f7c282': 'skin-3',
+    },
+  },
+
+  // 0.9.0 (W2, ruling 2): the brief's six. The Drowned Man: the pack's bald, bearded man, washed up
+  // (skin drowned grey, his beard dark and wet, weed over his crown) with pennies on his eyes, the
+  // coins for the ferryman (a weathered rust coat and linen shirt, so he's as warm as the rule asks).
+  // The Tide Priest: below.
+  {
+    id: 'pc_drowned_man', kind: 'player', pack: 'dungeon', tile: 86,
+    hold: { what: 'weed', at: [11, 5] },
+    colors: {
+      '#3f2631': 'night-0', '#262b44': 'lamp-4', '#f7c282': 'fog-5', '#e19a65': 'fog-4',
+      '#bd6c4a': 'rot-3', '#763b36': 'wood-1', '#c0cbdc': 'lamp-6', '#8b9bb4': 'lamp-3',
+    },
+  },
+  {
+    id: 'pc_tide_priest', kind: 'player', pack: 'dungeon', tile: 111,
+    // (0.9.0, W2 passes 43 to 47) The pack's hooded robe, to the ground, sea-bleached pale (lamp-6,
+    // shaded lamp-5 on the side away from the light) with a sea-blue stole down her front; her face
+    // painted into the cowl; a wooden crook held high in her left hand, a brass bell under its hook.
+    // A sea-blue robe or cowl fails the warm rule (tests/art.test.js: red above 1.3 times blue over
+    // the whole sprite), so the sea is the stole. Brother Hale (npc_warden) wears the same tile in brown.
+    hold: { what: 'cowl', at: [3, 3, 'sea-4', null, 'left'] },
+    colors: {
+      '#3f2631': 'night-0', '#bd6c4a': 'lamp-6', '#763b36': 'lamp-5', '#eaa56c': 'lamp-6', '#e84537': 'night-0',
+      '#c0cbdc': 'lamp-6', '#8b9bb4': 'lamp-6', '#aab7cc': 'lamp-6', '#f7c282': 'skin-3',
+    },
+  },
+
   // ------------------------------------------------------------ enemies (1-Bit Pack)
   { id: 'en_fog_wisp', kind: 'enemy', ...ob(419), ramp: 'wisp' },
   { id: 'en_sailor', kind: 'enemy', ...ob(471), ramp: 'drowned' },
@@ -184,8 +287,16 @@ export const SPRITES = Object.freeze([
   { id: 'en_bloater', kind: 'enemy', ...ob(367), ramp: 'bloater' },
   { id: 'en_rat', kind: 'enemy', ...ob(423), ramp: 'rat' },
   { id: 'en_lantern_eater', kind: 'enemy', ...ob(271), ramp: 'moth' },
-  { id: 'en_gunner', kind: 'enemy', ...ob(74), ramp: 'drowned' },
-  { id: 'en_bosun', kind: 'enemy', ...ob(466), ramp: 'drowned' },
+  { id: 'en_gunner', kind: 'enemy', ...ob(74), ramp: 'gunner' },
+  { id: 'en_bosun', kind: 'enemy', ...ob(466), ramp: 'bosun' },
+  // The Salt Marsh's (0.8.0, art/draw/marshlife.js): the midges, the Salted Dead (the pack's figure
+  // under salt), the toad and the leech drawn in code, the pack's eel, and the Well Warden.
+  { id: 'en_midges', kind: 'enemy', draw: 'midgeCloud', ramp: 'midge', frames: 2, fps: 6 },
+  { id: 'en_salted_dead', kind: 'enemy', draw: 'saltedDead', ramp: 'salted' },
+  { id: 'en_mire_toad', kind: 'enemy', draw: 'mireToad', ramp: 'toad' },
+  { id: 'en_creek_eel', kind: 'enemy', ...ob(420), ramp: 'eel' },
+  { id: 'en_leech', kind: 'enemy', draw: 'leech', ramp: 'leech', frames: 2, fps: 4 },
+  { id: 'en_well_warden', kind: 'enemy', draw: 'wellWarden', ramp: 'warden' },
 
   // ------------------------------------------------------------ bosses (code rigs, src/render/rigs.js)
   { id: 'boss_maw:body', kind: 'part', draw: 'mawBody' },
@@ -199,6 +310,15 @@ export const SPRITES = Object.freeze([
   { id: 'boss_tidecaller:bell', kind: 'part', draw: 'tidecallerBell', ramp: 'bronze' },
   { id: 'boss_tidecaller:tentacle', kind: 'part', draw: 'tidecallerTentacle', ramp: 'tentacle' },
   { id: 'boss_tidecaller:hand', kind: 'part', draw: 'tidecallerHand', ramp: 'teeth' },
+  // The Salt Marsh's (art/draw/marshbosses.js).
+  { id: 'boss_grey:body', kind: 'part', draw: 'greyBody' },
+  { id: 'boss_grey:neck', kind: 'part', draw: 'greyNeck' },
+  { id: 'boss_grey:head', kind: 'part', draw: 'greyHead' },
+  { id: 'boss_grey:leg', kind: 'part', draw: 'greyLeg' },
+  { id: 'boss_grey:wing', kind: 'part', draw: 'greyWing' },
+  { id: 'boss_widow:cloak', kind: 'part', draw: 'widowCloak' },
+  { id: 'boss_widow:crown', kind: 'part', draw: 'widowCrown', ramp: 'salt_crust' },
+  { id: 'boss_widow:arm', kind: 'part', draw: 'widowArm' },
 
   // ------------------------------------------------------------ pickups
   { id: 'pk_heal', kind: 'item', ...ob(529), ramp: 'heart' },
@@ -280,21 +400,62 @@ export const SPRITES = Object.freeze([
   { id: 'arcana_brine', kind: 'icon', ...ob(579), ramp: 'tide' },
   { id: 'arcana_kindling', kind: 'icon', ...ob(567), ramp: 'fire' },
   { id: 'arcana_glassblower', kind: 'icon', ...ob(581), ramp: 'seaglass' },
-  { id: 'rune_splitting', kind: 'icon', draw: 'rune' },
-  { id: 'rune_burning', kind: 'icon', draw: 'rune' },
-  { id: 'rune_orbiting', kind: 'icon', draw: 'rune' },
   { id: 'rune_backfire', kind: 'icon', draw: 'rune' },
   { id: 'rune_chain', kind: 'icon', draw: 'rune' },
+  // The Salt Marsh's (0.8.0, art/draw/marshicons.js): weapons and evolutions in their first tag's
+  // colors, the passives, the relics (some in their own material, some drawn as the rune stones
+  // they were before ruling 14).
+  // The Dash slot's eight items (C3, art/draw/dashicons.js), each in its own material.
+  { id: 'icon_dash_wick', kind: 'icon', draw: 'dashWick', ramp: 'light' },
+  { id: 'icon_dash_heavy', kind: 'icon', draw: 'dashHeavy', ramp: 'iron' },
+  { id: 'icon_dash_long', kind: 'icon', draw: 'dashLong', ramp: 'wood' },
+  { id: 'icon_dash_mire', kind: 'icon', draw: 'dashMire', ramp: 'bog' },
+  { id: 'icon_dash_sink', kind: 'icon', draw: 'dashSink', ramp: 'sea' },
+  { id: 'icon_dash_swell', kind: 'icon', draw: 'dashSwell', ramp: 'tide' },
+  { id: 'icon_dash_oar', kind: 'icon', draw: 'dashOar', ramp: 'wood' },
+  { id: 'icon_dash_light', kind: 'icon', draw: 'dashLight', ramp: 'paper' },
+  { id: 'icon_brine_spring', kind: 'icon', draw: 'brineSpring' },
+  { id: 'icon_ice_picks', kind: 'icon', draw: 'icePicks' },
+  { id: 'icon_fog_horn', kind: 'icon', draw: 'fogHorn' },   // (in the Fulgurite's place, ruling 18 WD)
+  { id: 'icon_eel_pot', kind: 'icon', draw: 'eelPot' },
+  // 0.9.0 (W2): the signature weapons' (art/draw/trades.js).
+  { id: 'icon_grapnel', kind: 'icon', draw: 'grapnelIcon' },
+  { id: 'icon_punt_pole', kind: 'icon', draw: 'puntPoleIcon' },
+  { id: 'icon_bog_hands', kind: 'icon', draw: 'bogHandsIcon' },
+  { id: 'icon_grave_pennies', kind: 'icon', draw: 'gravePenniesIcon' },
+  { id: 'icon_king_tide', kind: 'icon', draw: 'kingTideIcon' },
+  { id: 'icon_anchor_chain', kind: 'icon', draw: 'anchorChain' },
+  { id: 'icon_glass_caltrops', kind: 'icon', draw: 'glassCaltrops' },
+  { id: 'icon_salt_pan', kind: 'icon', draw: 'saltPan' },
+  { id: 'icon_conger_pot', kind: 'icon', draw: 'congerPot' },
+  { id: 'icon_sea_anchor', kind: 'icon', draw: 'seaAnchor' },
+  { id: 'icon_hoarfrost', kind: 'icon', draw: 'hoarfrost' },
+  { id: 'icon_copper_wire', kind: 'icon', draw: 'copperWire' },
+  { id: 'icon_grave_moss', kind: 'icon', draw: 'graveMoss' },
+  { id: 'icon_bitterns_call', kind: 'icon', draw: 'bitternsCall' },
+  { id: 'icon_waders', kind: 'icon', draw: 'waders' },
+  { id: 'relic_sea_urchin', kind: 'icon', draw: 'seaUrchin' },
+  { id: 'relic_quench_bucket', kind: 'icon', draw: 'quenchBucket', ramp: 'wood' },
+  { id: 'relic_cold_iron', kind: 'icon', draw: 'coldIron', ramp: 'iron' },
+  { id: 'relic_watchmans_rattle', kind: 'icon', draw: 'watchmansRattle', ramp: 'wood' },
+  { id: 'relic_try_pot', kind: 'icon', draw: 'tryPot', ramp: 'iron' },
+  { id: 'relic_brine_vat', kind: 'icon', draw: 'brineVat', ramp: 'wood' },
+  { id: 'relic_bog_torc', kind: 'icon', draw: 'bogTorc', ramp: 'gold' },
+  { id: 'rune_familiar', kind: 'icon', draw: 'rune' },
+  { id: 'rune_spillway', kind: 'icon', draw: 'rune' },
+  { id: 'rune_marsh_fever', kind: 'icon', draw: 'rune' },
+  { id: 'rune_tarred', kind: 'icon', draw: 'rune' },
 
   // ------------------------------------------------------------ props
   { id: 'prop_lamppost', kind: 'item', draw: 'lampPost' },
   // The run's tasks and what they leave (Phase 7): a Wayside Lamp is the lamppost; a Fog Bell, the
-  // Ferryman's skiff, a Reliquary, the vault, and a shard of Sea Glass.
+  // Ferryman's skiff, a Reliquary, the vault, and a Pearl (0.8.2: Sea Glass by its new name, the
+  // shard redrawn as a pearl; its id stays).
   { id: 'task_bell', kind: 'item', draw: 'bell', ramp: 'bellmetal' },
   { id: 'ferry_skiff', kind: 'item', draw: 'skiff', ramp: 'skiff' },
   { id: 'pk_reliquary', kind: 'item', draw: 'reliquary', ramp: 'relic_lit' },
   { id: 'pk_vault', kind: 'item', draw: 'reliquary', ramp: 'gold' },
-  { id: 'pk_glass', kind: 'item', draw: 'crystal', ramp: 'seaglass' },
+  { id: 'pk_glass', kind: 'item', draw: 'pearl', ramp: 'pearl' },
 
   // ------------------------------------------------------------ the run map (the Drowned Docks)
   // Wet boards, some worn to the grain; crates, barrels, and wreckage block the way.
@@ -322,8 +483,36 @@ export const SPRITES = Object.freeze([
   { id: 'tile_hull_0', kind: 'ground', draw: 'hull', variant: 0 },
   { id: 'tile_hull_1', kind: 'ground', draw: 'hull', variant: 1 },
   { id: 'secret_cache', kind: 'item', ...ob(303), ramp: 'relic' },
+  // ------------------------------------------------------------ the run map (the Salt Marsh, 0.8.0; art/draw/marsh.js)
+  // The flats' crust, the creek mud (its ripples across the flow: 'h' crests left to right, 'v' top
+  // to bottom), club-rush, peat, stumps, the causeway, boardwalks, the landing; and water, the
+  // creek's at high water and the deep pools', with a bank on each dry side (`banks`: 1 north,
+  // 2 east, 4 south, 8 west). render/viewstate.js groundFrame picks them.
+  ...[0, 1, 2, 3].map((v) => ({ id: `tile_m_salt_${v}`, kind: 'ground', draw: 'mSalt', variant: v })),
+  ...['h', 'v'].flatMap((dir) => [0, 1, 2, 3, 4].map((v) => ({ id: `tile_m_mud_${dir}_${v}`, kind: 'ground', draw: 'mMud', variant: v, dir }))),
+  ...[0, 1, 2, 3].map((v) => ({ id: `tile_m_reeds_${v}`, kind: 'ground', draw: 'mReeds', variant: v })),
+  ...[0, 1, 2].map((v) => ({ id: `tile_m_peat_${v}`, kind: 'ground', draw: 'mPeat', variant: v })),
+  ...[0, 1].map((v) => ({ id: `tile_m_stump_${v}`, kind: 'ground', draw: 'mStump', variant: v })),
+  ...[0, 1].map((v) => ({ id: `tile_m_causeway_${v}`, kind: 'ground', draw: 'mCauseway', variant: v })),
+  ...['h', 'v'].map((dir) => ({ id: `tile_m_boardwalk_${dir}`, kind: 'ground', draw: 'mBoardwalk', dir })),
+  ...['', 'e', 's'].map((end) => ({ id: `tile_m_landing_${end || 0}`, kind: 'ground', draw: 'mLanding', end })),
+  ...[0, 1, 2, 3].flatMap((v) => Array.from({ length: 16 }, (_, banks) => ({ id: `tile_m_water_${v}_${banks}`, kind: 'ground', draw: 'mWater', variant: v, banks }))),
+  ...Array.from({ length: 16 }, (_, banks) => ({ id: `tile_m_deep_${banks}`, kind: 'ground', draw: 'mWater', variant: 0, banks, deep: true })),
+
   // An Ember (sim/ascend.js): a coal with its flame, in the relics' violet (it changes a weapon).
   { id: 'pk_ember', kind: 'item', draw: 'ember', ramp: 'relic' },
+  // The five elite affixes (C3; data/enemies.js ELITE_AFFIXES): over an elite in a run, and in the glossary.
+  { id: 'affix_warded', kind: 'item', draw: 'affixWarded', ramp: 'steel' },
+  { id: 'affix_herald', kind: 'item', draw: 'affixHerald', ramp: 'gold' },
+  { id: 'affix_molten', kind: 'item', draw: 'affixMolten', ramp: 'heart' },
+  { id: 'affix_tethered', kind: 'item', draw: 'affixTethered', ramp: 'relic' },
+  { id: 'affix_brine', kind: 'item', draw: 'affixBrine', ramp: 'sea' },
+  // The Salt Marsh's props (0.8.0, art/draw/marshlife.js): a glass pillar, a herb bed, the Salt Well,
+  // and the bog body that keeps the secret.
+  { id: 'marsh_pillar', kind: 'item', draw: 'pillar' },
+  { id: 'marsh_herbs', kind: 'item', draw: 'herbBed', ramp: 'herb' },
+  { id: 'marsh_well', kind: 'item', draw: 'saltWell' },
+  { id: 'marsh_bog_body', kind: 'item', draw: 'bogBody', ramp: 'bog' },
 
   // ------------------------------------------------------------ the harbor (Phase 5; pack B, ARCHITECTURE §10.4)
   // The ground: grass, the dirt paths (edges and inside corners, picked by the hub view from its
@@ -348,13 +537,14 @@ export const SPRITES = Object.freeze([
   { id: 'hub_cart', kind: 'town', pack: 'town', tile: 57 },
   { id: 'hub_signpost', kind: 'town', pack: 'town', tile: 83 },
   // The buildings, one frame per stage (a level's stage: meta/state.js buildingStage).
-  ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_library_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.library, stage, sign: 'library' })),
-  ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_tavern_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.tavern, stage, sign: 'tavern' })),
+  ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_library_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.library, stage, sign: 'library', outline: OUTLINE.library })),
+  ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_tavern_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.tavern, stage, sign: 'tavern', outline: OUTLINE.tavern })),
   // Phase 7's six, each with its own sign.
   ...['docks', 'smithy', 'chapel', 'market', 'apothecary', 'cartographer'].flatMap((b) => ['ruin', 'roof', 'lit', 'keeper', 'alive']
-    .map((stage) => ({ id: `bld_${b}_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT[b], stage, sign: b }))),
-  // The Lighthouse's plot (Phase 10): a ruin for now.
-  { id: 'bld_lighthouse_ruin', kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.lighthouse, stage: 'ruin' },
+    .map((stage) => ({ id: `bld_${b}_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT[b], stage, sign: b, forge: b === 'smithy', outline: OUTLINE[b] }))),
+  // The Lighthouse (0.9.0: ten stages; its frames are a building's five, the lantern room its outline).
+  // C3: a tower drawn in code (art/draw/lighthouse.js), not the pack's house: `tower`.
+  ...['ruin', 'roof', 'lit', 'keeper', 'alive'].map((stage) => ({ id: `bld_lighthouse_${stage}`, kind: 'building', pack: 'town', layout: BUILDINGS_LAYOUT.lighthouse, stage, sign: 'lighthouse', outline: 'lanternRoom', tower: true })),
   // The townsfolk (Tiny Dungeon): Old Wick, Silas, and Bram.
   { id: 'npc_lamp_keeper', kind: 'npc', pack: 'dungeon', tile: 86, colors: { '#bd6c4a': 'fog-2', '#763b36': 'wood-2', '#c0cbdc': 'fog-4', '#8b9bb4': 'fog-3' } },
   // Silas: the townsman in a long ink-violet coat (the pack's wizard, with his hat, read as a wizard).
@@ -369,10 +559,52 @@ export const SPRITES = Object.freeze([
   { id: 'npc_warden', kind: 'npc', pack: 'dungeon', tile: 111 },
   { id: 'npc_trader', kind: 'npc', pack: 'dungeon', tile: 98, colors: { '#c0cbdc': 'lamp-4', '#8b9bb4': 'lamp-3' } },
   { id: 'npc_apothecary', kind: 'npc', pack: 'dungeon', tile: 84, colors: { '#9b4ca3': 'moss-2', '#d176d0': 'moss-3' } },
+  // Maren, the lighthouse keeper (0.9.0): the pack's townswoman in a keeper's dark sea-blue coat.
+  { id: 'npc_lighthouse_keeper', kind: 'npc', pack: 'dungeon', tile: 100, colors: { '#8b9bb4': 'sea-2', '#c0cbdc': 'sea-3', '#bd6c4a': 'fog-4', '#763b36': 'fog-3' } },
   { id: 'npc_cartographer', kind: 'npc', pack: 'dungeon', tile: 85, colors: { '#c0cbdc': 'moss-3', '#8b9bb4': 'moss-2', '#bd6c4a': 'wood-2', '#763b36': 'wood-1' } },
   // Drawn in code in the pack's style (art/draw/hub.js): the sea, the pier, the quay and its wall,
   // the boat, the scaffold, signs, lanterns, and window boxes.
   { id: 'hub_drawn', kind: 'fx', draw: 'hub' },
+  // The harbor coming alive (0.7.3, art/draw/harbor.js): the gate's props by milestone, each
+  // building's own by its levels, the Market's crates and barrow, and the town's life.
+  { id: 'hub_bollard', kind: 'fx', draw: 'bollard' },
+  { id: 'hub_rope_coil', kind: 'fx', draw: 'ropeCoil' },
+  { id: 'hub_notice_board', kind: 'fx', draw: 'noticeBoard' },
+  { id: 'hub_supplies', kind: 'fx', draw: 'supplies' },
+  { id: 'hub_ship_bell', kind: 'fx', draw: 'shipBell' },
+  // The gate's second lamp: the same lamp as the gate's own (the run's lamppost), so the two match.
+  { id: 'hub_quay_lamp', kind: 'item', draw: 'lampPost' },
+  // The bunting from it back to the gate's lamp: drawn for the span between where it's tied on the
+  // two posts (render/hubtiles.js buntingAt; tests/harbor.test.js checks the two agree).
+  { id: 'hub_bunting', kind: 'fx', draw: 'bunting', span: [97, -14] },
+  // From the tenth run, a townswoman waves you off: the pack's woman (the Lamplighter's tile) in a
+  // sea-blue dress with brown hair, her right arm up in code, two frames of the wave.
+  { id: 'hub_market_crates', kind: 'fx', draw: 'marketCrates' },
+  { id: 'hub_wheelbarrow', kind: 'fx', draw: 'wheelbarrow' },
+  { id: 'hub_lobster_pots', kind: 'fx', draw: 'lobsterPots' },
+  { id: 'hub_anvil', kind: 'fx', draw: 'anvil' },
+  { id: 'hub_grindstone', kind: 'fx', draw: 'grindstone' },
+  { id: 'hub_bench', kind: 'fx', draw: 'bench' },
+  { id: 'hub_graves', kind: 'fx', draw: 'graves' },
+  { id: 'hub_herb_pots', kind: 'fx', draw: 'herbPots' },
+  { id: 'hub_telescope', kind: 'fx', draw: 'telescope' },
+  { id: 'hub_tavern_table', kind: 'fx', draw: 'tavernTable' },
+  { id: 'hub_oar_rack', kind: 'fx', draw: 'oarRack' },
+  // The town's life (data/hub.js ambient): animals and boats; its townsfolk are the pack's, below.
+  { id: 'hub_gull_perched', kind: 'fx', draw: 'gullPerched' },
+  { id: 'hub_rowboat', kind: 'fx', draw: 'rowboat' },
+  { id: 'hub_dog', kind: 'fx', draw: 'dog' },
+  { id: 'hub_cat', kind: 'fx', draw: 'cat' },
+  // The townsfolk out walking (Tiny Dungeon, recolored so none is mistaken for a keeper): a
+  // grey-haired fisherman in a grey gansey (the brown-haired man), a sailor in a white shirt (the
+  // bearded man with a headband), and a woman out shopping in a violet shawl (the white-haired woman).
+  { id: 'npc_fisher', kind: 'npc', pack: 'dungeon', tile: 98, colors: { '#c0cbdc': 'fog-3', '#8b9bb4': 'fog-2', '#bd6c4a': 'fog-4', '#763b36': 'fog-2' } },
+  { id: 'npc_sailor', kind: 'npc', pack: 'dungeon', tile: 112, colors: { '#25956a': 'fog-3', '#43e1b3': 'fog-5' } },
+  { id: 'npc_shopper', kind: 'npc', pack: 'dungeon', tile: 100, colors: { '#8b9bb4': 'wood-2', '#c0cbdc': 'wood-3', '#bd6c4a': 'violet-3', '#763b36': 'violet-2' } },
+  {
+    id: 'hub_townswoman_waving', kind: 'npc', pack: 'dungeon', tile: 99, pose: 'wave', frames: 2, fps: 3,
+    colors: { '#9b4ca3': 'sea-3', '#d176d0': 'sea-4', '#bd6c4a': 'wood-3', '#763b36': 'wood-2', '#eaa56c': 'skin-2' },
+  },
 
   // ------------------------------------------------------------ effects, particles, font (art/draw/effects.js)
   { id: 'shots', kind: 'fx', draw: 'shots' },

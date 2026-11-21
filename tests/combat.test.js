@@ -1,7 +1,7 @@
 // Combat: enemies (§5.6), the weapon pipeline (§5.8), gems and pickups, bosses (§5.13).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeWorld, spawnAt, give, givePassive as givePassiveHere, run, runCollect, autoDecide } from './helpers/simworld.js';
+import { makeWorld, spawnAt, give, givePassive as givePassiveHere, run, runCollect, autoDecide, pastGates, TEST_BOLT } from './helpers/simworld.js';
 import { EF, PF, ZONE, MOTION, TPS } from '../src/sim/constants.js';
 import { EV, TELE } from '../src/sim/events.js';
 import { impulse, damageEnemy, applyStatus } from '../src/sim/enemies.js';
@@ -10,6 +10,7 @@ import { stepWorld, currentHalt } from '../src/sim/world.js';
 import { hurtPlayer } from '../src/sim/player.js';
 import { markStatsDirty, rebuildStats } from '../src/sim/build.js';
 import { registerBoss } from '../src/sim/bosses.js';
+import { DATA } from '../src/data/index.js';
 
 const dist = (w, e) => Math.hypot(w.enemies.x[e] - w.player.x, w.enemies.y[e] - w.player.y);
 const alive = (w, e) => e >= 0 && e < w.enemies.count && (w.enemies.flags[e] & EF.DEAD) === 0;
@@ -265,12 +266,13 @@ test('weapons: pierce counts hits; a shot never hits the same enemy twice', () =
   const ids = [];
   for (let k = 0; k < 6; k++) ids.push(spawnAt(w, 'drowned_sailor', 40 + k * 14, 0));
   for (const i of ids) { w.enemies.speed[i] = 0; w.enemies.hp[i] = w.enemies.maxHp[i] = 1e6; w.enemies.mass[i] = 1e6; }
-  const s = give(w, 'harpoon_chain'); // pierce 3, facing right
+  const s = give(w, 'harpoon_chain'); // pierce 4 (0.9.0; 3 before), facing right
   w.player.fx = 1; w.player.fy = 0;
   const hits = runCollect(w, 60, EV.HIT);
   const fromHarpoon = hits.filter((h) => h.d === s.index);
-  assert.equal(fromHarpoon.length, 3, `pierce ${s.stats.pierce}: 3 hits`);
-  assert.equal(new Set(fromHarpoon.map((h) => h.b)).size, 3, 'three different enemies');
+  assert.equal(s.stats.pierce, 4);
+  assert.equal(fromHarpoon.length, 4, `pierce ${s.stats.pierce}: 4 hits`);
+  assert.equal(new Set(fromHarpoon.map((h) => h.b)).size, 4, 'four different enemies');
 });
 
 test('weapons: orbit bodies circle at their radius and share a hit cooldown per enemy', () => {
@@ -320,29 +322,36 @@ test('weapons: split makes two children that never split again; chain hops to ne
   const ids = [];
   for (let k = 0; k < 8; k++) ids.push(spawnAt(w, 'drowned_sailor', 60 + (k % 4) * 20, (k < 4 ? -1 : 1) * 25));
   for (const i of ids) { w.enemies.speed[i] = 0; w.enemies.hp[i] = w.enemies.maxHp[i] = 1e6; w.enemies.mass[i] = 1e9; }
-  const s = give(w, 'flare_gun', { runes: ['splitting'] });
+  const s = give(w, 'flare_gun', { lines: ['split_flare'] });
   let children = 0;
   for (let t = 0; t < 40; t++) {
     run(w, 1);
     for (let i = 0; i < w.projectiles.count; i++) if (w.projectiles.flags[i] & PF.CHILD) children = Math.max(children, [...Array(w.projectiles.count).keys()].filter((j) => w.projectiles.flags[j] & PF.CHILD).length);
   }
   assert.ok(children >= 1 && children <= 2, `children alive at once: ${children}`);
-  assert.equal(s.runes[0].id, 'splitting');
-  const w2 = makeWorld({ invulnerable: true });
+  assert.deepEqual(s.lines, ['split_flare']);
+  const w2 = makeWorld({ invulnerable: true }, { extraWeapons: [TEST_BOLT] });
   const row = [];
   for (let k = 0; k < 5; k++) row.push(spawnAt(w2, 'drowned_sailor', 50 + k * 30, 0));
   for (const i of row) { w2.enemies.speed[i] = 0; w2.enemies.hp[i] = w2.enemies.maxHp[i] = 1e6; w2.enemies.mass[i] = 1e9; }
-  const s2 = give(w2, 'flare_gun', { runes: ['chain_link'] });
+  const s2 = give(w2, 'test_bolt');   // (its bolt hops to 3 more: the Fulgurite's, kept as a test weapon)
   const hits = runCollect(w2, 40, EV.HIT).filter((h) => h.d === s2.index);
   assert.equal(new Set(hits.map((h) => h.b)).size, 4, 'the first target plus 3 hops, all different');
 });
 
+// A flare that explodes on hit (the old Flare Barrage's numbers; 0.9.0 has no evolved weapons).
+const BLASTER = {
+  id: 'test_blaster', name: 'Test Blaster', desc: 'For tests.', tags: ['fire'], sprite: 'proj_flare', icon: 'icon_flare_gun', unlock: 'starter', maxLevel: 1, weight: 0,
+  base: { damage: 26, cooldown: 0.8, amount: 3, duration: 1.6, pierce: 1, knockback: 0.8, radius: 4, interval: 0.07 }, levels: [null],
+  pipeline: { emit: { type: 'nearest', range: 380 }, motion: { type: 'linear', speed: 260 }, onHit: [{ type: 'damage' }, { type: 'explode', radius: 22, damageMul: 0.6 }] },
+};
+
 test('weapons: explode hurts everything nearby (not the target twice); pull drags toward you; zone pulses', () => {
-  const w = makeWorld({ invulnerable: true });
+  const w = makeWorld({ invulnerable: true }, { extraWeapons: [BLASTER] });
   const a = spawnAt(w, 'drowned_sailor', 60, 0);
   const b = spawnAt(w, 'drowned_sailor', 70, 8);
   for (const i of [a, b]) { w.enemies.speed[i] = 0; w.enemies.hp[i] = w.enemies.maxHp[i] = 1e6; w.enemies.mass[i] = 1e9; }
-  const s = give(w, 'flare_barrage');
+  const s = give(w, 'test_blaster');
   const hits = [], blasts = [];
   for (let t = 0; t < 20; t++) {
     run(w, 1);
@@ -369,47 +378,25 @@ test('weapons: explode hurts everything nearby (not the target twice); pull drag
   run(w2, 30);
   assert.ok(dist(w2, e) < d0 - 3, 'pulled toward you');
   // Burning ground: rate-limited, pulses on its interval.
-  const w3 = makeWorld({ invulnerable: true });
+  const w3 = makeWorld({ invulnerable: true }, { extraWeapons: [TEST_BOLT] });
   const t = spawnAt(w3, 'drowned_sailor', 38, 0);
   w3.enemies.speed[t] = 0; w3.enemies.hp[t] = w3.enemies.maxHp[t] = 1e6; w3.enemies.mass[t] = 1e9;
-  give(w3, 'lantern_orb', { runes: ['burning_ground'] });
+  give(w3, 'test_bolt', { lines: ['hot_sand'] });   // (Burning Ground, the shared line)
   run(w3, 90);
   const ground = [...Array(w3.zones.count).keys()].filter((i) => w3.zones.kind[i] === ZONE.GROUND);
   assert.ok(ground.length >= 1 && ground.length <= 90 / (0.3 * 60) + 1, `ground zones ${ground.length}, rate-limited`);
 });
 
-test('weapons: runes patch the pipeline (orbiting replaces the emitter; backfire mirrors; invalid pairs refused)', async () => {
-  const { runeValidOn } = await import('../src/sim/weapons.js');
-  const w = makeWorld({ invulnerable: true });
-  const orb = w.runeDefs.find((r) => r.id === 'orbiting');
-  const s = give(w, 'flare_gun', { runes: ['orbiting'] });
-  assert.equal(s.emit.type, 'orbit');
-  assert.equal(s.motion.type, 'orbit');
-  assert.equal(s.stats.pierce, -1);
-  assert.equal(s.hitCdTicks, 30);
-  run(w, 1);
-  assert.equal(w.projectiles.count, s.stats.amount, 'orbit bodies right away, no target needed');
-  assert.equal(runeValidOn(orb, w.weaponDefs[w.weaponIndex.get('tide_bell')]), false, 'orbiting a wave makes no sense: never offered');
-  const w2 = makeWorld({ invulnerable: true });
-  spawnAt(w2, 'drowned_sailor', 100, 0);
-  w2.enemies.speed[0] = 0;
-  give(w2, 'flare_gun', { runes: ['backfire'] });
-  run(w2, 1);
-  const P = w2.projectiles;
-  assert.equal(P.count, 2);
-  assert.ok(P.vx[0] * P.vx[1] < 0, 'one forward, one straight back');
-});
-
 test('weapons: rebuilding slots (every level-up does) reuses compiled on-hit lists instead of growing the table', () => {
   const w = makeWorld({ invulnerable: true });
-  give(w, 'flare_gun', { runes: ['splitting', 'burning_ground'] });
+  give(w, 'flare_gun', { lines: ['split_flare', 'lit_ground'] });
   give(w, 'lantern_orb');
   const n = w.fxLists.length;
   const lists = w.slots.filter(Boolean).map((s) => s.list);
   for (let k = 0; k < 50; k++) { markStatsDirty(w); rebuildStats(w); }
   assert.equal(w.fxLists.length, n, 'no new lists');
   assert.deepEqual(w.slots.filter(Boolean).map((s) => s.list), lists, 'same list for the same pipeline');
-  give(w, 'flare_gun', { slot: 0, runes: ['chain_link'] });
+  give(w, 'flare_gun', { slot: 0, lines: ['split_flare'] });
   assert.ok(w.fxLists.length > n, 'a different pipeline compiles its own list');
 });
 
@@ -606,12 +593,14 @@ test('bosses: death records the weapons by damage, drops a chest; the last boss 
   assert.equal(first.final, false);
   const e1 = w.enemies.resolve(first.handle);
   first.damageBySlot[0] = 10;
+  pastGates(first); // past its floor and its phase gates (data/bosses.js)
   damageEnemy(w, e1, 1e9, 9); // a relic blast lands the killing blow
   run(w, 1);
   assert.equal(w.result.bossesKilled[0].id, 'harbor_maw');
   assert.deepEqual(w.result.bossesKilled[0].weapons, ['relic', 'flare_gun'], 'most damage first');
   assert.ok([...Array(w.pickups.count).keys()].some((i) => w.pickups.kind[i] === 4), 'boss chest on the ground');
   const e2 = w.enemies.resolve(last.handle);
+  pastGates(last);
   damageEnemy(w, e2, 1e9, 0);
   run(w, 1);
   assert.equal(w.halts[0].kind, 'chest', 'the chest first');
@@ -673,12 +662,23 @@ test('bosses: a charge runs the warned line and hurts once per charge; the third
   assert.equal(t.b.phase, 2, 'below 30%: the last phase');
 });
 
-test('bosses keep their listed health at any minute; elites get their size, contact, XP, and mass', () => {
-  const late = makeWorld({ invulnerable: true }, { events: [{ at: 900, event: 'boss', enemy: 'harbor_maw' }], bands: [{ from: 0, to: 1200, roster: { fog_wisp: 1 }, density: [0, 0] }] });
-  run(late, 900 * TPS + 2);
-  const e = late.enemies.resolve(late.bosses[0].handle);
-  assert.equal(late.enemies.maxHp[e], late.enemyDefs[late.enemies.type[e]].hp, '15:00 boss, listed health');
-  assert.ok(late.director.hpMul > 2, 'while regular enemies have grown');
+test('a boss\'s health follows your level, not the minute; elites get their size, contact, XP, and mass', () => {
+  const B = DATA.tuning.bosses, maw = DATA.bosses.find((b) => b.id === 'harbor_maw');
+  const bossAt = (level, at = 900) => {
+    const late = makeWorld({ invulnerable: true }, { events: [{ at, event: 'boss', enemy: 'harbor_maw' }], bands: [{ from: 0, to: 1200, roster: { fog_wisp: 1 }, density: [0, 0] }] });
+    late.player.level = level;
+    run(late, at * TPS + 2);
+    const e = late.enemies.resolve(late.bosses[0].handle);
+    return { late, hp: late.enemies.maxHp[e], listed: late.enemyDefs[late.enemies.type[e]].hp };
+  };
+  const at = bossAt(maw.level);
+  assert.equal(at.hp, at.listed, 'at its own level: listed health, at 15:00');
+  assert.ok(at.late.director.hpMul > 2, 'while regular enemies have grown');
+  assert.equal(bossAt(maw.level, 120).hp, at.listed, 'and at 2:00 the same');
+  assert.ok(Math.abs(bossAt(maw.level + 10).hp - at.listed * (1 + 10 * B.hpPerLevel)) < 1e-3, 'ten levels above: that much more');
+  assert.ok(Math.abs(bossAt(maw.level - 4).hp - at.listed * (1 - 4 * B.hpPerLevel)) < 1e-3, 'below: less');
+  assert.ok(Math.abs(bossAt(1).hp - at.listed * B.hpLevelMin) < 1e-3, 'never under the floor');
+  assert.ok(Math.abs(bossAt(999).hp - at.listed * B.hpLevelMax) < 1e-3, 'or over the cap');
   const w = makeWorld({ invulnerable: true });
   const T = w.tuning.enemies, def = w.enemyDefs[w.enemyIndex.get('drowned_sailor')];
   const el = spawnAt(w, 'drowned_sailor', 200, 0, { elite: true });
@@ -755,7 +755,7 @@ test('gems: the magnet stat widens the pull; a collected big gem makes room for 
 
 test('pickups: materials collected in overtime count the overtime multiplier', () => {
   const w = makeWorld({ invulnerable: true });
-  w.director.materialMul = 1.5;
+  w.director.otMaterialMul = 1.5;
   const coin = w.materialIndex.get('coin');
   spawnPickup(w, 1, w.player.x + 2, w.player.y, coin, 4);
   run(w, 1);
@@ -766,7 +766,7 @@ test('weapons: on-hit status and light effects happen; a chain never hits the sa
   const w = makeWorld({ invulnerable: true });
   const e = spawnAt(w, 'drowned_sailor', 46, 0);
   w.enemies.speed[e] = 0; w.enemies.hp[e] = w.enemies.maxHp[e] = 1e6; w.enemies.mass[e] = 1e9;
-  const s = give(w, 'lighthouse_lens');       // orbit bodies that burn
+  const s = give(w, 'lantern_orb', { level: 8, forms: ['sunfire'] });       // orbit bodies that burn
   const st = runCollect(w, 120, EV.STATUS).filter((x) => x.b === w.enemies.handle(e));
   assert.ok(st.length >= 1 && st[0].a === 1, 'burn applied');
   assert.ok(w.enemies.burnT[e] > 0 || w.result.damageBySlot[s.index] > 0);
@@ -774,30 +774,30 @@ test('weapons: on-hit status and light effects happen; a chain never hits the sa
   const t = spawnAt(lights, 'drowned_sailor', 60, 0); lights.enemies.speed[t] = 0;
   give(lights, 'flare_gun');
   assert.ok(runCollect(lights, 30, EV.LIGHT).length >= 1, 'a flare hit lights up');
-  // Chain Link on a tight cluster: every enemy a volley's chain touches, once.
+  // A chain (the Fulgurite's own) on a tight cluster: every enemy a volley's chain touches, once.
   for (let seed = 1; seed <= 20; seed++) {
-    const c = makeWorld({ seed, invulnerable: true });
+    const c = makeWorld({ seed, invulnerable: true }, { extraWeapons: [TEST_BOLT] });
     for (let k = 0; k < 4; k++) { const i = spawnAt(c, 'drowned_sailor', 80 + (k % 2) * 14, (k >> 1) * 14); c.enemies.speed[i] = 0; c.enemies.hp[i] = c.enemies.maxHp[i] = 1e6; c.enemies.mass[i] = 1e9; }
-    const g = give(c, 'flare_gun', { runes: ['chain_link'] });
+    const g = give(c, 'test_bolt');
     const hits = runCollect(c, 40, EV.HIT).filter((h) => h.d === g.index);
     assert.ok(hits.length >= 3, `seed ${seed}: the chain hopped (${hits.length} hits)`);
     assert.equal(new Set(hits.map((h) => h.b)).size, hits.length, `seed ${seed}: no enemy hit twice by one volley's chain`);
   }
 });
 
-test('evolutions do what they say: the Storm Bell freezes, the Lens burns, the Kraken Line chains and drags', () => {
-  const ring = (id, n = 6) => {
+test('capstones do what they say: Riptide freezes, Sunfire burns, Tether chains and drags (the old evolutions\' ids still give them)', () => {
+  const ring = (id, n = 6, forms = []) => {
     const w = makeWorld({ invulnerable: true });
     const ids = [];
     for (let k = 0; k < n; k++) { const i = spawnAt(w, 'drowned_sailor', 60 + (k % 3) * 12, (k >> 1) * 10 - 10); w.enemies.speed[i] = 0; w.enemies.hp[i] = w.enemies.maxHp[i] = 1e6; ids.push(i); }
     w.player.fx = 1; w.player.fy = 0;
-    const s = give(w, id);
+    const s = give(w, id, { level: 8, forms });
     return { w, s, ids };
   };
   let { w, ids } = ring('storm_bell');
   run(w, 40);
   assert.ok(ids.some((i) => w.enemies.freezeT[i] > 0), 'frozen');
-  ({ w, ids } = ring('lighthouse_lens'));
+  ({ w, ids } = ring('lantern_orb', 6, ['sunfire']));
   w.enemies.x[ids[0]] = w.player.x + 46;
   run(w, 120);
   assert.ok(ids.some((i) => w.enemies.burnT[i] > 0), 'burning');
@@ -818,37 +818,26 @@ test('weapons: an extra wave from Undertow lands its own hits (waves don\'t shar
   assert.equal(hitsWith(true), 2 * hitsWith(false), 'two waves, twice the hits');
 });
 
-test('runes: an emitter-changing rune can\'t join runes it would strand; one copy of a rune per weapon', async () => {
-  const { runeFits } = await import('../src/sim/weapons.js');
-  const w = makeWorld({ invulnerable: true });
-  const R = (id) => w.runeDefs.find((r) => r.id === id);
-  const flare = w.weaponDefs[w.weaponIndex.get('flare_gun')];
-  assert.equal(runeFits(R('orbiting'), flare, [R('backfire'), null]), false, 'Orbiting would strand Backfire');
-  assert.equal(runeFits(R('backfire'), flare, [R('orbiting'), null]), false, 'Backfire does nothing on an orbit');
-  assert.equal(runeFits(R('chain_link'), flare, [R('orbiting'), null]), true, 'Chain Link works on an orbit');
-  assert.equal(runeFits(R('splitting'), flare, [R('splitting'), null]), false, 'no second copy');
-});
-
 test('weapons: chains on random clusters never revisit; chain hops ignore the parent slot\'s cooldown', () => {
   for (let seed = 1; seed <= 30; seed++) {
-    const c = makeWorld({ seed, invulnerable: true });
+    const c = makeWorld({ seed, invulnerable: true }, { extraWeapons: [TEST_BOLT] });
     let s = seed * 7919;
     const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
     for (let k = 0; k < 10; k++) { const i = spawnAt(c, 'drowned_sailor', 70 + rnd() * 40, rnd() * 40 - 20); c.enemies.speed[i] = 0; c.enemies.hp[i] = c.enemies.maxHp[i] = 1e6; c.enemies.mass[i] = 1e9; }
-    const g = give(c, 'flare_gun', { runes: ['chain_link'] });
+    const g = give(c, 'test_bolt');
     const byVolley = new Map();
     for (const h of runCollect(c, 60, EV.HIT).filter((x) => x.d === g.index)) {
-      const v = Math.floor(h.tick / 66); // one volley per 1.1 s cooldown
+      const v = Math.floor(h.tick / 96); // one volley per 1.6 s cooldown
       if (!byVolley.has(v)) byVolley.set(v, []);
       byVolley.get(v).push(h.b);
     }
     for (const [v, hs] of byVolley) assert.equal(new Set(hs).size, hs.length, `seed ${seed} volley ${v}: ${hs}`);
   }
-  // An orb with Chain Link: the hop lands on an enemy the orb itself hit a moment ago.
+  // An orb with Chain Light: the hop lands on an enemy the orb itself hit a moment ago.
   const o = makeWorld({ invulnerable: true });
   const a = spawnAt(o, 'drowned_sailor', 38, 0), b = spawnAt(o, 'drowned_sailor', 60, 0);
   for (const i of [a, b]) { o.enemies.speed[i] = 0; o.enemies.hp[i] = o.enemies.maxHp[i] = 1e6; o.enemies.mass[i] = 1e9; }
-  const orb = give(o, 'lantern_orb', { runes: ['chain_link'] });
+  const orb = give(o, 'lantern_orb', { lines: ['chain_light'] });
   o.enemies.nextHit[b * 10 + orb.index] = 1e9; // b is on the orb's cooldown for good
   const hits = runCollect(o, 120, EV.HIT).filter((h) => h.d === orb.index && h.b === o.enemies.handle(b));
   assert.ok(hits.length >= 1, 'the chain hop still hit it');
@@ -866,17 +855,18 @@ test('hooks: the Harpooner\'s own tug pulls even with a weapon that has no knock
   assert.ok(w.enemies.x[e] < x0 - 1, `tugged in ${(x0 - w.enemies.x[e]).toFixed(1)} px`);
 });
 
-test('hooks: a blast from the Harpooner\'s weapons pulls bystanders toward her; a Lamplighter blast pushes them out', () => {
+test('hooks: a blast from the Harpooner\'s Flare pushes bystanders out as anyone\'s does (ruling 18 KE: only her Grapnel and chains pull)', () => {
   const push = (character) => {
     const w = makeWorld({ invulnerable: true, character });
     for (let k = 0; k < 8; k++) w.slots[k] = null;
     const target = spawnAt(w, 'drowned_sailor', 100, 0), by = spawnAt(w, 'drowned_sailor', 112, 0);
     for (const i of [target, by]) { w.enemies.speed[i] = 0; w.enemies.hp[i] = w.enemies.maxHp[i] = 1e6; }
-    give(w, 'flare_barrage');
+    give(w, 'flare_barrage', { slot: 1 });   // (not slot 0: that is her Grapnel's, which pulls)
     const x0 = w.enemies.x[by];
     run(w, 40);                                   // the flare lands after about 23 ticks
     return w.enemies.x[by] - x0;
   };
-  assert.ok(push('harpooner') < -1, 'toward her');
-  assert.ok(push('lamplighter') > 1, 'away');
+  const hp = push('harpooner'), lp = push('lamplighter');
+  assert.ok(hp > 1, `away, hers too (${hp}, the Lamplighter's ${lp})`);
+  assert.ok(lp > 1, 'away');
 });

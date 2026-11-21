@@ -171,7 +171,17 @@ const LEAVE_DIALOG = Object.freeze({
   detail: 'The last save failed. Quitting now loses everything since the last successful save.',
 });
 
-/** Whether the answer to LEAVE_DIALOG closes the window anyway. */
+/**
+ * The question when the window is closed mid-run (G-Q11): the run's materials come home only
+ * when it ends, or through the pause menu's Quit run. "Stay" is the default and what Escape picks.
+ */
+const RUN_DIALOG = Object.freeze({
+  type: 'warning', buttons: ['Quit anyway', 'Stay'], defaultId: 1, cancelId: 1, noLink: true, title: 'Lamplight',
+  message: 'Quit in the middle of a run?',
+  detail: 'Nothing from this run comes home. To keep what you have collected, choose Stay, then Quit run from the pause menu.',
+});
+
+/** Whether the answer to LEAVE_DIALOG or RUN_DIALOG closes the window anyway. */
 function leavesAnyway(choice) {
   return choice === 0;
 }
@@ -182,8 +192,13 @@ function leavesAnyway(choice) {
  * hold a close only once it has had a mouse or keyboard press, and a pad press may not count. It
  * doesn't ask when the game's own Quit already did (`quitting`), or twice for one close (`answered`).
  */
-function asksBeforeClosing({ unsaved, quitting, answered }) {
-  return unsaved === true && !quitting && !answered;
+function asksBeforeClosing({ unsaved, inRun = false, quitting, answered }) {
+  return (unsaved === true || inRun === true) && !quitting && !answered;
+}
+
+/** Which question a close asks: a failing save loses more than a run, so it comes first. */
+function closeDialog({ unsaved }) {
+  return unsaved === true ? LEAVE_DIALOG : RUN_DIALOG;
 }
 
 /**
@@ -192,15 +207,33 @@ function asksBeforeClosing({ unsaved, quitting, answered }) {
  * itself (app/flow.js beforeLeaving, Electron's will-prevent-unload), once for one close. On "Quit
  * anyway" the window is closed again once this close is over (`later`, not from inside its own
  * handler). `dialog` is Electron's (tests pass stand-ins for both).
+ *
+ * 0.9.0 (V5: "showMessageBoxSync can't be answered with a pad in fullscreen"): with `page`, the
+ * game asks its own question on its own screen, which a pad answers: page.ask(kind, onAnswer,
+ * onNoAnswer), kind 'unsaved' or 'run'. onAnswer(leave) is the player's answer; onNoAnswer() means
+ * the page didn't take the question (it's hung or still loading), and the system's dialog asks
+ * instead, as before. One question at a time: a second close while one is up waits for it.
  */
-function askBeforeClosing(win, dialog, state, later = setImmediate) {
+function askBeforeClosing(win, dialog, state, later = setImmediate, page = null) {
   let answered = false;
-  const ask = () => leavesAnyway(dialog.showMessageBoxSync(win, LEAVE_DIALOG));
+  let pending = false;
+  // The page holds a close only while a save fails (app/flow.js beforeLeaving): that question.
+  const ask = (d = LEAVE_DIALOG) => leavesAnyway(dialog.showMessageBoxSync(win, d));
+  const closeAgain = () => { answered = true; later(() => { if (!win.isDestroyed()) win.close(); }); };
   win.on('close', (event) => {
-    const { unsaved, quitting } = state();
-    if (!asksBeforeClosing({ unsaved, quitting, answered })) return;
+    const { unsaved, inRun, quitting } = state();
+    if (!asksBeforeClosing({ unsaved, inRun, quitting, answered })) return;
     event.preventDefault();
-    if (ask()) { answered = true; later(() => { if (!win.isDestroyed()) win.close(); }); }
+    const d = closeDialog({ unsaved });
+    if (page) {
+      if (pending) return;
+      pending = true;
+      page.ask(d === LEAVE_DIALOG ? 'unsaved' : 'run',
+        (leave) => { pending = false; if (leave) closeAgain(); },
+        () => { pending = false; if (!win.isDestroyed() && ask(d)) closeAgain(); });
+      return;
+    }
+    if (ask(d)) closeAgain();
   });
   win.webContents.on('will-prevent-unload', (event) => {
     if (win.isDestroyed()) return;
@@ -208,8 +241,56 @@ function askBeforeClosing(win, dialog, state, later = setImmediate) {
   });
 }
 
+/**
+ * The page's side of a close question (0.9.0): send it, wait `ackMs` for the page to say it has it
+ * (then wait as long as the player takes), else fall back. send(kind) posts the question; returns
+ * { ask, ack(), answer(leave) } for main.cjs's IPC.
+ */
+function createPageQuestion(send, { ackMs = 1500, timers = { setTimeout, clearTimeout } } = {}) {
+  let cur = null;
+  // A question the page took too long to take (the system's dialog asked instead): if the page
+  // puts it up after all, "Quit anyway" there still closes the window.
+  let late = null;
+  return {
+    ask(kind, onAnswer, onNoAnswer) {
+      cur = { onAnswer, onNoAnswer, acked: false, timer: null };
+      late = null;
+      const mine = cur;
+      try { send(kind); } catch { cur = null; onNoAnswer(); return; }
+      mine.timer = timers.setTimeout(() => { if (cur === mine && !mine.acked) { cur = null; late = mine; onNoAnswer(); } }, ackMs);
+    },
+    ack() { if (cur) { cur.acked = true; timers.clearTimeout(cur.timer); } },
+    answer(leave) {
+      const c = cur || late;
+      cur = null; late = null;
+      if (c) { timers.clearTimeout(c.timer); c.onAnswer(leave === true); }
+    },
+    /**
+     * The page that had the question is gone (it reloaded, or its process died): no answer will
+     * come, so the question ends as "Stay" and the next close asks again (the sweep, S4 E2).
+     */
+    drop() {
+      const c = cur;
+      cur = null; late = null;
+      if (c) { timers.clearTimeout(c.timer); c.onAnswer(false); }
+    },
+    get waiting() { return cur !== null; },
+  };
+}
+
+/**
+ * What the page may be granted when it asks (Electron grants everything unless told otherwise):
+ * only the game's own page, and only what the game uses: writing text to the clipboard (Copy
+ * tuning, Copy code) and fullscreen. Everything else (camera, microphone, location, notifications,
+ * MIDI, pointer lock, opening outside programs, ...) is refused.
+ */
+const PERMISSIONS = Object.freeze(['clipboard-sanitized-write', 'fullscreen']);
+function allowsPermission(permission, url) {
+  return isTrustedSender(url) && PERMISSIONS.includes(permission);
+}
+
 module.exports = {
   SCHEME, HOST, ORIGIN, DISPLAY_MODES, MIME, ERR_ABORTED, mimeFor, resolveGamePath, isTrustedSender, normalizeMode,
   windowGeometry, needsNewWindow, titleFor, toBytes, errorPageUrl, isRealLoadFailure, afterRendererGone,
-  modeAfterFullscreenChange, LEAVE_DIALOG, leavesAnyway, asksBeforeClosing, askBeforeClosing,
+  modeAfterFullscreenChange, LEAVE_DIALOG, RUN_DIALOG, leavesAnyway, asksBeforeClosing, closeDialog, askBeforeClosing, createPageQuestion, allowsPermission, PERMISSIONS,
 };

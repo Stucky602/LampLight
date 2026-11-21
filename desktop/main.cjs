@@ -8,13 +8,14 @@
 //   no exclusive mode), borderless window (frameless, covers the display, not flagged
 //   fullscreen), windowed (a whole multiple of 640x360). Switching to or from borderless opens a
 //   new window, which reloads the page: the settings screen only offers it at the title or hub.
-// - --smoke[=seconds] runs the scripted smoke test and exits (see tools/smoke). With
-//   --smoke-userdata=<dir> it uses a throwaway save folder.
+// - --smoke[=seconds] runs the scripted smoke test and exits (see tools/smoke). It never uses the
+//   real save folder: --smoke-userdata=<dir> names its folder, and without it a new temp folder is made.
 'use strict';
 
-const { app, BrowserWindow, protocol, ipcMain, shell, Menu, screen, dialog } = require('electron');
+const { app, BrowserWindow, protocol, ipcMain, shell, Menu, screen, dialog, clipboard, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const savefs = require('./savefs.cjs');
 const S = require('./shell.cjs');
 
@@ -37,21 +38,27 @@ if (SMOKE) {
   app.commandLine.appendSwitch('use-angle', 'swiftshader');
   app.commandLine.appendSwitch('enable-unsafe-swiftshader');
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
-  if (SMOKE_USERDATA) app.setPath('userData', path.resolve(SMOKE_USERDATA));
+  // Never the real save folder (the sweep, S4 E3: the smoke run saves a test profile twice, which
+  // pushed the player's own save down the backups): the folder named, else a new temp folder.
+  app.setPath('userData', SMOKE_USERDATA ? path.resolve(SMOKE_USERDATA) : fs.mkdtempSync(path.join(os.tmpdir(), 'lamplight-smoke-')));
 }
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-// One copy at a time; a second launch focuses the first.
-if (!SMOKE && !app.requestSingleInstanceLock()) {
-  app.quit();
-}
+// One copy at a time; a second launch focuses the first. The lock is taken here, before anything
+// is set up, and a copy without it does nothing more (the sweep, S4 E1: it used to carry on, open
+// a window, and start loading the game over the first copy's save files before its quit landed).
+// Everything that starts the game is inside `if (HAS_LOCK)` at the end of this file.
+const HAS_LOCK = SMOKE ? true : app.requestSingleInstanceLock();
+if (!HAS_LOCK) app.quit();
 
 let win = null;
 let currentMode = 'fullscreen';
 let lastAutoReloadAt = null;   // when the game was last reloaded automatically after a crash
 let readySince = null;         // when the page last reported a healthy boot
 let unsaved = false;           // the page says a save still fails (app/keeper.js), until one works
+let inRun = false;            // the page says a run is under way, its materials not yet home
 let quitting = false;          // the game's own Quit, which already asked if it had to
+const pageQuestions = new Map(); // webContents id -> the page's close question (shell.cjs createPageQuestion)
 const userDir = () => app.getPath('userData');
 
 function buildTitle() {
@@ -130,7 +137,16 @@ function createWindow(mode) {
   // Closing the window (its X, Alt+F4) while a save still fails asks the question the game's Quit
   // asks, from here (a page can hold a close only after a mouse or keyboard press); the page's own
   // hold (app/flow.js beforeLeaving) is answered the same way, once.
-  S.askBeforeClosing(next, dialog, () => ({ unsaved, quitting }));
+  // 0.9.0: the game asks on its own screen (a pad can answer it), the system's dialog only if it can't.
+  const question = S.createPageQuestion((kind) => { if (next.isDestroyed()) throw new Error('gone'); next.webContents.send('app:closeAsked', kind); });
+  pageQuestions.set(next.webContents.id, question);
+  const wcId = next.webContents.id;
+  next.on('closed', () => pageQuestions.delete(wcId));
+  // A page that goes away with the question up (a reload, a renderer that died) never answers it:
+  // the question is dropped, so the next close asks again (the sweep, S4 E2: the X went dead).
+  next.webContents.on('did-start-loading', () => question.drop());
+  next.webContents.on('render-process-gone', () => question.drop());
+  S.askBeforeClosing(next, dialog, () => ({ unsaved, inRun, quitting }), setImmediate, question);
   // Links never open inside or outside the game window; the page never navigates away.
   next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   next.webContents.on('will-navigate', (e, url) => { if (!url.startsWith(S.ORIGIN)) e.preventDefault(); });
@@ -197,8 +213,19 @@ function registerIpc() {
     return m;
   });
   handle('app:quit', () => { quitting = true; app.quit(); });
-  handle('app:ready', () => { readySince = Date.now(); unsaved = false; });   // a fresh page, a fresh keeper
+  // A fresh page, a fresh keeper; and no close question can still be on its screen.
+  ipcMain.handle('app:ready', (event) => {
+    if (!S.isTrustedSender(event.senderFrame ? event.senderFrame.url : '')) throw new Error('Refused: this request did not come from the game.');
+    readySince = Date.now(); unsaved = false; inRun = false;
+    pageQuestions.get(event.sender.id)?.drop();
+  });
   handle('app:unsaved', (on) => { unsaved = on === true; });
+  handle('app:inRun', (on) => { inRun = on === true; });
+  // The page has the close question on its screen, and later the player's answer.
+  ipcMain.handle('app:closeAck', (event) => { if (S.isTrustedSender(event.senderFrame ? event.senderFrame.url : '')) pageQuestions.get(event.sender.id)?.ack(); });
+  ipcMain.handle('app:closeAnswer', (event, leave) => { if (S.isTrustedSender(event.senderFrame ? event.senderFrame.url : '')) pageQuestions.get(event.sender.id)?.answer(leave === true); });
+  // Save code import by paste (0.9.0): the clipboard's text, capped well past any real code.
+  handle('app:readClipboard', () => String(clipboard.readText() || '').slice(0, 4 * 1024 * 1024 + 16));
   handle('app:info', () => ({ version: app.getVersion(), title: buildTitle(), electron: process.versions.electron, chrome: process.versions.chrome, userData: dir(), displayMode: currentMode }));
   handle('smoke:done', (result) => {
     if (!SMOKE) return;
@@ -220,12 +247,18 @@ function registerIpc() {
   });
 }
 
+if (HAS_LOCK) {
 app.on('second-instance', () => {
   if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  // The page may ask for what the game uses and nothing else (Electron grants every request by
+  // default): shell.cjs allowsPermission.
+  session.defaultSession.setPermissionRequestHandler((wc, permission, done, details) => {
+    done(S.allowsPermission(permission, (details && details.requestingUrl) || (wc && wc.getURL && wc.getURL()) || ''));
+  });
   protocol.handle(S.SCHEME, serveGame);
   registerIpc();
   const settings = savefs.readSettingsSync(userDir());
@@ -237,3 +270,4 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+}

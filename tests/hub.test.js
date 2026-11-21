@@ -167,7 +167,7 @@ test('hub: the harbor\'s people follow the profile: keepers at level 4, walking 
 });
 
 test('hub: a keeper walks their loop, pausing at each corner, and comes back; the others stand still', () => {
-  const w = harbor({ library: 5, tavern: 1 });
+  const w = harbor({ library: 5, lamp_post: 2 });
   const lib = w.people.find((p) => p.id === 'librarian');
   const har = w.people.find((p) => p.id === 'harpooner');
   const loop = HUB.keepers.librarian.loop.map(([x, y]) => [px(x), px(y)]);
@@ -192,7 +192,7 @@ test('hub: a keeper walks their loop, pausing at each corner, and comes back; th
   // Setting the same people again keeps everyone where they are.
   hold(w, EMPTY_FRAME, 2);
   const at = [lib.x, lib.y];
-  setPeople(w, hubPeople(profile({ library: 5, tavern: 1 }), DATA));
+  setPeople(w, hubPeople(profile({ library: 5, lamp_post: 2 }), DATA));
   assert.deepEqual([w.people.find((p) => p.id === 'librarian').x, w.people.find((p) => p.id === 'librarian').y], at);
 });
 
@@ -229,12 +229,12 @@ test('hub: a ceremony pans to the building, clears the fog as it builds, brings 
   assert.throws(() => startCeremony(w, { building: 'boathouse', level: 1 }), /no plot for boathouse/);
 });
 
-test('hub: the Tavern\'s first level: the ceremony, then the Harpooner sails in, walks up, and waits on the square', () => {
-  const after = profile({ tavern: 1 });
-  const w = harbor();
+test('hub: the Lamp Post\'s second level: the ceremony, then the Harpooner sails in, walks up, and waits on the square', () => {
+  const after = profile({ lamp_post: 2 });
+  const w = harbor({ lamp_post: 1 });
   const peopleAfter = hubPeople(after, DATA);
   const spot = peopleAfter.find((p) => p.id === 'harpooner').post;
-  startCeremony(w, { building: 'tavern', level: 1, revealed: revealedFog(after, DATA), people: peopleAfter.filter((p) => p.id !== 'harpooner') });
+  startCeremony(w, { building: 'lamp_post', level: 2, revealed: revealedFog(after, DATA), people: peopleAfter.filter((p) => p.id !== 'harpooner') });
   startArrival(w, { id: 'harpooner', sprite: 'pc_harpooner', waitAt: spot, people: peopleAfter });
   assert.equal(w.queue.length, 1, 'the arrival waits for the ceremony');
   const kinds = [];
@@ -259,7 +259,7 @@ test('hub: the Tavern\'s first level: the ceremony, then the Harpooner sails in,
 });
 
 test('hub: skipping a set piece lands its state at once and starts the next one', () => {
-  const after = profile({ tavern: 1 });
+  const after = profile({ tavern: 1, lamp_post: 2 });
   const w = harbor();
   const peopleAfter = hubPeople(after, DATA);
   startCeremony(w, { building: 'tavern', level: 1, revealed: revealedFog(after, DATA), people: [] });
@@ -299,8 +299,8 @@ test('hub: skipping a set piece lands its state at once and starts the next one'
 });
 
 test('hub: props come out with their levels, are solid, and never trap you', () => {
-  assert.deepEqual(shownProps(profile(), DATA).map((p) => p.id), ['gate_sign']);
-  assert.deepEqual(shownProps(profile({ lamp_post: 3 }), DATA).map((p) => p.id), ['gate_sign', 'square_well', 'square_tub']);
+  assert.deepEqual(shownProps(profile(), DATA).map((p) => p.id), ['gate_sign', 'gate_bollard', 'gate_rope']);
+  assert.deepEqual(shownProps(profile({ lamp_post: 3 }), DATA).map((p) => p.id), ['gate_sign', 'gate_bollard', 'gate_rope', 'square_well', 'square_tub']);
   const w = harbor();
   const well = HUB.props.find((p) => p.id === 'square_well');
   // Walking into the well's tile from the west, before and after it's out.

@@ -367,3 +367,102 @@ test('gamepad: readPadsInto reuses one object per pad and notices a swapped cont
   assert.equal(out[0].type, 'xbox', 'a different pad in the same slot is re-detected');
   assert.equal(out[0].buttons[B.SOUTH], 0, 'buttons cleared between frames');
 });
+
+// ------------------------------------------------------------------ 0.9.0 (W7)
+
+import { rebind, normalizeBindings, savedBindings, setDashOnConfirm, dashOnConfirm, buttonsText, bindable, defaultBindings, REMAPPABLE, keyName, padButtonName } from '../src/input/bindings.js';
+
+test('input: a key pressed and let go between two polls still counts once (V5: short taps were lost)', () => {
+  const { input, target } = setup();
+  input.update(16);
+  key(target, 'keydown', 'KeyR');
+  key(target, 'keyup', 'KeyR');
+  input.update(16);
+  assert.equal(input.fired('reroll'), true, 'the tap is a press');
+  input.update(16);
+  assert.equal(input.fired('reroll'), false, 'once');
+  // A movement tap moves the menu once too.
+  key(target, 'keydown', 'ArrowDown');
+  key(target, 'keyup', 'ArrowDown');
+  input.update(16);
+  assert.equal(input.nav('down'), true);
+  input.update(16);
+  assert.equal(input.nav('down'), false);
+});
+
+test('bindings: a button given to an action swaps with the action that had it; Dash and Confirm may share; Confirm and Back keep one', () => {
+  const b = defaultBindings();
+  // Reroll to △ (Banish's): Banish takes □.
+  const r = rebind(b, 'pad', 'reroll', B.NORTH);
+  assert.deepEqual([r.pad.reroll, r.pad.banish], [[B.NORTH], [B.WEST]]);
+  assert.deepEqual(b.pad.reroll, [B.WEST], 'the bindings passed in never change');
+  // Dash to L2 (the glossary's): the glossary takes R1, and Dash keeps ✕ for runs.
+  const d = rebind(b, 'pad', 'dash', B.L2);
+  assert.deepEqual([d.pad.dash, d.pad.glossary], [[B.L2, B.SOUTH], [B.R1]]);
+  // Confirm to ✕ is a no-op; Back to ✕ swaps them, and both keep a button.
+  const c = rebind(b, 'pad', 'back', B.SOUTH);
+  assert.deepEqual([c.pad.back, c.pad.confirm], [[B.SOUTH], [B.EAST]]);
+  // The d-pad and Home can't be bound; nor can movement keys.
+  assert.equal(rebind(b, 'pad', 'reroll', B.UP), b);
+  assert.equal(bindable('keys', 'KeyW'), false);
+  assert.equal(bindable('keys', 'KeyQ'), true);
+  // Dash off ✕ (V4: "✕ is both confirm and dash, and that can't be changed"), and back on.
+  const off = setDashOnConfirm(b, 'pad', false);
+  assert.deepEqual(off.pad.dash, [B.R1]);
+  assert.equal(dashOnConfirm(off, 'pad'), false);
+  assert.equal(dashOnConfirm(setDashOnConfirm(off, 'pad', true), 'pad'), true);
+  // Saved: only what differs; read back the same; a broken save falls back per action.
+  const saved = { keys: savedBindings(r, 'keys'), pad: savedBindings(r, 'pad') };
+  assert.deepEqual(saved.keys, {});
+  assert.deepEqual(Object.keys(saved.pad).sort(), ['banish', 'reroll']);
+  assert.deepEqual(normalizeBindings(saved).pad.reroll, [B.NORTH]);
+  assert.deepEqual(normalizeBindings({ pad: { confirm: [], back: 'x', reroll: [99, B.UP] } }).pad.confirm, [B.SOUTH], 'Confirm never left without a button');
+  assert.deepEqual(normalizeBindings({ pad: { reroll: [99, B.UP] } }).pad.reroll, []);
+  assert.equal(REMAPPABLE.includes('tuning'), false, 'the tuning panel stays put');
+  assert.equal(buttonsText(b, 'pad', 'dash', 'playstation'), 'R1, ✕');
+  assert.equal(buttonsText(b, 'keys', 'pause', 'keyboard'), 'Esc, P');
+  assert.deepEqual([keyName('KeyQ'), keyName('Digit4'), keyName('ShiftLeft'), padButtonName('xbox', B.L2)], ['Q', '4', 'Shift', 'LT']);
+});
+
+test('input: remapped buttons act, the prompts name them, and Dash can come off ✕ in a run and in the harbor', () => {
+  const p = pad({});
+  const { input, box } = setup([p], { pad: { reroll: [B.NORTH], banish: [B.WEST] } });
+  input.update(16);
+  p.buttons[B.NORTH] = { pressed: true, value: 1 };
+  input.update(16);
+  assert.equal(input.fired('reroll'), true);
+  assert.equal(input.fired('banish'), false);
+  assert.equal(input.glyph('reroll', 'playstation'), '△');
+  assert.equal(input.glyph('skip', 'xbox'), 'Hold LB');
+  assert.equal(input.glyph('dash', 'playstation'), 'R1');
+  assert.equal(input.glyph('glossary', 'keyboard'), 'G');
+  p.buttons[B.NORTH] = { pressed: false, value: 0 };
+  // Dash off ✕: ✕ no longer dashes in a run.
+  input.setSettings({ pad: { dash: [B.R1] } });
+  p.buttons[B.SOUTH] = { pressed: true, value: 1 };
+  input.update(16);
+  assert.equal(input.sampleFrame().buttons, 0, '✕ confirms only');
+  assert.equal(input.fired('confirm'), true);
+  box.pads = [p];
+});
+
+test('input: Settings waits for the next button (captureNext), and nothing else acts on that press; 5s with none gives null', () => {
+  const p = pad({});
+  const { input, box, target } = setup([p]);
+  input.update(16);
+  const got = [];
+  input.captureNext('pad', (c) => got.push(c));
+  p.buttons[B.L2] = { pressed: true, value: 1 };
+  input.update(16);
+  assert.deepEqual(got, [B.L2]);
+  assert.equal(input.fired('glossary'), false, 'the press that was heard does nothing else');
+  input.releaseAll();
+  input.captureNext('keys', (c) => got.push(c));
+  key(target, 'keydown', 'KeyQ');
+  assert.deepEqual(got, [B.L2, 'KeyQ']);
+  input.captureNext('pad', (c) => got.push(c));
+  box.t += 6000;
+  input.update(16);
+  assert.deepEqual(got, [B.L2, 'KeyQ', null], 'nothing pressed in 5s');
+  assert.equal(input.capturing, null);
+});

@@ -11,6 +11,7 @@ import { defaultSettings, normalizeSettings } from '../src/save/schema.js';
 import { minimapBox, minimapWindow, minimapMarks, minimapFade, createMarks, revealView, revealDisc, MARK, MARK_SHAPES, MINIMAP } from '../src/render/minimapmodel.js';
 import { createWorld } from '../src/sim/world.js';
 import { TASK, TASK_STATE } from '../src/sim/constants.js';
+import { actsStep } from '../src/sim/acts.js';
 import { createMinimap } from '../src/render/minimap.js';
 import { createHud } from '../src/render/hud.js';
 import { HUD_LAYOUT } from '../src/render/hudmodel.js';
@@ -85,9 +86,9 @@ test('minimap: top right; marks for drops, elites, bosses, and you, never gems o
   minimapWindow(w, box, 'map', win);
   assert.ok(Math.abs(win.s - Math.min(box.w / T.width, box.h / T.height)) < 1e-9);
   // The setting is kept, and a bad one falls back.
-  assert.deepEqual(defaultSettings().hud, { minimap: 'nearby', minimapSize: 'small' });
-  assert.deepEqual(normalizeSettings({ hud: { minimap: 'map', minimapSize: 'large' } }).hud, { minimap: 'map', minimapSize: 'large' });
-  assert.deepEqual(normalizeSettings({ hud: { minimap: 'huge', minimapSize: 3 } }).hud, { minimap: 'nearby', minimapSize: 'small' });
+  assert.deepEqual(defaultSettings().hud, { minimap: 'nearby', minimapSize: 'small', arrows: true });
+  assert.deepEqual(normalizeSettings({ hud: { minimap: 'map', minimapSize: 'large', arrows: false } }).hud, { minimap: 'map', minimapSize: 'large', arrows: false });
+  assert.deepEqual(normalizeSettings({ hud: { minimap: 'huge', minimapSize: 3, arrows: 'yes' } }).hud, { minimap: 'nearby', minimapSize: 'small', arrows: true });
 });
 
 test('minimap: what\'s on screen is uncovered, from the camera (kept inside the map), the whole view and only it', () => {
@@ -263,26 +264,45 @@ test('minimap: the real one (Pixi, in Node) keeps uncovering while Off, sends ne
   assert.equal(mapRoot.visible, false, 'and gone when the setting says Off');
 });
 
-test('minimap: Phase 7\'s places: a task once found (from 0:00 with the Cartographer), a lit lamp, never a rung bell; the skiff, a Reliquary, the secrets at its last level; a lit lamp uncovers its ground', () => {
+test('minimap: the map\'s places (0.8.2): every lamp and bell from 0:00, unlit, part-lit, and lit lamps and an idle and tolled bell each their own mark, never a rung bell; the Ferryman only once he calls; a Reliquary and the vault each their own; pinned to the edge with the Cartographer or a lit lamp watching; the secrets at its last level; a lit lamp uncovers its ground', () => {
   const box = minimapBox('map', 'large'), marks = createMarks(), win = {};
   const kindsOf = (w) => { minimapWindow(w, box, 'map', win); const n = minimapMarks(w, marks, box, win); return [...marks.kind.slice(0, n)]; };
   const count = (list, k) => list.filter((x) => x === k).length;
   const plain = createWorld({ seed: 1, character: 'lamplighter' }, DATA);
-  assert.deepEqual(kindsOf(plain), [MARK.PLAYER], 'nothing found yet, no skiff, no secrets');
+  // (0.9.0, W4: an act's bells wake one at a time; wake the rest of act 1's.)
+  plain.tick = 9 * 60 * 60; actsStep(plain);
   const lamps = plain.tasks.filter((t) => t.kind === TASK.LAMP), bells = plain.tasks.filter((t) => t.kind === TASK.BELL);
-  lamps[0].state = TASK_STATE.ACTIVE; lamps[1].state = TASK_STATE.DONE; bells[0].state = TASK_STATE.ACTIVE; bells[1].state = TASK_STATE.DONE;
+  const fresh = kindsOf(plain);
+  assert.deepEqual([count(fresh, MARK.LAMP), count(fresh, MARK.BELL), count(fresh, MARK.FERRY), count(fresh, MARK.SECRET)], [lamps.length, bells.length, 0, 0], 'every lamp and bell from 0:00; no Ferryman, no secrets');
+  lamps[0].state = TASK_STATE.ACTIVE; lamps[0].progress = 1; lamps[0].need = 3; lamps[1].state = TASK_STATE.DONE;
+  bells[0].state = TASK_STATE.ACTIVE; bells[1].state = TASK_STATE.DONE;
   const found = kindsOf(plain);
-  assert.deepEqual([count(found, MARK.LAMP), count(found, MARK.LAMP_LIT), count(found, MARK.BELL)], [1, 1, 1], 'found ones; a rung bell is done with');
+  assert.deepEqual([count(found, MARK.LAMP), count(found, MARK.LAMP_PART), count(found, MARK.LAMP_LIT), count(found, MARK.BELL), count(found, MARK.BELL_ON)], [lamps.length - 2, 1, 1, bells.length - 2, 1], 'part-lit, lit, tolled; a rung bell is done with');
   spawnPickup(plain, PK.RELIQUARY, plain.player.x + 40, plain.player.y, 0, 0);
-  assert.equal(count(kindsOf(plain), MARK.RELIQUARY), 1);
+  spawnPickup(plain, PK.VAULT, plain.player.x - 40, plain.player.y, 0, 0);
+  const drops = kindsOf(plain);
+  assert.deepEqual([count(drops, MARK.RELIQUARY), count(drops, MARK.VAULT)], [1, 1], 'a Reliquary and the vault, each its own');
+  // Off the nearby window: a Reliquary shows only with the Cartographer (pinned to the edge).
+  const near = minimapBox('nearby', 'small');
+  const offWindow = (w) => { minimapWindow(w, near, 'nearby', win); const n = minimapMarks(w, marks, near, win); return [...marks.kind.slice(0, n)].map((k, i) => ({ k, x: marks.x[i], y: marks.y[i] })); };
+  const far = createWorld({ seed: 1, character: 'lamplighter' }, DATA);
+  spawnPickup(far, PK.RELIQUARY, far.player.x + 1500, far.player.y, 0, 0);
+  assert.equal(offWindow(far).filter((m) => m.k === MARK.RELIQUARY).length, 0, 'far off and no Cartographer: not on the nearby window');
   const charted = createWorld({ seed: 1, character: 'lamplighter', harbor: { ferry: 1, tasksOnMap: 1, secretsOnMap: 1 } }, DATA);
+  spawnPickup(charted, PK.RELIQUARY, charted.player.x + 1500, charted.player.y, 0, 0);
+  const pinned = offWindow(charted).find((m) => m.k === MARK.RELIQUARY);
+  assert.ok(pinned && pinned.x >= near.x + near.w - 4 && pinned.x < near.x + near.w, 'with the Cartographer: pinned to the window\'s right edge, toward it');
   const all = kindsOf(charted);
   assert.equal(count(all, MARK.LAMP), lamps.length, 'every lamp from 0:00');
-  assert.equal(count(all, MARK.BELL), bells.length);
-  assert.equal(count(all, MARK.FERRY), 1, 'the skiff');
-  assert.equal(count(all, MARK.SECRET), DATA.maps[0].secrets.length, 'the secrets');
+  assert.equal(count(all, MARK.BELL), charted.tasks.filter((t) => t.kind === TASK.BELL).length, 'every bell out now');
+  assert.equal(count(all, MARK.FERRY), 0, 'the Ferryman isn\'t there until his first call');
+  charted.ferry.moored = true; charted.ferry.x = charted.player.x + 60; charted.ferry.y = charted.player.y;
+  assert.equal(count(kindsOf(charted), MARK.FERRY), 1, 'once he calls');
+  // (0.9.0, W4: a small find from a later act isn't marked until it's out.)
+  const out = DATA.maps[0].secrets.filter((x) => (x.from ?? 1) <= 1).length;
+  assert.equal(count(all, MARK.SECRET), out, 'the secrets out now');
   charted.secrets[0].open = true;
-  assert.equal(count(kindsOf(charted), MARK.SECRET), DATA.maps[0].secrets.length - 1, 'a found one goes');
+  assert.equal(count(kindsOf(charted), MARK.SECRET), out - 1, 'a found one goes');
   // A lit lamp's reach: a disc of tiles, once.
   const cols = 64, rows = 64, seen = new Uint8Array(cols * rows), got = [];
   const r = DATA.tuning.tasks.lamp.reveal;

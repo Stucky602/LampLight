@@ -55,8 +55,9 @@ test('determinism: a Harpooner run, full of dazed enemies, replays to the same s
   const bot = createKiteBot({ archetype: 'orbit_tank' });
   const hashes = new Map();
   let dazedTicks = 0;
-  // Early enemies die to the hit that dazes them; by the second minute they live through it.
-  while (rec.world.tick < 7200 && !rec.world.over) {
+  // Early enemies die to the hit that dazes them; by the third minute they live through it (ruling 18
+  // KE: only her Grapnel and chains daze now, so it runs to 4:00).
+  while (rec.world.tick < 14400 && !rec.world.over) {
     rec.step(bot.input(rec.world));
     let g = 0;
     while (currentHalt(rec.world) && g++ < 100) rec.decide(bot.decide(rec.world, currentHalt(rec.world)));

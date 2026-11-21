@@ -1,0 +1,550 @@
+{
+ "method": "C1 bench.mjs: one weapon at level 10, Docks 6:00 to 8:30, 2 seeds, mean over seeds; tank = bare damage taken / the option's",
+ "ruler": {
+  "salvo": "kite",
+  "muzzle_flash": "kite",
+  "mortar": "kite",
+  "star_shell": "kite",
+  "hanging_flare": "kite",
+  "phosphor": "kite",
+  "eclipse": "kite",
+  "hunting_lights": "kite",
+  "swell": "kite",
+  "wards": "kite",
+  "sunfire": "kite",
+  "lunge": "kite",
+  "swivel_mount": "kite",
+  "skewer": "kite",
+  "barbed_heads": "kite",
+  "tether": "kite",
+  "dead_weight": "kite",
+  "great_toll": "kite",
+  "breakers": "kite",
+  "slack_water": "kite",
+  "riptide": "kite",
+  "death_knell": "kite",
+  "full_circle": "kite",
+  "relay": "kite",
+  "prism": "kite",
+  "burning_glass": "kite",
+  "dazzle": "tank",
+  "slick_trail": "kite",
+  "stern_cask": "kite",
+  "firebomb": "kite",
+  "skipping_flask": "kite",
+  "fuel_line": "kite",
+  "pitch": "kite",
+  "storm_kite": "kite",
+  "storm_front": "kite",
+  "live_ground": "kite",
+  "static": "kite",
+  "thunderclap": "kite",
+  "pyre": "kite",
+  "grave_lights": "kite",
+  "wisps": "kite",
+  "vigil": "kite",
+  "consumption": "kite",
+  "tide_pools": "kite",
+  "creeping_brine": "kite",
+  "seep": "kite",
+  "salt_crust": "kite",
+  "brinicle": "tank",
+  "tongs": "kite",
+  "ice_axe": "kite",
+  "ice_wall": "tank",
+  "long_throw": "kite",
+  "rime": "tank",
+  "shatter": "kite",
+  "string_of_pots": "kite",
+  "bait_bucket": "kite",
+  "drag_under": "tank",
+  "lamprey": "kite",
+  "conger": "kite",
+  "feeding_frenzy": "kite",
+  "second_anchor": "kite",
+  "long_chain": "kite",
+  "cast_anchor": "kite",
+  "deep_anchor": "kite",
+  "dredge": "tank",
+  "scatter": "kite",
+  "deep_glass": "kite",
+  "shatterfield": "kite",
+  "hamstring": "tank",
+  "bow_lantern": "plant",
+  "heliograph": "plant",
+  "drop_anchor": "plant",
+  "bell_buoy": "plant",
+  "ground_rod": "plant",
+  "artesian": "plant",
+  "procession": "plant",
+  "glass_ring": "circle",
+  "kicked_glass": "circle",
+  "twin_horns": "kite",
+  "long_note": "kite",
+  "held_note": "kite",
+  "wreckers_horn": "kite",
+  "bow_horn": "plant",
+  "fog_bank": "tank"
+ },
+ "ratio": {
+  "salvo": 1.26,
+  "muzzle_flash": 1.61,
+  "mortar": 3.75,
+  "star_shell": 2.26,
+  "hanging_flare": 4.46,
+  "phosphor": 3.09,
+  "eclipse": 3.05,
+  "hunting_lights": 4.94,
+  "swell": 4.34,
+  "wards": 3.26,
+  "sunfire": 2.78,
+  "lunge": 1.27,
+  "swivel_mount": 1.43,
+  "skewer": 1.61,
+  "barbed_heads": 1.23,
+  "tether": 2.55,
+  "dead_weight": 1.4,
+  "great_toll": 2.25,
+  "breakers": 3.56,
+  "slack_water": 2.48,
+  "riptide": 2.5,
+  "death_knell": 1.59,
+  "full_circle": 2.6,
+  "relay": 1.66,
+  "prism": 1.66,
+  "burning_glass": 1.5,
+  "dazzle": 0.69,
+  "slick_trail": 1.74,
+  "stern_cask": 1.61,
+  "firebomb": 1.78,
+  "skipping_flask": 1.4,
+  "fuel_line": 1.83,
+  "pitch": 1.73,
+  "storm_kite": 1.3,
+  "storm_front": 1.45,
+  "live_ground": 1.42,
+  "static": 1.42,
+  "thunderclap": 1.55,
+  "pyre": 1.24,
+  "grave_lights": 1.21,
+  "wisps": 1.16,
+  "vigil": 1.26,
+  "consumption": 1.28,
+  "tide_pools": 1.46,
+  "creeping_brine": 1.21,
+  "seep": 1.25,
+  "salt_crust": 1.27,
+  "brinicle": 1.2,
+  "tongs": 3.59,
+  "ice_axe": 2.21,
+  "ice_wall": 0.65,
+  "long_throw": 2.39,
+  "rime": 0.62,
+  "shatter": 2.55,
+  "string_of_pots": 2.64,
+  "bait_bucket": 1.37,
+  "drag_under": 1.22,
+  "lamprey": 2.42,
+  "conger": 2.07,
+  "feeding_frenzy": 1.31,
+  "second_anchor": 2,
+  "long_chain": 2.44,
+  "cast_anchor": 1.4,
+  "deep_anchor": 2.2,
+  "dredge": 1.6,
+  "scatter": 1.37,
+  "deep_glass": 2.13,
+  "shatterfield": 2.16,
+  "hamstring": 1.35,
+  "bow_lantern": 1.6,
+  "heliograph": 1.46,
+  "drop_anchor": 1.84,
+  "bell_buoy": 1.66,
+  "ground_rod": 1.16,
+  "artesian": 1.43,
+  "procession": 1.17,
+  "glass_ring": 1.79,
+  "kicked_glass": 1.57,
+  "twin_horns": 1.4,
+  "long_note": 1.42,
+  "held_note": 1.2,
+  "wreckers_horn": 1.25,
+  "bow_horn": 1.79,
+  "fog_bank": 2.14
+ },
+ "alt": {
+  "dazzle": 1.16,
+  "brinicle": 1.01,
+  "drag_under": 1.59,
+  "dredge": 0.93,
+  "hamstring": 0.79,
+  "fog_bank": 0.85,
+  "ice_wall": 3.8,
+  "rime": 2.06
+ },
+ "setsMethod": "C1 bench.mjs --sets 1: each weapon alone, level 35, 15:00 to 17:00, 3 seeds; each set x its weapon's median set on each ruler it is read on (setstable.mjs)",
+ "sets": {
+  "salvo+mortar+hanging_flare": {
+   "kite": 1.01
+  },
+  "salvo+mortar+phosphor": {
+   "kite": 0.55
+  },
+  "salvo+star_shell+hanging_flare": {
+   "kite": 1.08
+  },
+  "salvo+star_shell+phosphor": {
+   "kite": 0.99
+  },
+  "muzzle_flash+mortar+hanging_flare": {
+   "kite": 1.54
+  },
+  "muzzle_flash+mortar+phosphor": {
+   "kite": 0.67
+  },
+  "muzzle_flash+star_shell+hanging_flare": {
+   "kite": 1.05
+  },
+  "muzzle_flash+star_shell+phosphor": {
+   "kite": 0.9
+  },
+  "eclipse+hunting_lights+wards": {
+   "kite": 0.76,
+   "plant": 0.55
+  },
+  "eclipse+hunting_lights+sunfire": {
+   "kite": 0.97,
+   "plant": 0.79
+  },
+  "eclipse+swell+wards": {
+   "kite": 1.03,
+   "plant": 1.39
+  },
+  "eclipse+swell+sunfire": {
+   "kite": 1.95,
+   "plant": 1.9
+  },
+  "lunge+skewer+tether": {
+   "kite": 1.02
+  },
+  "lunge+skewer+dead_weight": {
+   "kite": 1.04
+  },
+  "lunge+barbed_heads+tether": {
+   "kite": 1.16
+  },
+  "lunge+barbed_heads+dead_weight": {
+   "kite": 0.57
+  },
+  "swivel_mount+skewer+tether": {
+   "kite": 0.81
+  },
+  "swivel_mount+skewer+dead_weight": {
+   "kite": 0.96
+  },
+  "swivel_mount+barbed_heads+tether": {
+   "kite": 1.04
+  },
+  "swivel_mount+barbed_heads+dead_weight": {
+   "kite": 0.55
+  },
+  "great_toll+slack_water+riptide": {
+   "kite": 1.22,
+   "plant": 0.82
+  },
+  "great_toll+slack_water+death_knell": {
+   "kite": 0.78,
+   "plant": 0.49
+  },
+  "full_circle+relay+burning_glass": {
+   "kite": 1.62,
+   "plant": 1.54
+  },
+  "full_circle+relay+dazzle": {
+   "kite": 0.72,
+   "plant": 0.93
+  },
+  "full_circle+prism+burning_glass": {
+   "kite": 1.28,
+   "plant": 1.16
+  },
+  "full_circle+prism+dazzle": {
+   "kite": 0.47,
+   "plant": 0.47
+  },
+  "slick_trail+firebomb+fuel_line": {
+   "kite": 0.92
+  },
+  "slick_trail+firebomb+pitch": {
+   "kite": 0.95
+  },
+  "slick_trail+skipping_flask+fuel_line": {
+   "kite": 0.89
+  },
+  "slick_trail+skipping_flask+pitch": {
+   "kite": 1
+  },
+  "stern_cask+firebomb+fuel_line": {
+   "kite": 1.22
+  },
+  "stern_cask+firebomb+pitch": {
+   "kite": 1.66
+  },
+  "stern_cask+skipping_flask+fuel_line": {
+   "kite": 1
+  },
+  "stern_cask+skipping_flask+pitch": {
+   "kite": 1.37
+  },
+  "storm_kite+storm_front+static": {
+   "kite": 0.87,
+   "plant": 0.64
+  },
+  "storm_kite+storm_front+thunderclap": {
+   "kite": 1.31,
+   "plant": 1.31
+  },
+  "storm_kite+live_ground+static": {
+   "kite": 0.84,
+   "plant": 0.6
+  },
+  "storm_kite+live_ground+thunderclap": {
+   "kite": 1.13,
+   "plant": 1.28
+  },
+  "pyre+wisps+vigil": {
+   "kite": 0.8,
+   "plant": 0.82
+  },
+  "pyre+wisps+consumption": {
+   "kite": 1.1,
+   "plant": 1.08
+  },
+  "grave_lights+wisps+vigil": {
+   "kite": 0.9,
+   "plant": 0.62
+  },
+  "grave_lights+wisps+consumption": {
+   "kite": 1.48,
+   "plant": 0.92
+  },
+  "tide_pools+creeping_brine+salt_crust": {
+   "kite": 0.91,
+   "plant": 1.11
+  },
+  "tide_pools+creeping_brine+brinicle": {
+   "kite": 0.73,
+   "plant": 0.65
+  },
+  "tide_pools+seep+salt_crust": {
+   "kite": 2.08,
+   "plant": 1.73
+  },
+  "tide_pools+seep+brinicle": {
+   "kite": 1.09,
+   "plant": 0.89
+  },
+  "tongs+ice_wall+rime": {
+   "kite": 1.32
+  },
+  "tongs+ice_wall+shatter": {
+   "kite": 1.54
+  },
+  "tongs+long_throw+rime": {
+   "kite": 1.36
+  },
+  "tongs+long_throw+shatter": {
+   "kite": 1.08
+  },
+  "ice_axe+ice_wall+rime": {
+   "kite": 0.5
+  },
+  "ice_axe+ice_wall+shatter": {
+   "kite": 0.5
+  },
+  "ice_axe+long_throw+rime": {
+   "kite": 0.91
+  },
+  "ice_axe+long_throw+shatter": {
+   "kite": 0.92
+  },
+  "twin_horns+long_note+fog_bank": {
+   "kite": 0.97,
+   "plant": 0.68
+  },
+  "twin_horns+long_note+wreckers_horn": {
+   "kite": 1.54,
+   "plant": 0.98
+  },
+  "twin_horns+held_note+fog_bank": {
+   "kite": 0.84,
+   "plant": 0.91
+  },
+  "twin_horns+held_note+wreckers_horn": {
+   "kite": 1.03,
+   "plant": 1.36
+  },
+  "string_of_pots+drag_under+conger": {
+   "kite": 1.31
+  },
+  "string_of_pots+drag_under+feeding_frenzy": {
+   "kite": 1.03
+  },
+  "string_of_pots+lamprey+conger": {
+   "kite": 1.8
+  },
+  "string_of_pots+lamprey+feeding_frenzy": {
+   "kite": 1.25
+  },
+  "bait_bucket+drag_under+conger": {
+   "kite": 0.59
+  },
+  "bait_bucket+drag_under+feeding_frenzy": {
+   "kite": 0.47
+  },
+  "bait_bucket+lamprey+conger": {
+   "kite": 0.97
+  },
+  "bait_bucket+lamprey+feeding_frenzy": {
+   "kite": 0.65
+  },
+  "second_anchor+long_chain+deep_anchor": {
+   "kite": 1.3,
+   "plant": 0.17
+  },
+  "second_anchor+long_chain+dredge": {
+   "kite": 0.91,
+   "plant": 0.14
+  },
+  "second_anchor+cast_anchor+deep_anchor": {
+   "kite": 1.09,
+   "plant": 1.95
+  },
+  "second_anchor+cast_anchor+dredge": {
+   "kite": 0.76,
+   "plant": 1.69
+  },
+  "scatter+deep_glass+shatterfield": {
+   "kite": 1.28,
+   "circle": 1.07
+  },
+  "scatter+deep_glass+hamstring": {
+   "kite": 0.72,
+   "circle": 0.52
+  },
+  "heliograph+relay+burning_glass": {
+   "plant": 1.28
+  },
+  "heliograph+relay+dazzle": {
+   "plant": 1.07
+  },
+  "heliograph+prism+burning_glass": {
+   "plant": 0.93
+  },
+  "heliograph+prism+dazzle": {
+   "plant": 0.62
+  },
+  "bow_lantern+hunting_lights+wards": {
+   "plant": 0.3
+  },
+  "bow_lantern+hunting_lights+sunfire": {
+   "plant": 0.49
+  },
+  "bow_lantern+swell+wards": {
+   "plant": 1.21
+  },
+  "bow_lantern+swell+sunfire": {
+   "plant": 1.84
+  },
+  "drop_anchor+long_chain+deep_anchor": {
+   "plant": 0.31
+  },
+  "drop_anchor+long_chain+dredge": {
+   "plant": 0.25
+  },
+  "drop_anchor+cast_anchor+deep_anchor": {
+   "plant": 2.35
+  },
+  "drop_anchor+cast_anchor+dredge": {
+   "plant": 2
+  },
+  "bell_buoy+breakers+riptide": {
+   "plant": 1.54
+  },
+  "bell_buoy+breakers+death_knell": {
+   "plant": 1.15
+  },
+  "bell_buoy+slack_water+riptide": {
+   "plant": 1.47
+  },
+  "bell_buoy+slack_water+death_knell": {
+   "plant": 0.85
+  },
+  "ground_rod+storm_front+static": {
+   "plant": 0.68
+  },
+  "ground_rod+storm_front+thunderclap": {
+   "plant": 1.42
+  },
+  "ground_rod+live_ground+static": {
+   "plant": 0.72
+  },
+  "ground_rod+live_ground+thunderclap": {
+   "plant": 1.43
+  },
+  "artesian+creeping_brine+salt_crust": {
+   "plant": 1.16
+  },
+  "artesian+creeping_brine+brinicle": {
+   "plant": 0.67
+  },
+  "artesian+seep+salt_crust": {
+   "plant": 1.51
+  },
+  "artesian+seep+brinicle": {
+   "plant": 0.71
+  },
+  "pyre+procession+vigil": {
+   "plant": 0.96
+  },
+  "pyre+procession+consumption": {
+   "plant": 1.1
+  },
+  "grave_lights+procession+vigil": {
+   "plant": 1.11
+  },
+  "grave_lights+procession+consumption": {
+   "plant": 1.04
+  },
+  "bow_horn+long_note+fog_bank": {
+   "plant": 0.71
+  },
+  "bow_horn+long_note+wreckers_horn": {
+   "plant": 1.02
+  },
+  "bow_horn+held_note+fog_bank": {
+   "plant": 1.06
+  },
+  "bow_horn+held_note+wreckers_horn": {
+   "plant": 1.66
+  },
+  "glass_ring+deep_glass+shatterfield": {
+   "circle": 1.08
+  },
+  "glass_ring+deep_glass+hamstring": {
+   "circle": 0.94
+  },
+  "glass_ring+kicked_glass+shatterfield": {
+   "circle": 1.06
+  },
+  "glass_ring+kicked_glass+hamstring": {
+   "circle": 0.4
+  },
+  "scatter+kicked_glass+shatterfield": {
+   "circle": 1.28
+  },
+  "scatter+kicked_glass+hamstring": {
+   "circle": 0.81
+  }
+ }
+}

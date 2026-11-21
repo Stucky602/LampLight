@@ -299,12 +299,15 @@ test('build: the harbor\'s pieces take only the colors listed for them; a missin
   // A pack that isn't loaded (for a townsperson too), a sign nobody drew, a stage that doesn't exist.
   assert.throws(() => buildFrames({ ...packs, dungeon: undefined }, DATA, [{ id: 'npc_x', kind: 'npc', pack: 'dungeon', tile: 0 }]), /npc_x: pack "dungeon" isn't loaded/);
   const layout = [[0, 0], [85, 0]];
-  assert.throws(() => buildingFrame({ id: 'bld_x_keeper', pack: 'town', layout, stage: 'keeper', sign: 'lighthouse' }, packs), /bld_x_keeper: no sign called "lighthouse" \(there are library, tavern, docks, smithy, chapel, market, apothecary, cartographer\)/);
+  assert.throws(() => buildingFrame({ id: 'bld_x_keeper', pack: 'town', layout, stage: 'keeper', sign: 'nope' }, packs), /bld_x_keeper: no sign called "nope" \(there are lighthouse, library, tavern, docks, smithy, chapel, market, apothecary, cartographer\)/);
   assert.throws(() => buildingFrame({ id: 'bld_x_odd', pack: 'town', layout, stage: 'odd' }, packs), /bld_x_odd: no building stage called "odd"/);
   // An open doorway (tiles 74 and 78) is dark inside, its sill a step lighter; other tiles keep their see-through pixels.
+  // (The frame has ROOF_ROOM px above the building, for what rises from its roof.)
   const open = buildingFrame({ id: 'bld_x_roof', pack: 'town', layout: [[73, 74]], stage: 'roof' }, packs);
-  assert.ok(is(open, 16, 5, 'night-1') && is(open, 16 + 15, 8, 'night-1') && is(open, 16 + 8, 15, 'night-2'));
-  assert.equal(px(open, 0, 5)[3], 0, 'the wall tile beside it is untouched');
+  const R = 16;
+  assert.ok(is(open, 16, R + 5, 'night-1') && is(open, 16 + 15, R + 8, 'night-1') && is(open, 16 + 8, R + 15, 'night-2'));
+  assert.equal(px(open, 0, R + 5)[3], 0, 'the wall tile beside it is untouched');
+  assert.equal(open.h, R + 16, 'room above the roof');
 });
 
 test('rigs: poses are finite, warnings show, attached parts follow, the layout matches the frames', () => {
@@ -553,4 +556,55 @@ test('rigs: each rig\'s own light sits on the part that makes it', () => {
     assert.ok(L.radius > 0 && PALETTE[L.color], `${id}: a radius and a palette color`);
   }
   assert.equal(rigLightAt('no_such_rig', pose, at, out), false);
+});
+
+test('rigs (0.8.0): the Old Grey\'s wings show only in action; each Marsh attack shows on the body that makes it', () => {
+  const grey = RIGS.boss_old_grey, gp = createPose(grey);
+  const k = (name) => grey.parts.findIndex((p) => p.name === name);
+  const wings = grey.parts.filter((p) => p.still === false).map((p) => p.name);
+  assert.deepEqual(wings.sort(), ['wingFar', 'wingNear'], 'its two wings are the parts shown only in action');
+  // At rest and walking: no wings (scale 0); in the leap: spread, the legs trailing.
+  rigPose('boss_old_grey', { t: 0.4, state: RIG_STATE.WALK, attack: '', u: 0 }, gp);
+  assert.equal(gp[k('wingNear') * 5 + 3], 0); assert.equal(gp[k('wingFar') * 5 + 3], 0);
+  rigPose('boss_old_grey', { t: 0.4, state: RIG_STATE.WARN, attack: 'leap', u: 0.5 }, gp);
+  assert.equal(gp[k('wingNear') * 5 + 3], 1, 'wings out in the air');
+  assert.ok(gp[k('legNear') * 5 + 2] > 0.8, 'legs trailing back');
+  // The stab: the neck drawn back in its warning, thrust out after.
+  rigPose('boss_old_grey', { t: 0, state: RIG_STATE.WARN, attack: 'stab_line', u: 1 }, gp);
+  const back = gp[k('neck') * 5 + 2];
+  rigPose('boss_old_grey', { t: 0, state: RIG_STATE.RECOVER, attack: 'stab_line', u: 0 }, gp);
+  assert.ok(back < -0.3 && gp[k('neck') * 5 + 2] > 0.8, `neck back (${back.toFixed(2)}), then out (${gp[k('neck') * 5 + 2].toFixed(2)})`);
+  // Stuck in the mud: sunk to its joints.
+  rigPose('boss_old_grey', { t: 0, state: RIG_STATE.WALK, attack: '', u: 0, stuck: 1 }, gp);
+  assert.ok(gp[k('legNear') * 5 + 4] < 0.7 && gp[k('body') * 5 + 1] > 4, 'legs sunk, body low');
+  // The resting frame leaves the wings out: composed with marked wings, none of their pixels show.
+  const { frames } = buildFrames(fakePacks(), DATA);
+  const byId = new Map(frames.map((f) => [f.id, f]));
+  const marked = new Map(byId);
+  const wing = byId.get('boss_grey:wing'), mw = { ...wing, rgba: new Uint8ClampedArray(wing.rgba) };
+  for (let i = 0; i < mw.w * mw.h; i++) if (mw.rgba[i * 4 + 3]) mw.rgba.set([1, 2, 3], i * 4);
+  marked.set('boss_grey:wing', mw);
+  const rest = composeRig('boss_old_grey', grey, marked);
+  for (let i = 0; i < rest.w * rest.h; i++) assert.ok(!(rest.rgba[i * 4] === 1 && rest.rgba[i * 4 + 1] === 2 && rest.rgba[i * 4 + 2] === 3), 'no wing in the resting frame');
+  // The Salt Widow raises her arm toward you as her lightning marches, and kneels while weak.
+  const wid = RIGS.boss_salt_widow, wp = createPose(wid), arm = wid.parts.findIndex((p) => p.name === 'armFront'), cloak = wid.parts.findIndex((p) => p.name === 'cloak');
+  rigPose('boss_salt_widow', { t: 0, state: RIG_STATE.WARN, attack: 'lightning_march', u: 1 }, wp);
+  assert.ok(wp[arm * 5 + 2] < -1.2, 'arm raised forward');
+  rigPose('boss_salt_widow', { t: 0, state: RIG_STATE.RECOVER, attack: 'lightning_march', u: 0, weak: 1 }, wp);
+  assert.ok(wp[cloak * 5 + 1] >= 5 && wp[cloak * 5 + 4] < 0.9, 'kneeling: lower and shorter');
+  // Her eyes are the rig's light; the heron has none.
+  assert.equal(RIG_LIGHTS.boss_salt_widow.part, cloak);
+  assert.equal(RIG_LIGHTS.boss_old_grey, undefined);
+});
+
+test('rigs: the pose input carries whether the boss is stuck and whether it is weak', () => {
+  const w = createWorld({ seed: 'rig-marsh', character: 'lamplighter', invulnerable: true }, DATA);
+  const e = spawnAt(w, 'old_grey', 60, 0);
+  registerBoss(w, e, false);
+  const b = w.bosses[w.enemies.boss[e]], input = {};
+  rigInput(w, b, 0, input);
+  assert.equal(input.stuck, 0); assert.equal(input.weak, 0);
+  b.stuckUntil = w.tick + 60; b.weakFrom = w.tick; b.weakUntil = w.tick + 60;
+  rigInput(w, b, 0, input);
+  assert.equal(input.stuck, 1); assert.equal(input.weak, 1);
 });

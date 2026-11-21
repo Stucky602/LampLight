@@ -14,8 +14,9 @@ import {
   ANCHORS, drawnAt, flickerAt, boatBobAt, fogAtPoint, fogPixels, fogRedraw, lightAt, newcomerTint, boatTint, clearOfBoat, steppingAlpha,
 } from '../src/render/hubtiles.js';
 import { stepHop } from '../src/render/viewstate.js';
-import { levelEffects, costText, changeLines, optionText, researchState, upgradeState, runsText, buildingIn, actionLine, rewardText, tideText, claimText } from '../src/ui/hubtext.js';
+import { levelEffects, costText, changeLines, optionText, researchState, upgradeState, runsText, buildingIn, actionLine, rewardText, tideText, joinsTexts } from '../src/ui/hubtext.js';
 import { waitingReason } from '../src/meta/apply.js';
+import { contentFrom } from '../src/meta/state.js';
 import { levelsOf, levelSetPieces, lineFor, promptFor, runHeading, titleStartLabel, mergeRuns } from '../src/app/hublogic.js';
 import { restoreBuilding, applyRunResult, nextAffordable, revealedFog, startResearch, whyNotResearch, whyNotUpgrade } from '../src/meta/index.js';
 
@@ -120,7 +121,7 @@ test('harbor ceremony looks: what a building shows as a level goes up, and how i
   assert.equal(lighting.length, lib.windows.length);
   assert.ok(lighting.every((l) => l.alpha === 0.4 && l.kind === 'window'), 'the windows come on as it builds');
   const lantern = lightsNow(lib, 3, cer(3, 4, 0.4));
-  assert.deepEqual(lantern.map((l) => [l.kind, l.alpha]), [...lib.windows.map(() => ['window', 1]), ['door', 0.4]], 'the windows stay on; the door lantern comes on');
+  assert.deepEqual(lantern.map((l) => [l.kind, l.alpha]), [...lib.windows.map(() => ['window', 1]), ['door', 0.4], ['pool', 0.4]], 'the windows stay on; the door lantern comes on, and its pool on the street');
   // The town lamp: dim before its first level, swelling from one level's reach to the next.
   const look = DATA.hubTuning.look;
   assert.deepEqual(lampLight(0, null, look), { r: lampRadius(0), alpha: look.lampDim });
@@ -279,50 +280,75 @@ test('harbor camera and fog: the view stays inside the map; the fog is thick unt
   for (let k = 0; k < mid.length; k++) assert.ok(mid[k] >= Math.min(before[k], after[k]) - 1e-6 && mid[k] <= Math.max(before[k], after[k]) + 1e-6, `tile ${k % map.cols}, ${Math.floor(k / map.cols)}`);
 });
 
-test('panel text: a level says what it brings, as short labels, each marked with its kind', () => {
+test('panel text: a level says what it brings, in plain sentences, each marked with its kind', () => {
   const texts = (b, lv) => levelEffects(DATA, b, lv).map((e) => e.text);
-  assert.deepEqual(levelEffects(DATA, 'lamp_post', 1), [{ kind: 'tree', text: 'Unlocks upgrade tier 1' }, { kind: 'fog', text: 'Clears the fog nearby' }]);
-  assert.deepEqual(texts('lamp_post', 2), ['Unlocks upgrade tier 2', 'Clears the fog nearby']);
-  assert.deepEqual(levelEffects(DATA, 'library', 1), [{ kind: 'research', text: 'Unlocks research' }, { kind: 'fog', text: 'Clears the fog nearby' }]);
-  assert.deepEqual(texts('library', 2), ['Unlocks research tier 2']);
-  assert.deepEqual(texts('library', 3), ['Research slots: 2', 'Clears the fog nearby']);
-  assert.deepEqual(levelEffects(DATA, 'tavern', 1), [{ kind: 'arrival', text: 'New character: Harpooner' }, { kind: 'rule', text: 'Unlocks feats' }, { kind: 'fog', text: 'Clears the fog nearby' }]);
-  assert.deepEqual(levelEffects(DATA, 'tavern', 2), [{ kind: 'joins', text: 'New relic: Tide Clock' }, { kind: 'rule', text: 'Unlocks mastery training and kits' }]);
-  // Phase 7's buildings: their rules as labels, the fog each Lamp Post level lifts by name, what
-  // joins the Apothecary's shelves by kind.
-  assert.deepEqual(texts('lamp_post', 3), ['Unlocks upgrade tier 3', 'Wayside Lamps light 25% faster', 'Clears the fog nearby', 'Clears the way to Chapel']);
-  assert.deepEqual(texts('docks', 1), ['Ferryman sails into runs']);
-  assert.deepEqual(texts('docks', 3), ['Ferryman prices -20%']);
-  assert.deepEqual(texts('smithy', 3), ['Gear slots: 5', 'Unlocks affix re-rolls']);
-  assert.deepEqual(texts('chapel', 3), ['Tides up to 6', 'Curses: 4', 'Fog Bell rings 25% wider']);
-  assert.deepEqual(texts('market', 2), ['Sea Glass left over: 0.5 Coin each']);
-  assert.deepEqual(levelEffects(DATA, 'apothecary', 1), [{ kind: 'joins', text: 'New item: Smelling Salts, Tallow Tonic' }, { kind: 'rule', text: 'Unlocks consumables' }]);
-  assert.deepEqual(texts('cartographer', 4), ['Unlocks short runs', 'Pell returns']);
+  const FOG = 'Pushes the fog back from nearby streets';
+  assert.deepEqual(levelEffects(DATA, 'lamp_post', 1), [{ kind: 'tree', text: 'New Harbor upgrades here: Brighter Flame, Thick Blood, Long Reach' }, { kind: 'fog', text: FOG }]);
+  assert.deepEqual(texts('lamp_post', 2), ['New Harbor upgrades here: Quick Step, Scavenger, Keen Eye', 'New character: Harpooner', FOG], 'the Harpooner sails in at the Lamp Post\'s second level (0.7.3)');
+  assert.deepEqual(levelEffects(DATA, 'library', 1), [{ kind: 'research', text: 'Research: pay materials to start a project, and it finishes after a few runs' }, { kind: 'fog', text: FOG }]);
+  assert.deepEqual(texts('library', 2), ['10 more research projects']);
+  assert.deepEqual(texts('library', 3), ['Run 2 research projects at once', FOG]);
+  assert.ok(texts('library', 5).includes('1 more research project'), 'one project, said as one');
+  assert.deepEqual(levelEffects(DATA, 'lamp_post', 2)[1], { kind: 'arrival', text: 'New character: Harpooner' });
+  assert.deepEqual(levelEffects(DATA, 'tavern', 1), [{ kind: 'rule', text: 'Harbor Orders: goals the townsfolk post. Each opens one new thing when you get home' }, { kind: 'rule', text: 'Opens the way to the Salt Marsh, with the Docks at Lv 1 and the Harbor Maw killed' }, { kind: 'fog', text: FOG }]);
+  // 0.8.0: each level a map's way waits on says so, with the rest it needs.
+  assert.deepEqual(levelEffects(DATA, 'docks', 1).at(-1), { kind: 'rule', text: 'Opens the way to the Salt Marsh, with the Harbor Maw killed and the Tavern at Lv 1' });
+  assert.deepEqual(levelEffects(DATA, 'tavern', 2), [{ kind: 'rule', text: 'Mastery: a character earns ranks as you play them. Ranks give skill points to spend at the Tavern, and open starting weapons, gear, and a challenge run' }]); // (the Tide Clock comes from the Harbor Clock research since 0.7.3)
+  // Phase 7's buildings: what each system is the first time, then what a level changes in it,
+  // with the numbers from the data; the fog each Lamp Post level lifts, by building.
+  // The sweep (A2): a level that adds a slot to every run says so first, with how many that makes.
+  assert.deepEqual(texts('lamp_post', 3), ['+1 Weapon slot in every run (5 of 6)', 'New Harbor upgrades here: Salt Skin, Wide Glow', 'Wayside Lamps light 25% faster in runs', FOG, 'Clears the fog so the Chapel can be restored']);
+  // 0.8.2: he calls from 3:00 and ties up near you; his ring opens the trade; Lv 4 is a third relic.
+  assert.deepEqual(texts('docks', 1), ['The Ferryman comes into your runs from 3:00. He rows in every few minutes and ties up near you. Stand in the circle by his boat to buy relics, food, rerolls, and Embers with Pearls', 'Opens the way to the Salt Marsh, with the Harbor Maw killed and the Tavern at Lv 1']);
+  assert.deepEqual(texts('docks', 3), ['+1 Relic slot in every run (4 of 6)', "The Ferryman's prices drop 20%"]);
+  assert.deepEqual(texts('docks', 4), ['+1 Relic slot in every run (5 of 6)', 'The Ferryman stocks 3 relics instead of 2', 'Ned, the dockhand, moves back in']);
+  assert.deepEqual(texts('smithy', 2), ['+1 Passive slot in every run (5 of 6)', 'Gear can be improved up to Rare. Its stat bonuses grow, and Rare adds a third bonus'], 'gear has rarities, never tiers (the sweep, A7)');
+  assert.equal(texts('lamp_post', 5)[0], '+1 Weapon slot in every run (6 of 6)');
+  assert.equal(texts('smithy', 4)[0], '+1 Passive slot in every run (6 of 6)');
+  assert.equal(texts('docks', 5)[0], '+1 Relic slot in every run (6 of 6)');
+  assert.deepEqual(texts('smithy', 1), ['Gear slots: Lantern, Coat, Boots, and Keepsake']);
+  assert.deepEqual(texts('smithy', 3), ['New gear slot: Ring', "Reroll a gear bonus you don't want: pick 1 of 3 replacements"]);
+  assert.deepEqual(texts('chapel', 1), ['Tides 1 and 2: a harder version of the map that pays more materials. Kill the last boss to open Tide 1, then at each Tide to open the next']);
+  // (The sweep, D5: curses wait for the Chapel's level 4, so a new harbor meets Tides first.)
+  assert.deepEqual(texts('chapel', 4), ['Tides up to 8', 'Curses: Brittle, Swarm, and Hunger', 'Brother Hale, the chapel keeper, moves back in']);
+  assert.deepEqual(texts('chapel', 3), ['Tides up to 6', "Fog Bells' circles in runs are 25% wider"]);
+  assert.deepEqual(texts('market', 2), ['Pearls left at the end of a run become Coin: 1 for every 2']);
+  // The Apothecary (the sweep, ruling 12): run tools, and every level means something.
+  assert.deepEqual(texts('apothecary', 1), ['Run tools: something for one run: rerolls, banishes, skips, a Revival, or a head start. The run uses it up', 'Take 1 run tool into each run', 'New run tool: Driftwood Token']);
+  assert.deepEqual(texts('apothecary', 2), ['Food heals 25% more in runs', 'New run tool: Herb Salve']);
+  assert.deepEqual(texts('apothecary', 3), ['Take 2 run tools into each run']);
+  assert.deepEqual(texts('apothecary', 4), ['Food heals 50% more in runs (it was 25%)', 'New run tool: Spyglass', 'Old Moss, the apothecary, moves back in']);
+  assert.equal(texts('apothecary', 5)[0], 'Take 3 run tools into each run');
+  // The Cartographer draws maps: its level 2 paid bestiary claims, and marks small secrets now.
+  assert.deepEqual(texts('cartographer', 2), ['A map\'s small secrets show on the minimap']);
+  assert.equal(texts('cartographer', 3)[0], 'Challenge runs: a Harbor Order with its own rules: a set character, map, Tide, and curses');
+  assert.equal(texts('tavern', 3)[0], 'Heirloom: one relic you have found before, carried from the start of a run. It takes a relic slot');
+  assert.deepEqual(texts('cartographer', 4), ['Short runs: everything comes twice as fast, the last boss comes at 10:00, and the run pays 40% of the materials', 'Pell, the mapmaker, moves back in']);
   // Every level of every building brings something it can say.
-  for (const b of DATA.buildings) for (let lv = 1; lv <= b.levels.length; lv++) assert.ok(!texts(b.id, lv).includes('No new unlocks'), `${b.id} Lv ${lv}`);
-  assert.ok(levelEffects(DATA, 'tavern', 4).some((e) => e.kind === 'keeper' && e.text === 'Bram returns'));
-  assert.ok(texts('library', 5).includes('Silas walks the harbor'));
+  for (const b of DATA.buildings) for (let lv = 1; lv <= b.levels.length; lv++) assert.ok(!texts(b.id, lv).includes('Nothing new at this level'), `${b.id} Lv ${lv}`);
+  assert.ok(levelEffects(DATA, 'tavern', 4).some((e) => e.kind === 'keeper' && e.text === 'Bram, the innkeeper, moves back in'));
+  assert.ok(texts('library', 5).includes('Silas starts walking around the harbor'));
   assert.deepEqual(levelEffects(DATA, 'tavern', 9), []);
   // A level that brings none of those says so.
   const shed = { ...DATA, buildings: [{ id: 'shed', name: 'Shed', levels: [{ cost: { coin: 1 } }] }], npcs: [], hub: { ...DATA.hub, fog: [] } };
-  assert.deepEqual(levelEffects(shed, 'shed', 1), [{ kind: 'more', text: 'No new unlocks' }]);
+  assert.deepEqual(levelEffects(shed, 'shed', 1), [{ kind: 'more', text: 'Nothing new at this level' }]);
   assert.equal(costText(DATA, { oil: 15 }), '15 Oil');
   assert.equal(costText(DATA, { oil: 15, coin: 15 }), '15 Oil, 15 Coin');
   assert.equal(costText(DATA, { oil: 1, coin: 2, rope: 3 }), '1 Oil, 2 Coin, 3 Rope');
   assert.equal(costText(DATA, {}), 'Free');
   assert.equal(runsText(1), '1 run'); assert.equal(runsText(3), '3 runs');
-  assert.equal(buildingIn(DATA, 'lamp_post'), 'Lamp Post', 'names go without "The" (docs/WRITING.md §4)');
+  assert.equal(buildingIn(DATA, 'lamp_post'), 'Lamp Post', 'a name without its article; the sentence adds "the" (docs/WRITING.md §4)');
 });
 
 test('panel text: research and upgrades say where they stand and why not', () => {
   const orb = DATA.research.find((r) => r.id === 'orbwright');
   const rev = DATA.research.find((r) => r.id === 'reversed_runes');
-  assert.deepEqual(researchState(profile(), DATA, orb), { state: 'locked', why: 'Requires Library Lv 1' });
+  assert.deepEqual(researchState(profile(), DATA, orb), { state: 'locked', why: 'Restore the Library first' });
   assert.deepEqual(researchState(profile({ library: 1 }), DATA, orb), { state: 'open' });
-  assert.deepEqual(researchState(profile({ library: 2 }), DATA, rev), { state: 'locked', why: 'Requires research: Rune Stones' });
-  assert.deepEqual(researchState(profile({ library: 1 }), DATA, rev), { state: 'locked', why: 'Requires Library Lv 2' }, 'the level that opens its tier, from the data');
+  assert.deepEqual(researchState(profile({ library: 2 }), DATA, rev), { state: 'locked', why: 'Finish Carved Stones first' });
+  assert.deepEqual(researchState(profile({ library: 1 }), DATA, rev), { state: 'locked', why: 'Needs the Library at Lv 2' }, 'the level that opens its tier, from the data');
   const vol = DATA.research.find((r) => r.id === 'volatile_salts');
-  assert.equal(researchState(profile({ library: 1 }), DATA, vol).why, 'Requires Library Lv 4');
+  assert.equal(researchState(profile({ library: 1 }), DATA, vol).why, 'Needs the Library at Lv 4');
   // What a row shows is what pressing it says: one line, from the meta layer.
   for (const r of DATA.research) for (const lv of [0, 1, 2, 4]) {
     const doc = profile({ library: lv });
@@ -337,52 +363,57 @@ test('panel text: research and upgrades say where they stand and why not', () =>
   const going = startResearch(profile({ library: 1 }, RICH), DATA, 'orbwright').doc;
   assert.deepEqual(researchState(going, DATA, orb), { state: 'active', runsLeft: orb.runs });
   const salt = DATA.upgrades.find((u) => u.id === 'salt_skin');
-  assert.deepEqual(upgradeState(profile({ lamp_post: 1 }), DATA, salt), { rank: 0, ranks: salt.ranks, open: false, why: 'Requires Lamp Post Lv 3' });
+  assert.deepEqual(upgradeState(profile({ lamp_post: 1 }), DATA, salt), { rank: 0, ranks: salt.ranks, open: false, why: 'Needs the Lamp Post at Lv 3' });
   assert.deepEqual(upgradeState(profile({ lamp_post: 3 }), DATA, salt), { rank: 0, ranks: salt.ranks, open: true, why: null });
   // The level comes from the data (which level opens the tier), not the tier's number.
   const moved = { ...DATA, buildings: DATA.buildings.map((b) => (b.id === 'lamp_post' ? { ...b, levels: b.levels.map((l, i) => ({ ...l, tree: i === 0 ? 1 : i === 1 ? 3 : l.tree })) } : b)) };
-  assert.equal(upgradeState(profile({ lamp_post: 1 }), moved, salt).why, 'Requires Lamp Post Lv 2');
+  assert.equal(upgradeState(profile({ lamp_post: 1 }), moved, salt).why, 'Needs the Lamp Post at Lv 2');
 });
 
 test('results text: what a run brought home and what happened, one line each', () => {
   const doc = profile({ library: 1 }, RICH);
   const started = startResearch(doc, DATA, 'orbwright').doc;
   const result = {
-    end: 'died', timeSurvived: 400, totalKills: 150, kills: { fog_wisp: 150 }, bossesKilled: [],
+    end: 'died', character: 'lamplighter', timeSurvived: 400, totalKills: 150, kills: { fog_wisp: 150 }, bossesKilled: [],
     materials: { coin: 12, oil: 3 }, weapons: [{ id: 'flare_gun' }], passives: [], relics: [], runes: [], evolutions: [],
   };
+  result.kills.drowned_bosun = 3;
   const { changes } = applyRunResult(started, result, DATA);
   const lines = changeLines(DATA, changes);
-  assert.deepEqual(lines.filter((l) => l.kind === 'material').map((l) => [l.text, l.icon]), [['12 Coin', 'mat_coin'], ['3 Oil', 'mat_oil']]);
+  // The totals: what it picked up and 6 minutes' pay (0.7.3), one line each with its icon.
+  assert.deepEqual(lines.filter((l) => l.kind === 'material').map((l) => [l.text, l.icon]), [['36 Coin', 'mat_coin'], ['15 Oil', 'mat_oil']]);
+  assert.ok(lines.some((l) => l.text === 'Time bonus (6 min): +24 Coin, +12 Oil'), JSON.stringify(lines));
   assert.ok(lines.some((l) => l.text === 'Research complete: Orbwright\'s Notes'), JSON.stringify(lines));
-  assert.ok(lines.some((l) => l.text === 'Discovered: Flare Gun'));
-  // 150 kills crosses 10 and 100: only the highest is said, and it's the lifetime count.
-  const beasts = lines.filter((l) => l.kind === 'bestiary');
-  assert.deepEqual(beasts.map((l) => l.text), ['Fog Wisp: 100 kills total']);
+  assert.ok(!lines.some((l) => l.text === 'Discovered: Flare Gun'), 'the weapon the run started with is not news');
+  // (The sweep, ruling 13: kill counts are on the codex's enemy page; a run's news says nothing of them.)
+  assert.deepEqual(lines.filter((l) => l.kind === 'bestiary'), []);
   // Purchases read the same way.
   const lib = restoreBuilding(profile({}, RICH), DATA, 'library');
   assert.deepEqual(changeLines(DATA, lib.changes).map((l) => l.text), ['Library Lv 1']);
-  // Every other line, one of each.
+  // Every other line, one of each, most important first (0.7.3); the codex folded into one line.
+  const charts = contentFrom(DATA, 'research:tide_charts');
   const each = changeLines(DATA, [
     { kind: 'research_step', id: 'tide_charts', runsLeft: 1 },
-    { kind: 'research_done', id: 'tide_charts', unlocks: [{ what: 'weapon', id: 'tide_bell' }, { what: 'passive', id: 'undertow' }] },
+    { kind: 'research_done', id: 'tide_charts', unlocks: charts.map(({ what, id }) => ({ what, id })) },
     { kind: 'research_waiting', reason: waitingReason(DATA.meta) },
     { kind: 'codex', key: 'passive:wick_oil' },
+    { kind: 'codex', key: 'weapon:harpoon_chain' },
+    { kind: 'codex', key: 'relic:gull_feather' },
     { kind: 'best_time', seconds: 431, previous: 300 },
     { kind: 'upgrade_rank', id: 'long_reach', rank: 2 },
     { kind: 'research_started', id: 'almanac', runs: 2 },
     { kind: 'something_new_later', id: 'x' },
   ]);
+  const name = (list, id) => list.find((x) => x.id === id).name;
   assert.deepEqual(each.map((l) => [l.kind, l.text]), [
-    ['research', 'Research: Tide Charts (1 run left)'],
-    ['research_done', 'Research complete: Tide Charts'],
-    ['unlock', 'New weapon: Tide Bell'],
-    ['unlock', 'New passive: Undertow'],
-    ['note', 'Research didn\'t progress. A run counts if you survive 5:00 or kill a boss.'],
-    ['codex', `Discovered: ${DATA.passives.find((p) => p.id === 'wick_oil').name}`],
+    ['research_done', 'Research complete: Harbor Charts'],
+    ...joinsTexts(charts).map((t) => ['unlock', t]),
+    ['upgrade', `Long Reach, rank 2 of ${DATA.upgrades.find((u) => u.id === 'long_reach').ranks}`],
+    ['research_started', `Research started: ${DATA.research.find((r) => r.id === 'almanac').name} (2 runs)`],
+    ['codex', `Discovered: ${name(DATA.passives, 'wick_oil')}, ${name(DATA.weapons, 'harpoon_chain')}, and ${name(DATA.relics, 'gull_feather')}`],
+    ['research', 'Research on Harbor Charts: 1 run left'],
     ['record', 'New best time: 7:11 (was 5:00)'],
-    ['upgrade', `Long Reach 2/${DATA.upgrades.find((u) => u.id === 'long_reach').ranks}`],
-    ['research', `Research started: ${DATA.research.find((r) => r.id === 'almanac').name} (2 runs)`],
+    ['note', 'Research didn\'t progress. A run counts if you survive 5:00 or kill a boss.'],
   ], 'an unknown kind says nothing');
 });
 
@@ -393,24 +424,27 @@ test('results after Run again: several runs read as one visit', () => {
   d.profile.materials = {};
   d.profile.bestiary = { fog_wisp: 5 };
   d.stats.bestTimeSec = 300;
-  const run = (over) => ({ end: 'died', timeSurvived: 400, totalKills: 10, kills: { fog_wisp: 5 }, bossesKilled: [], materials: { coin: 10, oil: 2 }, weapons: [{ id: 'flare_gun' }], passives: [], relics: [], runes: [], evolutions: [], ...over });
+  const run = (over) => ({ end: 'died', character: 'lamplighter', timeSurvived: 400, totalKills: 10, kills: { fog_wisp: 5 }, bossesKilled: [], materials: { coin: 10, oil: 2 }, weapons: [{ id: 'flare_gun' }], passives: [], relics: [], runes: [], evolutions: [], ...over });
   const a = applyRunResult(d, run({ materials: { coin: 10, oil: 2 } }), DATA);
   const b = applyRunResult(a.doc, run({ materials: { coin: 5, rope: 1 }, timeSurvived: 500, kills: { fog_wisp: 90 }, weapons: [{ id: 'flare_gun' }, { id: 'harpoon_chain' }] }), DATA);
   const merged = mergeRuns({ changes: a.changes, result: 'first', runs: 1 }, { changes: b.changes, result: 'second', runs: 1 }, DATA);
   assert.equal(merged.runs, 2);
   assert.equal(merged.result, 'second');
   const lines = changeLines(DATA, merged.changes).map((l) => l.text);
+  // Materials and the minutes' pay add up (6 and 8 minutes); mastery's highest rank, once.
   assert.deepEqual(lines, [
-    '15 Coin', '2 Oil', '1 Rope',
-    'Research complete: Tide Charts', 'New weapon: Tide Bell', 'New passive: Undertow',
-    'Discovered: Flare Gun', 'Discovered: Harpoon Chain', 'Fog Wisp: 100 kills total',
+    '71 Coin', '30 Oil', '1 Rope',
+    'Research complete: Harbor Charts', ...joinsTexts(contentFrom(DATA, 'research:tide_charts')),
+    'Lamplighter reached mastery rank 1',
+    'Discovered: Harpoon Chain',
     'New best time: 8:20 (was 5:00)',
+    'Time bonus (14 min): +56 Coin, +28 Oil',
   ]);
   // A third, short run that didn't count: its wait is said; the finished project stays said once.
   const c = applyRunResult(b.doc, run({ timeSurvived: 60, materials: {} }), DATA);
   const three = mergeRuns(merged, { changes: c.changes, result: 'third', runs: 1 }, DATA);
   assert.equal(three.runs, 3);
-  assert.equal(changeLines(DATA, three.changes).filter((l) => /Tide Charts/.test(l.text)).length, 1);
+  assert.equal(changeLines(DATA, three.changes).filter((l) => /Harbor Charts/.test(l.text)).length, 1);
 });
 
 test('next-3 text: what it is, where, how close, and what is short', () => {
@@ -425,40 +459,52 @@ test('next-3 text: what it is, where, how close, and what is short', () => {
   assert.equal(ready.need, null);
   // Where each kind is bought, as a label and inside the ready line; several things short, joined.
   const up = optionText(DATA, { kind: 'upgrade', id: 'long_reach', rank: 2, progress: 0.5, missing: [{ id: 'coin', need: 4 }, { id: 'rope', need: 2 }] });
-  assert.deepEqual(up, { title: `Long Reach 2/${DATA.upgrades.find((u) => u.id === 'long_reach').ranks}`, where: 'Lamp Post', readyAt: 'Ready at Lamp Post', progress: 0.5, need: 'Need 4 Coin, 2 Rope' });
+  assert.deepEqual(up, { title: `Long Reach, rank 2 of ${DATA.upgrades.find((u) => u.id === 'long_reach').ranks}`, where: 'Lamp Post', readyAt: 'Ready at the Lamp Post', progress: 0.5, need: 'Need 4 Coin, 2 Rope', opens: null, runs: null, waits: null });
+  // The one option that opens content says what, on a line of its own (0.7.3).
+  const opener = optionText(DATA, { kind: 'research', id: 'tide_charts', progress: 1, missing: [], opens: contentFrom(DATA, 'research:tide_charts') });
+  assert.equal(opener.opens, joinsTexts(contentFrom(DATA, 'research:tide_charts')).join('. '));
   const res = optionText(DATA, { kind: 'research', id: 'orbwright', progress: 0.2, missing: [{ id: 'coin', need: 4 }, { id: 'rope', need: 2 }, { id: 'oil', need: 1 }] });
-  assert.deepEqual([res.title, res.where, res.readyAt, res.need], ['Orbwright\'s Notes', 'Library', 'Ready at Library', 'Need 4 Coin, 2 Rope, 1 Oil']);
+  assert.deepEqual([res.title, res.where, res.readyAt, res.need], ['Orbwright\'s Notes', 'Library', 'Ready at the Library', 'Need 4 Coin, 2 Rope, 1 Oil']);
+  assert.equal(res.runs, null, 'a project that counts every run says nothing more');
+  // 0.8.0: a project that counts only runs on one map says which, and how many.
+  const marsh = optionText(DATA, { kind: 'research', id: 'brine_notes', progress: 0.2, missing: [] });
+  assert.equal(marsh.runs, `Then ${DATA.research.find((r) => r.id === 'brine_notes').runs} runs on the Salt Marsh`);
 });
 
 test('harbor logic: a level plays its ceremony, then any arrival; the harbor\'s prompts and lines', () => {
   const doc = profile({}, RICH);
-  const out = restoreBuilding(doc, DATA, 'tavern');
+  const first = restoreBuilding(doc, DATA, 'lamp_post');
+  const out = restoreBuilding(first.doc, DATA, 'lamp_post');
   const plan = levelSetPieces(out.doc, DATA, out.changes[0]);
-  assert.equal(plan.ceremony.building, 'tavern');
-  assert.equal(plan.ceremony.level, 1);
-  assert.ok(plan.ceremony.revealed.has('tavern_1'));
+  assert.equal(plan.ceremony.building, 'lamp_post');
+  assert.equal(plan.ceremony.level, 2);
   assert.ok(!plan.ceremony.people.some((p) => p.id === 'harpooner'), 'she isn\'t on the square before her boat comes in');
   assert.equal(plan.arrivals.length, 1);
   assert.equal(plan.arrivals[0].id, 'harpooner');
   assert.ok(plan.arrivals[0].people.some((p) => p.id === 'harpooner'), 'and she is once it has');
-  assert.equal(plan.banner.title, 'Tavern Lv 1');
+  assert.equal(plan.banner.title, 'Lamp Post Lv 2');
   // A level with no arrival.
   const lp = restoreBuilding(doc, DATA, 'lamp_post');
   assert.deepEqual(levelSetPieces(lp.doc, DATA, lp.changes[0]).arrivals, []);
   assert.deepEqual(levelsOf(lp.doc, DATA), { ...Object.fromEntries(DATA.buildings.map((b) => [b.id, 0])), lamp_post: 1 });
-  assert.equal(promptFor(DATA, { kind: 'door', id: 'library' }), 'Enter Library');
-  assert.equal(promptFor(DATA, { kind: 'door', id: 'lamp_post' }), 'Use Lamp Post');
+  assert.equal(promptFor(DATA, { kind: 'door', id: 'library' }), 'Enter the Library');
+  assert.equal(promptFor(DATA, { kind: 'door', id: 'lamp_post' }), 'Use the Lamp Post');
   assert.equal(promptFor(DATA, { kind: 'gate', id: 'gate' }), 'Start run');
-  assert.equal(promptFor(DATA, { kind: 'person', id: 'lamp_keeper' }), 'Talk to Old Wick');
+  assert.equal(promptFor(DATA, { kind: 'person', id: 'lamp_keeper' }), 'Talk to Old Wick, the lamp keeper');
   assert.equal(promptFor(DATA, null), null);
   assert.deepEqual(lineFor(profile({ lamp_post: 4 }), DATA, 'lamp_keeper'), { name: 'Old Wick', text: 'Forty years I lit these streets. Nice to have help.' });
   assert.equal(lineFor(profile(), DATA, 'harpooner').name, 'Harpooner');
   assert.equal(lineFor(profile(), DATA, 'nobody'), null);
   assert.deepEqual(runHeading({ end: 'died', timeSurvived: 431 }), { title: 'Results', line: 'Survived 7:11' });
   assert.equal(runHeading({ end: 'left', timeSurvived: 60 }).line, 'Returned at 1:00');
-  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1500, map: 'drowned_docks' }, 1, DATA).line, 'Drowned Docks cleared in 25:00', 'the map by its name');
-  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1500, map: 'salt_marsh' }, 1, { ...DATA, maps: [...DATA.maps, { id: 'salt_marsh', name: 'Salt Marsh' }] }).line, 'Salt Marsh cleared in 25:00');
-  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1500, map: 'nowhere' }, 1, DATA).line, 'Map cleared in 25:00', 'a map this build doesn\'t know');
+  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1500, map: 'drowned_docks' }, 1, DATA).line, 'Drowned Docks cleared at 25:00', 'the map by its name');
+  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1500, map: 'salt_marsh' }, 1, { ...DATA, maps: [...DATA.maps, { id: 'salt_marsh', name: 'Salt Marsh' }] }).line, 'Salt Marsh cleared at 25:00');
+  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1500, map: 'nowhere' }, 1, DATA).line, 'Map cleared at 25:00', 'a map this build doesn\'t know');
+  // 0.7.3: when the last boss died, and the overtime after it; a death in that overtime is a clear.
+  const tide = { id: 'the_tidecaller', time: 1267 };
+  assert.equal(runHeading({ end: 'left', cleared: true, timeSurvived: 1510, map: 'drowned_docks', bossesKilled: [{ id: 'harbor_maw', time: 600 }, tide] }, 1, DATA).line, 'Drowned Docks cleared at 21:07, then 4 minutes of overtime');
+  assert.equal(runHeading({ end: 'died', cleared: true, timeSurvived: 1330, map: 'drowned_docks', bossesKilled: [tide] }, 1, DATA).line, 'Drowned Docks cleared at 21:07, then 1 minute of overtime');
+  assert.equal(runHeading({ end: 'cleared', timeSurvived: 1290, map: 'drowned_docks', bossesKilled: [tide] }, 1, DATA).line, 'Drowned Docks cleared at 21:07', 'left within a minute: no overtime said');
   assert.deepEqual(runHeading({ end: 'died', timeSurvived: 431 }, 3), { title: 'Results (3 runs)', line: 'Last run: Survived 7:11' });
   assert.equal(titleStartLabel(profile()), 'Start');
   assert.equal(titleStartLabel(profile({ lamp_post: 1 })), 'Continue');
@@ -572,16 +618,15 @@ test('harbor view: the light map at a point, a newcomer\'s shade, and when she\'
 
 test('panel text: Phase 7\'s lines, word for word: purchases, the results\' news, rewards, a Tide, a claim', () => {
   const lines = [
-    [{ kind: 'gear_made', id: 'storm_lantern', worn: true }, 'Made: Storm Lantern (worn)'],
-    [{ kind: 'gear_made', id: 'salt_ring', worn: false }, 'Made: Salt Ring'],
-    [{ kind: 'gear_tier', id: 'harbor_coat', tier: 3 }, 'Harbor Coat: tier 3'],
-    [{ kind: 'gear_reroll', id: 'sea_boots', was: 'might', now: 'swift' }, 'Sea Boots: Move Speed (was Damage)'],
-    [{ kind: 'gear_worn' }, 'Worn'], [{ kind: 'gear_off' }, 'Taken off'],
-    [{ kind: 'rune_stone', id: 'splitting' }, 'Rune stone: Splitting'],
-    [{ kind: 'consumable', id: 'tallow_tonic', held: 2 }, 'Bought: Tallow Tonic (2 held)'],
+    [{ kind: 'gear_made', id: 'storm_lantern', worn: true }, 'Made a Storm Lantern and put it on'],
+    [{ kind: 'gear_made', id: 'salt_ring', worn: false }, 'Made a Signet Ring'],
+    [{ kind: 'gear_tier', id: 'harbor_coat', tier: 3 }, 'The Oilskin is now Rare'],
+    [{ kind: 'gear_reroll', id: 'sea_boots', was: 'might', now: 'swift' }, 'Changed Damage to Move Speed'],
+    [{ kind: 'gear_worn' }, 'Put on'], [{ kind: 'gear_off' }, 'Taken off'],
+    [{ kind: 'consumable', id: 'gull_bone', held: 2 }, 'Bought Gull Bone. You have 2'],
     [{ kind: 'trade', give: 'coin', gave: 30, get: 'iron', got: 1 }, 'Traded 30 Coin for 1 Iron'],
-    [{ kind: 'bestiary_claim', id: 'fog_wisp', kills: 1000 }, 'Fog Wisp: 1,000 kills claimed'],
-    [{ kind: 'perk', id: 'iron_grip' }, 'Trained: Iron Grip'],
+    [{ kind: 'skill', id: 'great_lamp' }, 'Took Great Lamp'],
+    [{ kind: 'trade', give: 'coin', gave: 150, get: 'iron', got: 5 }, 'Traded 150 Coin for 5 Iron'],
   ];
   for (const [c, text] of lines) assert.equal(actionLine(DATA, c), text);
   assert.equal(actionLine(DATA, { kind: 'nope' }), '');
@@ -589,22 +634,34 @@ test('panel text: Phase 7\'s lines, word for word: purchases, the results\' news
     { kind: 'glass_coin', glass: 41, count: 20 },
     { kind: 'mastery', character: 'harpooner', rank: 2 },
     { kind: 'tide', level: 3 },
-    { kind: 'feat', id: 'lantern_night', unlocks: [{ what: 'arcana', id: 'glassblower' }], materials: {} },
+    { kind: 'feat', id: 'lantern_night', unlocks: [{ what: 'relic', id: 'glassblower' }], materials: {} },
     { kind: 'feat', id: 'dawn', unlocks: [], materials: { coin: 150, map_scraps: 2 } },
-    { kind: 'challenge', id: 'bare_hands', unlocks: [{ what: 'recipe', id: 'bosun_coat' }], materials: {} },
+    { kind: 'feat', id: 'bare_hands', unlocks: [{ what: 'recipe', id: 'bosun_coat' }], materials: {} },
     { kind: 'feat_found', id: 'untouched' },
   ]).map((l) => l.text);
+  // 0.7.3: the totals first (the Sea Glass's Coin and the feat's materials in them), then the
+  // news most important first, a feat's materials on its own line.
   assert.deepEqual(news, [
-    '20 Coin (41 Sea Glass sold)', 'Harpooner: mastery rank 2', 'Tide 3 open at the gate',
-    'Feat done: Lantern Night', 'New arcana: Glassblower', 'Feat done: Dawn', '150 Coin', '2 Map Scraps',
-    "Challenge done: Bare Hands", "New gear: Bosun's Coat", 'New feat at the Tavern: Untouched',
+    '170 Coin', '2 Map Scraps',
+    'Order done: First Night', 'New relic: Glassblower', 'Order done: Bell Breaker, +150 Coin, +2 Map Scraps',
+    'Order done: Bare Hands', "New gear: Bosun's Coat",
+    'Tide 3 is open. Pick it at the gate', 'Harpooner reached mastery rank 2', 'New order on the board at the Tavern: Untouched',
+    '20 Coin for 41 leftover Pearls',
   ]);
-  assert.equal(rewardText(DATA, 'feat', DATA.feats.find((f) => f.id === 'lantern_night')), 'New arcana: Glassblower');
-  assert.equal(rewardText(DATA, 'challenge', DATA.challenges.find((c) => c.id === 'flood')), '6 Map Scraps, 8 Iron');
+  // What the player can't use yet stays out (0.7.3): mastery before the Tavern's level 2, the
+  // Market's Sea Glass before the Docks (its Coin still counts), and a Tide says where it's picked.
+  const at = (levels) => changeLines(DATA, [{ kind: 'glass_coin', glass: 41, count: 20 }, { kind: 'mastery', character: 'harpooner', rank: 2 }, { kind: 'tide', level: 1 }], profile(levels)).map((l) => l.text);
+  assert.deepEqual(at({ lamp_post: 1, market: 2 }), ['20 Coin', 'Tide 1 is open: a harder version of the map that pays more materials. The Chapel opens with Lamp Post Lv 3']);
+  // (X3, D5: the Chapel's first level waits on the Salt Widow, and the line says so.)
+  assert.deepEqual(at({ lamp_post: 3, market: 2 }), ['20 Coin', 'Tide 1 is open: a harder version of the map that pays more materials. Restore the Chapel to pick it at the gate. Needs the Salt Widow killed']);
+  assert.deepEqual(at({ lamp_post: 3, chapel: 1, tavern: 2, docks: 1, market: 2 }), ['20 Coin', 'Tide 1 is open: a harder version of the map that pays more materials. Pick it at the gate', 'Harpooner reached mastery rank 2', '20 Coin for 41 leftover Pearls']);
+  assert.equal(rewardText(DATA, 'feat', DATA.feats.find((f) => f.id === 'lantern_night')), 'New relic: Glassblower');
+  assert.equal(rewardText(DATA, 'feat', DATA.feats.find((f) => f.id === 'hunt_gull')), 'New trophy: Gull Trophy');
+  assert.equal(rewardText(DATA, 'feat', DATA.feats.find((f) => f.id === 'lamplighter_trial')), 'New skill: First Flame');
   assert.equal(tideText(DATA.tides[3]), '+60% Enemy HP, +32% Enemy Damage, +20% Enemies, +6% Enemy Speed, +48% Materials');
-  assert.equal(claimText(DATA, { kills: 1000, reward: DATA.meta.bestiaryRewards[2] }), '1,000 kills: 150 Coin, 2 Iron, +3% Damage against it');
   // The Docks' levels read their numbers from the Ferryman's tuning.
-  const tuned = { ...DATA, tuning: { ...DATA.tuning, ferry: { ...DATA.tuning.ferry, discount: 0.3, fastRestockSec: 200 } } };
-  assert.deepEqual(levelEffects(tuned, 'docks', 3).map((e) => e.text), ['Ferryman prices -30%']);
-  assert.deepEqual(levelEffects(tuned, 'docks', 4).map((e) => e.text), ['Ferryman restocks every 3:20', 'Ned returns']);
+  const tuned = { ...DATA, tuning: { ...DATA.tuning, ferry: { ...DATA.tuning.ferry, discount: 0.3, firstCall: 200 } } };
+  assert.deepEqual(levelEffects(tuned, 'docks', 3).map((e) => e.text), ['+1 Relic slot in every run (4 of 6)', "The Ferryman's prices drop 30%"]);
+  assert.match(levelEffects(tuned, 'docks', 1)[0].text, /^The Ferryman comes into your runs from 3:20\. He rows in every few minutes and ties up near you/, 'his first call, from the tuning (0.8.2)');
+  assert.deepEqual(levelEffects(tuned, 'docks', 4).map((e) => e.text), ['+1 Relic slot in every run (5 of 6)', 'The Ferryman stocks 3 relics instead of 2', 'Ned, the dockhand, moves back in']);
 });

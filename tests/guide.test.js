@@ -22,7 +22,7 @@ test('guide: a new player is pointed at the gate, then at the Lamp Post, then le
   // ...saying what's short, from what you have.
   const lampCost = DATA.buildings.find((b) => b.id === 'lamp_post').levels[0].cost;
   Object.assign(doc.profile.materials, { oil: 3, coin: 5 });
-  assert.equal(guideStep(doc, DATA).text, `Lamp Post needs ${lampCost.oil - 3} Oil, ${lampCost.coin - 5} Coin. Go back out through the gate`);
+  assert.equal(guideStep(doc, DATA).text, `The Lamp Post still needs ${lampCost.oil - 3} Oil, ${lampCost.coin - 5} Coin. Go back out through the gate for more`);
   Object.assign(doc.profile.materials, DATA.buildings.find((b) => b.id === 'lamp_post').levels[0].cost);
   assert.deepEqual(guideStep(doc, DATA).target, { kind: 'door', id: 'lamp_post' }, 'enough: to the Lamp Post');
   doc.profile.buildings.lamp_post = 1;

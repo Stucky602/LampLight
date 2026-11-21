@@ -4,6 +4,8 @@ Every component is scored out of 100 by an **independent judge** (a separate age
 
 Art and music are scored too, but the 90 bar doesn't apply to them yet (Kevin's call, Sep 27 2026).
 
+From 0.9.0 the judging changed shape: aspects of the whole game judged as a player, at higher bars. The veteran-player round (Kevin, Nov 8) asks above 95 on every aspect; the characters-and-weapons round (Kevin, Nov 16) and the language round (Kevin, Nov 18) ask 97. Their judges are still separate agents that didn't write the code, playing the game through scripts and bots on a frozen copy of the tree. Their reports are under `/mnt/user-data/outputs/work/veteran/reports/`, `work/cw/CW#-r#.md`, and `work/lang/L#-r#.md`.
+
 **Status key:** PASS (above 90) · ITERATING · PAUSED (needs Kevin: reason given) · LATER (not built yet)
 
 ## Phase 1: Foundation
@@ -129,6 +131,121 @@ Phase 6 result: all four above 90 after two rounds (judged by Opus 5.5). Whether
 
 Phase 7 result: all three above 90 after two rounds (judged by Opus 5.5). What only Kevin can judge: whether the first-guess numbers feel right (the Reliquary's rate, the tier weights, the Ferryman's prices, Tides, curses, gear), whether the six new buildings read as different places at play size, and how the panels and the gate feel on the DualSense.
 
+## 0.7.1: Kevin's notes on 0.7.0 (the words, the shake)
+
+The language pass was judged as a first-time player reads it, out of 100 per area: clarity for a new player 40, natural plain speech 30, accuracy against the code 20, and consistency 10. It passes above 90 with no blocker or major. The judge was Opus 5.5 with the same independence rule.
+
+| ID | Area | Round 1 | Round 2 | Round 3 | Status |
+|---|---|---|---|---|---|
+| L-H | The harbor: building descriptions, level lines, panels, refusals, prompts, keepers, next up, results | 79 | 91 | 93 | PASS |
+| L-G | The gate: run setup rows and their details | 81 | 92 | 94 | PASS |
+| L-R | In runs: notices, the Ember, relic, and Ferryman screens, pause, overtime, tips, the end | 75 | 87 | 94 | PASS |
+| L-D | Data descriptions: weapons, passives, relics, runes, Forms, consumables, arcana, curses, feats, challenges | 80 | 93 | 95 | PASS |
+
+Round 1's majors:
+- The Docks' description still said "sails into your runs".
+- Arcana, "clear the map", Sea Glass, and the relic tiers were never explained.
+- Lamps and bells went unnamed in runs.
+- The lamp notice showed a step, not the running total.
+- The run tip said "Survive until 20:00".
+- The short-run summary ignored the 40%.
+- Seventh Bell and Lucky Knot were wrong about what they do.
+
+Round 2's major: the first Sea Glass line was overwritten by the lamp's notice in the same frame, so a frame's notices now show in turn.
+
+Needs Kevin: the Tide tag against the Tide difficulty, and the relic tier names (HANDOFF's questions). Screen shake was removed at Kevin's word, with no judging needed. A test now holds that no render file shakes the camera.
+
+## 0.7.3: the gamer pass (rebuilt)
+
+Kevin, Oct 19: judge everything as a player would, against the brief, and fix what the findings call for. Four judges (G-C, G-P, G-Q, G-H) played the first build over two rounds.
+
+| ID | Round 1 | Round 2 | Status |
+|---|---|---|---|
+| G-C | 60 | 72 | REBUILT |
+| G-P | 57 | 59 | REBUILT |
+| G-Q | 54 | 74 | REBUILT |
+| G-H | 73 | 80 | REBUILT |
+
+Those scores were for the lost version. The workspace that held it was reclaimed before it was zipped, and 0.7.3 was rebuilt in November from the notes of what that build and its fixes did (`tests/runpass.test.js` and `tests/gamerpass.test.js` hold the rebuilt run and meta sides). The rebuild hasn't been judged on its own; the Salt Marsh judges below read the parts their components touch.
+
+## 0.8.0: the Salt Marsh (Phases 8b and 8c)
+
+| ID | Component | Files | Tests | Baseline | Current | Status |
+|---|---|---|---|---|---|---|
+| M1 | The Marsh's map systems (sim): the layout, the water and rule 8, herbs, the Well, thralls, the new enemies and their holds, layers, first sightings | src/sim/marsh.js, terrain.js, flowfield.js, well.js, allies.js, holds.js, sight.js, enemies.js, director.js, run-result.js, src/data/maps.js, enemies.js, tools/marsh/rule8.mjs | marsh, marsh-fight, determinism | 79 | 95 | PASS |
+| M2 | The Marsh's bosses and pipeline (8c): the Old Grey and the Salt Widow, the storm and the Eye, pillars, spouts and puddles, the new on-hit effects and zones | src/sim/bosses.js, storm.js, holds.js, weapons.js, hooks.js, src/data/bosses.js, weapons.js, relics.js, runes.js | marsh, marsh-fight, content | 76 | 97 | PASS |
+| M3 | The Marsh's harbor side and the save: which maps are open, the map cards, layers, Tides and research per map, the Well's slot, first sightings, the Marsh's costs, save v4 | src/meta/state.js, runconfig.js, actions.js, apply.js, reconcile.js, next.js, workshop.js, src/save/schema.js, migrations.js, src/ui/hubtext.js, hubscreens.js, hubhud.js, menus.js, src/app/setup.js, runlogic.js, hublogic.js | marshharbor, save, meta, workshop, harbor, voice, hubscene, content | 90 | 98 | PASS |
+
+0.8.0 result: all three above 90 on round 2 (judged by Opus 5.5), after the round-1 findings were fixed and on the code with 0.8.1's combat pace and the pacing batch's refit in it. The lost build's Marsh had scored M1 68 then 94 and M2 62 then 92; those were for code that no longer exists.
+
+What only Kevin can judge: how the Marsh feels on a controller, whether the eel's reach onto the bank is the threat he wants, how the map cards, the Well screen, and the Field guide read in play, and how the Punter's boat arrival looks.
+
+## 0.9.0: the veteran-player round (Kevin, Nov 8; bar above 95)
+
+A judge who plays the top 20 survivors-likes and knows Kevin's taste, five of them, each scoring two aspects (the brief: `tools/judge/VETERAN.md`).
+
+| Judge | Aspect | Round 1 (Nov 8) | Status |
+|---|---|---|---|
+| V1 | Combat feel | 60 | fixes built (W3, W6); round 2 not run |
+| V1 | Enemies and bosses | 55 | fixes built (W3); round 2 not run |
+| V2 | Builds | 56 | fixes built (W1, W1b), then rebuilt by rulings 14 to 22 |
+| V2 | The run's arc | 52 | fixes built (W4) |
+| V3 | Maps | 68 | fixes built (W4) |
+| V3 | The meta | 64 | fixes built (W5, X2, X3) |
+| V4 | The first hour | 83 | fixes built (W7, the language pass) |
+| V4 | Controls | 86 | fixes built (W7, X6) |
+| V5 | Presentation | 58 (66 without the art) | fixes built (W6, C3) |
+| V5 | Robustness | 88 | fixes built (W7, X5) |
+
+The lead's fix plan (rulings 1 to 9) is in `work/veteran/PLAN-R2.md`. The veteran round 2 waits until after Kevin's own play of 0.9.0.
+
+## 0.9.0: characters and weapons (Kevin, Nov 16; bar 97)
+
+Three judges, each on three aspects. CW1 reads identity and coherence; CW2 plays measured runs (its `run.mjs` is the base of C1's `runc1.mjs`); CW3 reads growth, clarity, and the first and hundredth run.
+
+| Judge | Aspect | R1 (Nov 16) | R2 (Nov 17) | R3 (Nov 18) | R4 (Nov 18) | R5 (Nov 18 to 19) |
+|---|---|---|---|---|---|---|
+| CW1 | Character identity | 66 | 80 | 86 | 88 | 90 |
+| CW1 | Weapon identity | 64 | 78 | 84 | 87 | 91 |
+| CW1 | Coherence | 56 | 78 | 85 | 88 | 91 |
+| CW2 | Character play | 58 | 70 | 78 | 79 | 76 |
+| CW2 | Weapon play | 55 | 67 | 75 | 79 | 78 |
+| CW2 | Builds | 52 | 69 | 80 | 83 | 74 |
+| CW3 | Growth | 58 | 79 | 87 | 89 | 91 |
+| CW3 | Clarity | 64 | 84 | 86 | 93 | 94 |
+| CW3 | First and hundredth run | 55 | 81 | 83 | 90 | 93 |
+
+Status: ITERATING; nothing has reached 97. CW2's round 5 was measured on a copy taken before ruling 20, and found the Lamplighter's stand rule breaking her runs in the bots (ruling 21's addendum). Rulings 14 to 22 (`work/cw/RULING-14.md`) are the fixes after each round. Rulings 21 and 22 are built (C1b, C2b); round 6 has not run.
+
+## 0.9.0: the language pass (Kevin, Nov 18; bar 97)
+
+Four judges from four angles, scored on up to six aspects: plain speech, made-up words, one name a thing, fast to read, voice, and teaching (L2 adds a genre score). A dash means the judge didn't score that aspect.
+
+| Judge | Round | Plain | Made-up words | One name | Fast | Voice | Teaching | Genre |
+|---|---|---|---|---|---|---|---|---|
+| L1 general | 1 (Nov 18) | 72 | 55 | 58 | 78 | 80 | 60 | - |
+| | 2 (Nov 19) | 88 | 86 | 85 | 90 | 90 | 90 | - |
+| | 3 | 94 | 93 | 91 | 95 | 95 | 94 | - |
+| | 4 (Nov 20) | 96 | 96 | 96 | 97 | 97 | 98 | - |
+| | 5 (Nov 20) | 98 | 97 | 97 | 98 | 97 | 98 | - |
+| L2 the genre's words | 1 | 80 | 60 | 64 | 78 | - | - | 82 |
+| | 2 | 91 | 90 | 86 | 89 | - | - | 94 |
+| | 3 | 96 | 96 | 95 | 97 | - | - | 96 |
+| | 4 | 97 | 98 | 97 | 98 | - | - | 98 |
+| | 5 | 98 | 98 | 98 | 98 | - | - | 98 |
+| L3 a new player | 1 | 84 | 70 | 76 | 80 | - | 68 | - |
+| | 2 | 92 | 90 | 91 | 93 | - | 91 | - |
+| | 3 | 96 | 96 | 96 | 97 | - | 96 | - |
+| | 4 | 97 | 97 | 97 | 97 | - | 96 | - |
+| | 5 | 98 | 98 | 98 | 97 | - | 98 | - |
+| L4 voice and AI tells | 1 | 78 | 80 | 72 | - | 74 | - | - |
+| | 2 | 88 | 89 | 86 | - | 90 | - | - |
+| | 3 | 95 | 97 | 97 | - | 96 | - | - |
+| | 4 | 96 | 98 | 98 | - | 96 | - | - |
+| | 5 | 98 | 98 | 98 | - | 98 | - | - |
+
+Status: DONE for text read on the page; every judge's round 5 verdict was done, at 97 to 98 on every aspect. Round 1 found a new player meeting 35 to 60 made-up terms in three runs (Vampire Survivors: about 15); by round 4 L1 counted about 40, and said past 98 is design, not wording. The fix lists are `work/lang/FIXES-1.md` to `FIXES-4.md` (RULING-L1 and the director's calls). What the judges couldn't render, and want watched in play: the Form choice, the Ferryman's shop, the death recap, and the relic choice. Kevin's watched play is next.
+
 ## Score history
 
 (newest last: date, component, score, what changed)
@@ -166,3 +283,14 @@ Phase 7 result: all three above 90 after two rounds (judged by Opus 5.5). What o
 - 2026-10-16, Phase 7 baselines (Opus 5.5 judges): P7-A 83, P7-B 78, P7-C 62. Majors: the Phase 7 relics' and arcana's rules had no behavior tests; the next-3 list ignored every Phase 7 purchase; a rune stone the run's first weapon couldn't take was offered and used up for nothing; bestiary claims set aside never came back; static rows in three panels (the Chapel, the Tavern's feats, the Cartographer's challenges) couldn't be reached by pad; arcana, curses, and challenges were picked at the gate by name only; the gate offered challenges whose character hadn't arrived, which landed on the error screen.
 - 2026-10-16, fixes: behavior tests for every new relic and arcana, tier shares by minute, the Ferryman's stocks; onDash hooks run after the tick's enemy grid; a shielded hit counts as a hit; an empty Reliquary gives Sea Glass; no stronger tier early when the weak run out; waiting pickups moved off solid ground; Phase 7 goals in the next-3; stones filtered by fit and checked before they're used; claims restored; the Tide record fitted on load; one Tide at a time; unknown bosses count for nothing; per-item re-roll offers; every panel row focusable; a detail line for the gate's focused value; challenges filtered, the kit row hidden, Start checked on the screen; the gear header, row layout, and the Chapel's labels; the Docks' lines from tuning; DOM tests for every Phase 7 panel, the gear screen, and the gate; Phase 7 text pinned word for word.
 - 2026-10-16, Phase 7 rescored: P7-A 95, P7-B 95, P7-C 91, no blocker or major. After the scores: a pickup's snap off solid ground and the true nearest open tile tested, the real minimap's lamp reveal tested, Phase 7 notices in the HUD overlap test, Brine's test read from its params, the place helpers in their own module (no import cycle), a purchase keeps an item it can't read, per-item re-rolls documented, a fixed row presses silently, the gate's rows scroll at 720p, and a d-pad walk down the Chapel's whole list.
+- 2026-10-16, 0.7.1 language pass (Opus 5.5): H 79, 91, 93; G 81, 92, 94; R 75, 87, 94; D 80, 93, 95 over three rounds. Screen shake removed (Kevin).
+- 2026-10-16, 0.7.2 and Phase 8a (Opus 5.5 judges): B72 (the build) 56, D8a (the Salt Marsh design list) 70. Majors: `tools/bots/forms.mjs` gave Embers forever and ran out of memory; the Form and pacing numbers disagreed across the docs and stood on stale yields; the flood could close around the player; timers the tasks ruling removed.
+- 2026-10-16, round 2: B72 85, D8a 78. Majors: the skilled report printed the MVP target as missed on all runs while the docs read it met on the cleared runs; the flood still stranded a player across the causeway.
+- 2026-10-16, round 3: B72 92, D8a 91, no blocker or major. After the scores: both yields remeasured on the final sim code, the ordinary report keeps its MVP verdict on all runs, the short run's two high waters written out, and allies marked with a pip no enemy uses.
+- 2026-10 (lost with the workspace), 0.7.3 gamer pass: G-C 60 then 72, G-P 57 then 59, G-Q 54 then 74, G-H 73 then 80. 0.8.0: M1 68 then 94, M2 62 then 92. The code these scored was never zipped; 0.7.3 and 0.8.0 were rebuilt from notes in November.
+- 2026-11-07, 0.8.0 (rebuilt) round 1 (Opus 5.5 judges): M1 79, M2 76, M3 90. Majors: a Salted Dead with its crust on survived the Brine Vat's crumble at half health (M1, M2); a toad turned to salt mid-hop hung in the air and landed unwarned about 4 s late (M1); a frozen, dazed, or salted eel lunged after its warning had ended (M1); a storm burst could put only 4 of its up to 7 rings on crowds, the rest landing at random with no salt check (M2). Minors included: the eel only ever touched a player pressed to the water's edge; the Well opening with its layer off; a pillar able to close the way home for about 4 s in overtime; a fourth leech biting; leeches latching while sunk; the Eye overlapping the short run's last boss; Storm Glass's text miscounting its hops; the map card ignoring the Chapel's cap; refusals that didn't say what to do while the Marsh was closed; and test lines that proved nothing.
+- 2026-11-07, fixes: the crumble removes the crust first; salt never builds on anything in the air or mid-attack, and a toad lands on its own clock; an eel warning or lunging is mid-attack; the eel's lunge carries 24 px onto the bank (the lead's ruling); the storm has its own picks buffer and every ring goes through the crowd pick; a pillar on the way home falls; leeches only latch, never while you're sunk; the Well only with its layer, moved off water; the Eye on the run's clock; the map card held to the Chapel's cap; every closed-map refusal says what opens it; plain wording on the Chapel and the gate; tests for each. Then 0.8.1's combat pace changed the same sim files, so all three wait for a re-judge after the pacing batch.
+- 2026-11-07, 0.8.0 round 2 (Opus 5.5 judges, on 0.8.1's code): M1 95, M2 97, M3 98, all PASS. The pacing batch's remeasure and cost refit were in, the golden run frozen again, and the gate 797 of 797.
+- 2026-11-08, 0.9.0 veteran round 1 (bar above 95): combat feel 60, enemies 55, builds 56, the run's arc 52, maps 68, the meta 64, the first hour 83, controls 86, presentation 58, robustness 88. The lead's rulings 1 to 9 and batches W1 to W7 followed; Kevin's ruling 10 the same day.
+- 2026-11-16 to 19, characters and weapons (bar 97), five rounds: from 52 to 66 in round 1 to 74 to 94 in round 5 (the table above). Rulings 14 to 22 between rounds.
+- 2026-11-18 to 20, the language pass (bar 97), five rounds: from 55 to 84 in round 1 to 97 to 98 in round 5, every judge's verdict done for text.

@@ -1,3 +1,4 @@
+import { RETIRED_CONSUMABLES } from '../src/meta/retired.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -203,7 +204,10 @@ test('migrations: every fixture save ever shipped still loads (kept forever)', a
     }
     for (const k of Object.keys(shape.stats)) assert.ok(Number.isInteger(r.stats[k]) && r.stats[k] >= 0, `${f}: stats.${k}`);
     for (const [id, n] of Object.entries(doc.profile.materials)) {
-      if (DATA.materials.some((x) => x.id === id)) assert.equal(r.profile.materials[id], n, `${f}: ${id} kept`);
+      // (Kept, and on top of it what the rulings paid back once: tonics held, bestiary rungs reached, perks trained, rune stones; meta/retired.js.)
+      const N = r.profile.retiredNote;
+      const back = (N?.refund?.[id] ?? 0) + (N?.rungs?.[id] ?? 0) + (N?.perkRefund?.[id] ?? 0) + (N?.stoneRefund?.[id] ?? 0);
+      if (DATA.materials.some((x) => x.id === id)) assert.equal(r.profile.materials[id], n + back, `${f}: ${id} kept`);
       else assert.equal(r.profile.orphans.materials[id], n, `${f}: ${id} set aside, not lost`);
     }
     for (const [id, lv] of Object.entries(doc.profile.buildings || {})) if (DATA.buildings.some((b) => b.id === id)) assert.equal(r.profile.buildings[id], lv, `${f}: ${id} level kept`);
@@ -217,9 +221,11 @@ test('migrations: every fixture save ever shipped still loads (kept forever)', a
     // Phase 7's parts (v3 saves): gear, consumables, feats, challenges, and bestiary rewards.
     for (const it of doc.profile.gear?.inventory || []) assert.ok(r.profile.gear.inventory.some((x) => x.uid === it.uid && x.id === it.id && x.tier === it.tier) || O.gear?.some((x) => x.uid === it.uid), `${f}: ${it.id} kept`);
     for (const [slot, uid] of Object.entries(doc.profile.gear?.equipped || {})) assert.equal(r.profile.gear.equipped[slot], uid, `${f}: ${slot} still worn`);
-    for (const [k, n] of Object.entries(doc.profile.consumables || {})) assert.equal(r.profile.consumables[k] ?? O.consumables?.[k], n, `${f}: ${n} ${k} kept`);
+    // (The sweep, ruling 12: a tonic that went is paid back at its price instead; the materials check above counts it.)
+    for (const [k, n] of Object.entries(doc.profile.consumables || {})) { if (RETIRED_CONSUMABLES[k]) assert.ok(r.profile.retiredNote?.tonics >= n, `${f}: ${n} ${k} paid back`); else assert.equal(r.profile.consumables[k] ?? O.consumables?.[k], n, `${f}: ${n} ${k} kept`); }
     for (const id of doc.profile.feats || []) assert.ok(r.profile.feats.includes(id) || O.feats?.includes(id), `${f}: feat ${id} kept`);
-    for (const [id, n] of Object.entries(doc.profile.bestiaryClaimed || {})) assert.equal(r.profile.bestiaryClaimed[id] ?? O.bestiaryClaimed?.[id], n, `${f}: ${id} claims kept`);
+    // (Ruling 13: a trophy rung claimed is that enemy's Hunt done; the claims themselves have nothing left to pay.)
+    for (const [id, n] of Object.entries(doc.profile.bestiaryClaimed || {})) if (n >= 3 && DATA.feats.some((x) => x.id === `hunt_${id}`)) assert.ok(r.profile.feats.includes(`hunt_${id}`), `${f}: ${id}'s trophy is its Hunt done`);
     for (const [id, n] of Object.entries(doc.profile.bestiary || {})) {
       assert.equal(DATA.enemies.some((e) => e.id === id) ? r.profile.bestiary[id] : O.bestiary?.[id], n, `${f}: ${n} ${id} kills kept`);
     }
@@ -230,7 +236,12 @@ test('migrations: every fixture save ever shipped still loads (kept forever)', a
       assert.ok((here && here.runsLeft === a.runsLeft) || aside?.runsLeft === a.runsLeft, `${f}: ${a.id} still running with ${a.runsLeft} to go`);
     }
     for (const k of doc.profile.codex) assert.ok(r.profile.codex.includes(k) || O.codex?.includes(k), `${f}: codex ${k} kept`);
-    assert.deepEqual(r.profile.characters, doc.profile.characters, `${f}: characters' progress`);
+    // (Ruling 15: trained perks became skill points, once, on load: meta/retired.js. The rest of a character is kept.)
+    for (const [id, c] of Object.entries(doc.profile.characters)) {
+      const now = r.profile.characters[id];
+      assert.deepEqual({ unlocked: now.unlocked, masteryXp: now.masteryXp }, { unlocked: c.unlocked, masteryXp: c.masteryXp }, `${f}: ${id}'s progress`);
+      assert.ok(Array.isArray(now.skills) && now.perks === undefined, `${f}: ${id}'s perks are skill points now`);
+    }
     assert.deepEqual(r.profile.flags, doc.profile.flags, `${f}: flags`);
   }
   for (let v = 1; v <= PROFILE_VERSION; v++) assert.ok(versions.has(v), `missing fixture for profile v${v}`);
@@ -454,14 +465,15 @@ test('repair: nested fields are repaired at every depth without touching good va
   const d = sampleDoc();
   d.profile.research = {};
   d.profile.gear = { inventory: 'nope', equipped: { lantern: 'x' } };
-  d.profile.tide = { unlocked: NaN, selected: 2 };
+  d.profile.tide = { selected: NaN };
+  d.profile.tides = 'nope';
   kv._map.set('profile', wrap('profile', d));
   const r = await store.loadProfile();
   assert.deepEqual(r.doc.profile.research, defaultProfile().profile.research);
   assert.deepEqual(r.doc.profile.gear.inventory, []);
   assert.deepEqual(r.doc.profile.gear.equipped, { lantern: 'x' });
-  assert.equal(r.doc.profile.tide.unlocked, 0);
-  assert.equal(r.doc.profile.tide.selected, 2);
+  assert.equal(r.doc.profile.tide.selected, 0);
+  assert.deepEqual(r.doc.profile.tides, {});
   assert.ok(r.warnings.some((w) => w.includes('profile.research.done')));
 });
 
